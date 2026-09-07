@@ -100,6 +100,7 @@ medwriter-assist/
 │
 ├── infra/
 │   ├── bootstrap.sh           ★★ what "using Azure" actually looks like
+│   ├── teardown.sh            deleting must be easier than forgetting
 │   └── search/csr-chunks-index.json  ★ analyzers, scoring profile, BM25 params
 │
 ├── tests/                     ★ the boundaries, as tests
@@ -111,9 +112,12 @@ medwriter-assist/
 ├── .importlinter              ★★ the architecture, enforced. `make arch`.
 ├── .github/workflows/ci.yml   lint → architecture → types → tests → helm
 │
+├── scripts/bump_image_tag.py  ★ the pipeline's last act, as testable code
+│
 ├── docs/
 │   ├── architecture.md        ★ every service, every store, what touches what
-│   └── adr/                   six ADRs = your six hardest decisions
+│   ├── versioning.md          ★★ the four version axes and what enforces each
+│   └── adr/                   eight ADRs = your hardest decisions
 ├── ROADMAP.md                 ★ where this is going, and local-vs-Azure fidelity
 ├── docker-compose.yml         local: real Qdrant + emulators, az-login auth
 └── Makefile

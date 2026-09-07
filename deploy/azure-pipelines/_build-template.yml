@@ -56,7 +56,8 @@ stages:
       - job: bump_values
         steps:
           - script: |
-              yq -i '.image.tag = "$(Build.SourceVersion)"' ${{ parameters.chartPath }}/values.yaml
+              python scripts/bump_image_tag.py \
+                --service ${{ parameters.service }} --tag $(Build.SourceVersion)
               git commit -am "chore(dev): ${{ parameters.service }} -> $(Build.SourceVersion)"
               git push
             displayName: commit image tag for Flux

@@ -18,8 +18,8 @@ serviceAccount:
     azure.workload.identity/client-id: "00000000-0000-0000-0000-000000000005"
 
 config:
-  aoai_endpoint: https://medwdevaoai.openai.azure.com/
-  embed_deployment: text-embedding-3-large
+  aoai_endpoint: https://med-rag-test1.openai.azure.com/
+  embed_deployment: text-embedding-3-large-1
   embed_version: v3l-001            # must match retrieval's, or the query and
                                     # index vectors are in different spaces
   docintel_endpoint: https://medwdevdi.cognitiveservices.azure.com/

@@ -53,3 +53,6 @@
 # because nothing ships it - it only ever runs on a developer machine or in CI.
 import-linter
 pytest-asyncio
+
+# Chart and values parsing in tests/test_versioning.py.
+pyyaml

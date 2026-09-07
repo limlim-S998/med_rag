@@ -72,10 +72,14 @@ async def healthz() -> Response:
 
 @app.get("/readyz")
 async def readyz() -> Response:
-    # Reachability of the dependencies it cannot serve without: Cosmos for
+    # Will check the dependencies it cannot serve without: Cosmos for
     # sessions, retrieval and generation downstream. Not liveness - a slow
     # Cosmos should take this pod out of rotation, not restart it.
-    ...
+    #
+    # 503 until then. Fails closed on purpose: this endpoint returned 200 with
+    # every dependency unreachable, because a `...` body returns None and
+    # FastAPI renders that as a 200.
+    return Response(status_code=503)
 
 
 @app.get("/me")

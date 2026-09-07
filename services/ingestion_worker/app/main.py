@@ -53,7 +53,12 @@ async def healthz() -> Response:
 
 @app.get("/readyz")
 async def readyz() -> Response:
-    ...
+    # Will check Blob, Cosmos, Qdrant and Document Intelligence - this service
+    # has the widest dependency set in the system, so it is the one most
+    # likely to be up and unable to work.
+    #
+    # 503 until then: an unimplemented readiness probe has to fail closed.
+    return Response(status_code=503)
 
 
 @app.post("/ingest", status_code=202)

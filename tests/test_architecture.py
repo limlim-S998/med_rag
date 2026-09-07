@@ -81,6 +81,41 @@ def test_medw_core_does_not_import_upward():
     assert not offenders, "\n".join(offenders)
 
 
+def test_no_readiness_probe_is_a_bare_stub():
+    """A `...` body returns None, and FastAPI renders None as 200.
+
+    So an unimplemented readiness probe does not read as "not implemented" -
+    it reads as "ready", and Kubernetes routes traffic to a pod that cannot
+    serve. That is strictly worse than having no probe, because it looks like
+    it works. Found for real: gateway and ingestion-worker both answered 200
+    with every dependency unreachable.
+
+    An unimplemented probe must fail closed - return 503 explicitly.
+    """
+    offenders = []
+    for main in SERVICES.glob("*/app/main.py"):
+        tree = ast.parse(main.read_text(), filename=str(main))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                continue
+            if node.name != "readyz":
+                continue
+            # Strip the docstring, then look for anything that is not `...`.
+            body = [
+                s for s in node.body
+                if not (isinstance(s, ast.Expr) and isinstance(s.value, ast.Constant)
+                        and isinstance(s.value.value, str))
+            ]
+            meaningful = [
+                s for s in body
+                if not (isinstance(s, ast.Expr) and isinstance(s.value, ast.Constant)
+                        and s.value.value is Ellipsis)
+            ]
+            if not meaningful:
+                offenders.append(f"{main.relative_to(ROOT)}: readyz is a bare stub (returns 200)")
+    assert not offenders, "\n".join(offenders)
+
+
 def test_every_service_exposes_both_probes():
     """Liveness and readiness are distinct, in every service.
 

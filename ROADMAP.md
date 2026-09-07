@@ -162,9 +162,45 @@ finding them now is cheaper than finding them after three more layers.
   `/readyz` 503** when its dependencies are absent — the liveness/readiness
   split working as designed rather than as described.
 
-**Still needs you** (see the handover at the end of this file): `git init` and
-a remote, the first CI run, the other four images, and a local k3d cluster to
-prove the reconcile loop.
+**Second pass — versioning and images:**
+
+- **All five images build**, and all five start and serve their probes
+  correctly. Sizes: gateway 357MB, generation 519MB, ingestion-worker 1.09GB,
+  reranker 2.22GB. The reranker reranks correctly end to end — the first piece
+  of real ML functionality in the repo that has ever executed.
+- **The release step is real code.** `scripts/bump_image_tag.py` replaces the
+  `yq -i` one-liner in the pipeline. `yq` was installed nowhere in this repo,
+  so the most consequential step in the delivery path could only run on a
+  build agent: untestable, and with no way to preview what it would change.
+  The script refuses `latest` and any non-SHA tag, edits exactly one line, and
+  preserves the comments that explain every setting.
+- **The version axes are tests, not claims.** `tests/test_versioning.py` (23
+  tests) asserts: no chart uses a floating tag; environment overlays never pin
+  their own tag; every chat deployment carries a date suffix; ingestion and
+  retrieval agree on `embed_version`; every consumer's `medw-lib` pin matches
+  the library's actual version; `Chart.lock` agrees with `Chart.yaml`.
+  Mutation-tested — bumping medw-lib without re-pinning, unpinning `gpt-4o`,
+  pinning a tag in `values-prod.yaml`, and desyncing `embed_version` each fail.
+- `make release` / `make release DRY=1`, `make charts`, and `docs/versioning.md`.
+
+**Two more real bugs, both found by starting the containers:**
+
+1. **generation could not boot without Azure.** `lifespan` called
+   `access_token_struct(cred)`, which reaches AAD for a SQL token — so the
+   process died at startup with no credentials. In-cluster, a transient AAD
+   blip during a rollout would crash-loop new pods instead of letting them
+   start and report unready. The SQL engine is now built lazily on first use.
+   Same liveness-versus-readiness argument the repo makes everywhere else,
+   applied to startup.
+2. **Two readiness probes were lying.** `gateway` and `ingestion-worker`
+   answered `/readyz` **200** with every dependency unreachable, because a
+   `...` body returns `None` and FastAPI renders that as a 200. Kubernetes
+   would have routed traffic to pods that could not serve. All unimplemented
+   probes now fail closed with an explicit 503, and
+   `test_no_readiness_probe_is_a_bare_stub` prevents a recurrence.
+
+**Still needs you:** a local k3d cluster to prove the reconcile loop, and
+confirmation that the first CI run passed.
 
 **Done when:** the loop closes — commit → CI green → image tagged with the git
 SHA → values bump committed → Flux reconciles → pods pass both probes →

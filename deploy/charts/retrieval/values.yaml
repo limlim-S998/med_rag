@@ -16,12 +16,12 @@ serviceAccount:
 # Model = these four lines. Three orthogonal axes, all in git, which is why
 # git and not the registry is the source of truth for what is running.
 config:
-  chat_deployment: gpt-4o-2024-08-06
-  embed_deployment: text-embedding-3-large
+  chat_deployment: gpt-4.1-mini-2025-04-14
+  embed_deployment: text-embedding-3-large-1
   embed_version: v3l-001
   prompt_bundle_sha: 4f2a91c
 
-  aoai_endpoint: https://medwdevaoai.openai.azure.com/
+  aoai_endpoint: https://med-rag-test1.openai.azure.com/
   qdrant_url: http://qdrant:6333
   reranker_url: http://reranker:8000
   # The sparse half. One shared index for all studies, filtered by study_id -

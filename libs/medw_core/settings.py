@@ -20,10 +20,10 @@ class Settings(BaseSettings):
     # You call a *deployment name*, not a model name. The deployment is a
     # named instance of a model inside your AOAI resource. Pin the version
     # suffix or Azure will roll it forward under you.
-    aoai_endpoint: str = "https://medw-dev-aoai.openai.azure.com/"
+    aoai_endpoint: str = "https://med-rag-test1.openai.azure.com/"
     aoai_api_version: str = "2024-10-21"
-    chat_deployment: str = "gpt-4o-2024-08-06"
-    embed_deployment: str = "text-embedding-3-large"
+    chat_deployment: str = "gpt-4.1-mini-2025-04-14"
+    embed_deployment: str = "text-embedding-3-large-1"
     embed_dim: int = 3072
 
     # Bumped whenever the embedding deployment changes. Baked into the

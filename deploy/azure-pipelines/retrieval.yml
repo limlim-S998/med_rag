@@ -43,9 +43,15 @@ stages:
           # a PR moving the SAME sha up an environment - the artifact is never
           # rebuilt, so what was tested is bit-for-bit what ships.
           - script: |
-              yq -i '.image.tag = "$(tag)"' deploy/charts/retrieval/values.yaml
+              python scripts/bump_image_tag.py --service retrieval --tag $(tag)
               git commit -am "chore(dev): retrieval -> $(tag)" && git push
             displayName: commit image tag for Flux
+            # Was a `yq -i` one-liner. yq was installed nowhere in this repo,
+            # so the single most consequential step in the delivery path could
+            # only run inside this agent - untestable, and impossible to dry
+            # run. The script validates the tag (it refuses `latest`), keeps
+            # the values file's comments, and has coverage in
+            # tests/test_versioning.py.
 
 # Rollback: revert that commit (Flux reconciles), or `helm rollback` for the
 # fast path when the cluster is on fire and you argue with git afterwards.

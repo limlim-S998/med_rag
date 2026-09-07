@@ -9,14 +9,30 @@
 
 set -euo pipefail
 
-LOC=westeurope           # EU data residency was a hard client requirement
-ENVN=dev
+# Region. The client system ran in westeurope because EU data residency was a
+# hard requirement; this learning environment runs in australiaeast because
+# that is where the machine is. Parameterised rather than edited, so the
+# residency constraint stays visible instead of being quietly overwritten.
+LOC=${MEDW_LOCATION:-australiaeast}
+ENVN=${MEDW_ENV:-dev}
 RG=rg-medw-$ENVN
 PREFIX=medw$ENVN
+
+# FREE=1 provisions the cheapest shape of everything that has a free tier.
+# Default, because the expensive shapes bill from the moment they exist and
+# nothing here needs them.
+FREE=${FREE:-1}
 
 az login
 az account set --subscription "$AZ_SUBSCRIPTION_ID"
 az group create -n $RG -l $LOC
+
+# Budget alert FIRST, before anything billable exists. A budget created after
+# the fact is a budget created after the mistake.
+az consumption budget create --budget-name medw-guardrail --amount 10 \
+  --category Cost --time-grain Monthly \
+  --start-date "$(date +%Y-%m-01)" --end-date "$(date -d '+1 year' +%Y-%m-01)" \
+  2>/dev/null || echo "budget API unavailable on this subscription type - set one in the portal"
 
 # --- Azure OpenAI -------------------------------------------------------
 # Two levels: the *resource* (an endpoint + quota) and *deployments* inside it
@@ -25,21 +41,40 @@ az cognitiveservices account create \
   -n ${PREFIX}aoai -g $RG -l $LOC --kind OpenAI --sku S0 \
   --custom-domain ${PREFIX}aoai
 
-az cognitiveservices account deployment create \
-  -n ${PREFIX}aoai -g $RG \
-  --deployment-name gpt-4o-2024-08-06 \
-  --model-name gpt-4o --model-version 2024-08-06 --model-format OpenAI \
-  --sku-name Standard --sku-capacity 60        # capacity = 1000s of TPM
+# Check what you can ACTUALLY deploy before writing a deployment name down.
+# The model catalogue and your quota are different things: gpt-4o appears in
+# `list-models` for this region and has a Standard quota limit of 0, so the
+# create call fails with a quota error rather than a not-found one.
+#
+#   az cognitiveservices account list-models -n ${PREFIX}aoai -g $RG -o table
+#   az cognitiveservices usage list -l $LOC --query "[?limit>\`0\`]" -o table
+#
+# --sku-capacity is a RATE LIMIT, not a reservation. You pay per token either
+# way, so a low capacity costs nothing and caps how fast anything can burn
+# credit. 10 = 10k tokens/minute, ample for one writer.
 
 az cognitiveservices account deployment create \
   -n ${PREFIX}aoai -g $RG \
-  --deployment-name text-embedding-3-large \
+  --deployment-name gpt-4.1-mini-2025-04-14 \
+  --model-name gpt-4.1-mini --model-version 2025-04-14 --model-format OpenAI \
+  --sku-name GlobalStandard --sku-capacity 10
+
+az cognitiveservices account deployment create \
+  -n ${PREFIX}aoai -g $RG \
+  --deployment-name text-embedding-3-large-1 \
   --model-name text-embedding-3-large --model-version 1 --model-format OpenAI \
-  --sku-name Standard --sku-capacity 120
+  --sku-name Standard --sku-capacity 10
 
-# Note the deployment name carries the version. Name it "gpt-4o" and Azure
+# Two things in those calls are load-bearing.
+#
+# The deployment name carries the version. Name it "gpt-4.1-mini" and Azure
 # will roll the underlying version forward and your outputs will change with
 # no commit anywhere in your repo.
+#
+# The SKU is Standard for embeddings and GlobalStandard for chat, and that is
+# not a pricing preference - it is where inference physically happens. See
+# docs/adr/0007. On this subscription there is no Standard chat quota at all,
+# so the residency-safe tier was simply not available.
 
 # --- storage ------------------------------------------------------------
 # Three containers, three lifecycles. See libs/medw_core/blob.py.
@@ -49,7 +84,10 @@ for c in raw parsed snapshots; do
 done
 
 # --- search -------------------------------------------------------------
-az search service create -n ${PREFIX}search -g $RG -l $LOC --sku standard
+# Free tier: small, permanent, one per subscription. `standard` bills from
+# the moment it exists and nothing here needs it.
+az search service create -n ${PREFIX}search -g $RG -l $LOC \
+  --sku $([ "$FREE" = 1 ] && echo free || echo standard)
 # The index is a JSON definition, not a CLI flag - analyzers, scoring profile
 # and the BM25 parameters all live in it.
 az rest --method put \
@@ -61,8 +99,9 @@ az rest --method put \
 # Serverless in dev (you pay per request and it idles at zero); autoscale
 # throughput in prod. The partition key is fixed at creation - it is the one
 # choice here that costs a migration to undo.
+# Free tier gives 1000 RU/s + 25GB permanently, one per subscription.
 az cosmosdb create -n ${PREFIX}cosmos -g $RG --locations regionName=$LOC \
-  --capabilities EnableServerless
+  $([ "$FREE" = 1 ] && echo --enable-free-tier true || echo --capabilities EnableServerless)
 az cosmosdb sql database create -a ${PREFIX}cosmos -g $RG -n medw
 
 az cosmosdb sql container create -a ${PREFIX}cosmos -g $RG -d medw \
@@ -82,20 +121,28 @@ az sql server create -n ${PREFIX}sql -g $RG -l $LOC \
   --enable-ad-only-auth --external-admin-principal-type Group \
   --external-admin-name "sg-medw-sql-admins" \
   --external-admin-sid "$AAD_SQL_ADMIN_GROUP_OBJECT_ID"
-az sql db create -n medw -s ${PREFIX}sql -g $RG --service-objective S1
+# Free serverless offer auto-pauses when idle. S1 bills continuously.
+az sql db create -n medw -s ${PREFIX}sql -g $RG \
+  $([ "$FREE" = 1 ] \
+    && echo '--edition GeneralPurpose --compute-model Serverless --family Gen5 --capacity 1 --use-free-limit --free-limit-exhaustion-behavior AutoPause' \
+    || echo '--service-objective S1')
 az sql server firewall-rule create -n allow-azure -s ${PREFIX}sql -g $RG \
   --start-ip-address 0.0.0.0 --end-ip-address 0.0.0.0   # "Azure services", not the world
 
 # --- document parsing + clinical NER ------------------------------------
+# F0 is the free tier for both: a monthly page/record cap, no standing cost.
+# One F0 account per kind per subscription. Plenty for a synthetic study;
+# S0/S bill per page and per record from the first call.
+AI_SKU=$([ "$FREE" = 1 ] && echo F0 || echo S0)
 az cognitiveservices account create -n ${PREFIX}di -g $RG -l $LOC \
-  --kind FormRecognizer --sku S0        # Document Intelligence, old CLI name
+  --kind FormRecognizer --sku $AI_SKU     # Document Intelligence, old CLI name
 az cognitiveservices account create -n ${PREFIX}lang -g $RG -l $LOC \
-  --kind TextAnalytics --sku S            # Azure AI Language: healthcare NER + UMLS
+  --kind TextAnalytics --sku $AI_SKU      # Azure AI Language: healthcare NER + UMLS
 
 # --- Azure ML: experiment tracking + the model registry -----------------
 # The registry earns its keep on the models that have weights we trained -
-# the sklearn classifiers. GPT-4o has no artifact to register, which is why
-# its version lives in a Helm value instead.
+# the sklearn classifiers. A hosted model has no artifact to register, which
+# is why its version lives in a Helm value instead.
 az ml workspace create -n medw-${ENVN}-ws -g $RG -l $LOC
 az ml compute create -n cpu-cluster -g $RG -w medw-${ENVN}-ws \
   --type AmlCompute --min-instances 0 --max-instances 4 --size Standard_DS3_v2
@@ -108,7 +155,10 @@ az monitor app-insights component create -a ${PREFIX}ai -g $RG -l $LOC \
 # credential sense - it is an ingestion key with write-only telemetry scope.
 
 # --- container registry + cluster ---------------------------------------
-az acr create -n ${PREFIX}acr -g $RG --sku Standard
+# Basic is the cheapest ACR tier and the only standing charge in this file.
+# It is small, but it is per-month whether or not you push anything - so it
+# is the first thing to delete between sessions.
+az acr create -n ${PREFIX}acr -g $RG --sku Basic
 az aks create -n ${PREFIX}aks -g $RG \
   --node-count 3 --node-vm-size Standard_D4s_v5 \
   --attach-acr ${PREFIX}acr \
@@ -151,6 +201,19 @@ az identity federated-credential create \
   --issuer "$ISSUER" \
   --subject system:serviceaccount:medw:retrieval \
   --audience api://AzureADTokenExchange
+
+# --- data plane is NOT the control plane --------------------------------
+# Owner on the subscription does not let you call a model. It is a control
+# plane role: create, configure, delete. Calling an inference endpoint needs
+# a data action, and only these roles carry it. This applies to YOU at a
+# terminal exactly as much as it applies to a pod. See docs/adr/0008.
+MY_OID=$(az ad signed-in-user show --query id -o tsv)
+az role assignment create --assignee $MY_OID \
+  --role "Cognitive Services OpenAI User" \
+  --scope $(az cognitiveservices account show -n ${PREFIX}aoai -g $RG --query id -o tsv)
+# Propagation is uneven and per-action: chat answered immediately while
+# embeddings 401'd for ~2.5 minutes off the SAME assignment. Anything that
+# provisions then immediately calls needs a retry loop.
 
 echo "serviceAccount.annotations: azure.workload.identity/client-id: $CLIENT_ID"
 # ^ that value goes into values-dev.yaml. It is a client ID, not a secret.

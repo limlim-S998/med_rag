@@ -1,4 +1,4 @@
-.PHONY: dev up up-full up-legacy down eval fmt test arch types lint check migrate search-index seed
+.PHONY: dev up up-full up-legacy down eval fmt test arch types lint check charts release migrate search-index seed
 
 dev:           ## create .venv and install everything needed for host-side work
 	python3 -m venv .venv
@@ -32,7 +32,20 @@ types:
 lint:
 	ruff check .
 
-check: lint arch types test   ## everything CI runs, in the same order
+charts:        ## render + lint every chart, the way CI does
+	@for c in deploy/charts/*/; do \
+	  n=$$(basename $$c); [ "$$n" = "medw-lib" ] && continue; \
+	  helm dependency update $$c >/dev/null && helm lint $$c >/dev/null \
+	    && helm template $$n $$c >/dev/null && echo "  ok   $$n" || echo "  FAIL $$n"; \
+	done
+	@for e in dev staging prod; do \
+	  kubectl kustomize deploy/flux/$$e >/dev/null && echo "  ok   flux/$$e" || echo "  FAIL flux/$$e"; \
+	done
+
+release:       ## what the pipeline does: set every image tag to HEAD. DRY=1 to preview.
+	python scripts/bump_image_tag.py --all --tag $$(git rev-parse HEAD) $(if $(DRY),--dry-run,)
+
+check: lint arch types test charts   ## everything CI runs, in the same order
 
 fmt:
 	ruff check --fix . && ruff format .

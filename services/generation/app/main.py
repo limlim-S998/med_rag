@@ -44,11 +44,37 @@ async def lifespan(app: FastAPI):
     ctx["cred"] = cred
     ctx["aoai"] = azure.openai_client(s, cred)
     ctx["bucket"] = TokenBucket(POD_TPM)
-    ctx["sql"] = engine(s, await access_token_struct(cred))
     ctx["language"] = azure.language_client(s, cred)   # coded-term verification
+    # NOT the SQL engine. See sql_engine() below.
+    ctx["sql"] = None
     yield
-    await ctx["sql"].dispose()
+    if ctx["sql"] is not None:
+        await ctx["sql"].dispose()
     await cred.close()
+
+
+async def sql_engine():
+    """Built on first use, not at startup.
+
+    This used to be `engine(s, await access_token_struct(cred))` inside
+    lifespan, and that call reaches out to AAD for a token. The consequence is
+    that the process could not start at all without a live Azure connection:
+    locally it died with a credential-chain error, and in the cluster a
+    transient AAD blip during a rollout would crash-loop the new pods instead
+    of letting them start and report unready.
+
+    Which is the same liveness-versus-readiness distinction this repo argues
+    everywhere else, applied to startup. A dependency being unreachable is a
+    readiness problem. Only the process being broken is a liveness problem,
+    and failing to boot turns the first into the second.
+
+    Tokens expire, so this is also where a refresh would go; the engine is
+    pooled with pool_pre_ping, which is what stops a pooled connection
+    outliving the token that opened it.
+    """
+    if ctx["sql"] is None:
+        ctx["sql"] = engine(s, await access_token_struct(ctx["cred"]))
+    return ctx["sql"]
 
 
 app = FastAPI(title="generation", lifespan=lifespan)
@@ -61,10 +87,15 @@ async def healthz() -> Response:
 
 @app.get("/readyz")
 async def readyz() -> Response:
-    # AOAI reachability and a SQL ping. Note the AOAI check must not be a real
-    # completion - a readiness probe that spends quota every five seconds is a
-    # readiness probe that causes the outage it is watching for.
-    ...
+    # Will check AOAI reachability and ping SQL. The AOAI check must not be a
+    # real completion - a readiness probe that spends quota every five seconds
+    # is a readiness probe that causes the outage it is watching for.
+    #
+    # 503 until that exists. An unimplemented readiness probe must fail
+    # closed: a stub returning None becomes a 200, so Kubernetes routes
+    # traffic to a pod that cannot serve, and the probe is worse than absent
+    # because it looks like it works.
+    return Response(status_code=503)
 
 
 @app.post("/draft")
