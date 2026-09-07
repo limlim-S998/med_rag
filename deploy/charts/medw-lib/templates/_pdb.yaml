@@ -1,0 +1,23 @@
+{{/*
+PodDisruptionBudget.
+
+Guards against *voluntary* disruption only - a node drain during an AKS
+upgrade, a cluster autoscaler consolidating nodes. It does nothing for a node
+that simply dies, which is a distinction worth being able to make out loud.
+
+Rendered whenever minAvailable is set. Without one, a rolling node upgrade can
+take every replica of a service at once and the drain will not wait, because
+nothing told it to.
+*/}}
+{{- define "medw-lib.pdb" -}}
+{{- if .Values.podDisruptionBudget }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Values.name }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels: { app: {{ .Values.name }} }
+{{- end }}
+{{- end -}}

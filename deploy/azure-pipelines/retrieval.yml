@@ -1,0 +1,51 @@
+# Azure Pipelines. The client-regulated delivery path lives in Azure DevOps;
+# internal experiment repos are on GitHub Actions.
+#
+# The shape that matters: the pipeline BUILDS and then WRITES A COMMIT. It
+# does not deploy. Flux deploys, by reconciling to that commit.
+
+trigger:
+  branches: { include: [main] }
+  paths:    { include: [services/retrieval, libs/medw_core] }
+
+variables:
+  imageRepo: retrieval
+  tag: $(Build.SourceVersion)      # the git SHA, always
+
+stages:
+  - stage: build
+    jobs:
+      - job: test_and_push
+        pool: { vmImage: ubuntu-latest }
+        steps:
+          - script: |
+              pip install -e libs/medw_core -r services/retrieval/requirements.txt
+              ruff check . && mypy services/retrieval
+              pytest services/retrieval/tests -q
+            displayName: lint + type + test
+
+          - task: Docker@2
+            inputs:
+              containerRegistry: acr-medw
+              repository: $(imageRepo)
+              command: buildAndPush
+              Dockerfile: services/retrieval/Dockerfile
+              buildContext: .
+              tags: $(tag)
+
+  - stage: promote_to_dev
+    dependsOn: build
+    jobs:
+      - job: bump_values
+        steps:
+          # The pipeline's last act: bump the tag in the dev values file and
+          # push. That commit is the deployment. Promotion to staging/prod is
+          # a PR moving the SAME sha up an environment - the artifact is never
+          # rebuilt, so what was tested is bit-for-bit what ships.
+          - script: |
+              yq -i '.image.tag = "$(tag)"' deploy/charts/retrieval/values.yaml
+              git commit -am "chore(dev): retrieval -> $(tag)" && git push
+            displayName: commit image tag for Flux
+
+# Rollback: revert that commit (Flux reconciles), or `helm rollback` for the
+# fast path when the cluster is on fire and you argue with git afterwards.

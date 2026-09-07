@@ -1,0 +1,62 @@
+# The shape every service pipeline shares, parameterised.
+#
+# retrieval.yml is written out longhand as the readable example; the other
+# services consume this template and supply three parameters. The duplication
+# in retrieval.yml is deliberate - a pipeline you have to jump through two
+# files to read is a pipeline nobody reads.
+#
+# The invariant, in both forms: BUILD then COMMIT. The pipeline never deploys.
+# Flux deploys, by reconciling to the commit this makes.
+
+parameters:
+  - name: service        # gateway | generation | reranker | ingestion-worker
+    type: string
+  - name: chartPath
+    type: string
+  - name: runMigrations  # only generation's pipeline touches the SQL schema
+    type: boolean
+    default: false
+
+stages:
+  - stage: build
+    jobs:
+      - job: test_and_push
+        pool: { vmImage: ubuntu-latest }
+        steps:
+          - script: |
+              pip install -e libs/medw_core -r services/${{ parameters.service }}/requirements.txt
+              ruff check . && mypy services/${{ parameters.service }}
+              pytest services/${{ parameters.service }}/tests -q
+            displayName: lint + type + test
+
+          - task: Docker@2
+            inputs:
+              containerRegistry: acr-medw
+              repository: ${{ parameters.service }}
+              command: buildAndPush
+              Dockerfile: services/${{ parameters.service }}/Dockerfile
+              buildContext: .
+              tags: $(Build.SourceVersion)
+
+  - ${{ if parameters.runMigrations }}:
+    - stage: migrate
+      dependsOn: build
+      jobs:
+        - job: sql_migrations
+          steps:
+            # Runs BEFORE the image rolls, under a service connection identity
+            # that exists only for this stage - no runtime principal has DDL.
+            # Additive-only in prod: the audit table is never altered in place.
+            - script: sqlcmd -G -S $(sqlServer) -d medw -i db/sql/*.sql
+              displayName: apply schema
+
+  - stage: promote_to_dev
+    dependsOn: build
+    jobs:
+      - job: bump_values
+        steps:
+          - script: |
+              yq -i '.image.tag = "$(Build.SourceVersion)"' ${{ parameters.chartPath }}/values.yaml
+              git commit -am "chore(dev): ${{ parameters.service }} -> $(Build.SourceVersion)"
+              git push
+            displayName: commit image tag for Flux

@@ -1,0 +1,46 @@
+# The gateway. The only service with a public address.
+name: gateway
+env: dev
+replicas: 2
+
+image:
+  repository: medwdevacr.azurecr.io/gateway
+  tag: PLACEHOLDER
+
+serviceAccount:
+  annotations:
+    azure.workload.identity/client-id: "00000000-0000-0000-0000-000000000004"
+
+config:
+  cosmos_endpoint: https://medwdevcosmos.documents.azure.com:443/
+  cosmos_database: medw
+  blob_account_url: https://medwdevsa.blob.core.windows.net
+  sql_server: medwdevsql.database.windows.net
+  sql_database: medw
+  # Internal service DNS. These are the Service objects from medw-lib.
+  retrieval_url: http://retrieval:8000
+  generation_url: http://generation:8000
+  ingestion_url: http://ingestion-worker:8000
+
+ingress:
+  enabled: true
+  host: medw-dev.example.com
+  className: nginx
+  tls: true
+  annotations:
+    # Streaming. Buffering a token stream at the proxy defeats the point of
+    # streaming it - the writer waits for the whole section anyway, and you
+    # have added a hop. This is a real thing to get wrong once.
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits:   { cpu: 500m, memory: 512Mi }
+
+autoscaling:
+  enabled: true
+  metric: inflight_requests
+  target: 40          # it proxies and streams; it does almost no work itself
+  minReplicas: 2
+  maxReplicas: 6

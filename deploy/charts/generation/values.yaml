@@ -1,0 +1,45 @@
+# Generation. The service that spends the money and writes the audit trail.
+name: generation
+env: dev
+replicas: 2
+
+image:
+  repository: medwdevacr.azurecr.io/generation
+  tag: PLACEHOLDER
+
+serviceAccount:
+  annotations:
+    # A DIFFERENT identity from retrieval. Retrieval can read AOAI and Blob;
+    # this one can also INSERT on the audit schema in Azure SQL. One identity
+    # per service, scoped to what that service does - a shared identity means
+    # every pod inherits the union of every permission.
+    azure.workload.identity/client-id: "00000000-0000-0000-0000-000000000002"
+
+config:
+  # --- the model axis ---------------------------------------------------
+  chat_deployment: gpt-4o-2024-08-06
+  embed_version: v3l-001
+  prompt_bundle_sha: 4f2a91c        # SHA of app/prompts/, into every audit row
+  temperature: "0"                  # not creative writing. Pinned, not defaulted.
+
+  aoai_endpoint: https://medwdevaoai.openai.azure.com/
+  language_endpoint: https://medwdevlang.cognitiveservices.azure.com/
+  sql_server: medwdevsql.database.windows.net
+  sql_database: medw
+  cosmos_endpoint: https://medwdevcosmos.documents.azure.com:443/
+  cosmos_database: medw
+
+resources:
+  requests: { cpu: 200m, memory: 512Mi }
+  limits:   { cpu: "1",  memory: 1Gi }
+
+autoscaling:
+  enabled: true
+  metric: inflight_requests
+  target: 10
+  minReplicas: 2
+  # maxReplicas and POD_TPM in app/main.py are the same fact twice: 8 x 10k =
+  # 80k TPM, which must stay under the deployment's provisioned quota. Raising
+  # this without raising the quota moves the failure from "requests queue" to
+  # "everything 429s at once".
+  maxReplicas: 8

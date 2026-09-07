@@ -1,0 +1,110 @@
+# Internal CI. The client-regulated delivery path is Azure Pipelines
+# (deploy/azure-pipelines/) - this is the GitHub half the prep doc describes
+# as "internal experiment repos".
+#
+# It does not deploy. It answers two questions: is the code still what the
+# repo claims, and would the delivery layer actually apply.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  code:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"     # the floor in pyproject; CI tests the floor
+          cache: pip
+
+      - name: install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: lint
+        run: ruff check .
+
+      # Before the tests deliberately. A boundary violation is a design
+      # regression, and it is more useful to see that first than to see it
+      # buried under whatever test broke as a result.
+      - name: architecture
+        run: lint-imports --config .importlinter
+
+      - name: types
+        run: mypy libs/medw_core
+
+      - name: tests
+        run: pytest tests services -q
+
+  # Separate job: needs no Python and should not queue behind it.
+  delivery:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+
+      - name: charts lint and render
+        run: |
+          set -euo pipefail
+          for chart in deploy/charts/*/; do
+            name=$(basename "$chart")
+            # Library chart: has no templates of its own to render, only
+            # definitions other charts include.
+            [ "$name" = "medw-lib" ] && continue
+            echo "::group::$name"
+            helm dependency update "$chart"
+            helm lint "$chart"
+            helm template "$name" "$chart" > "/tmp/$name.yaml"
+            echo "::endgroup::"
+          done
+
+      # Offline schema validation against real Kubernetes API definitions.
+      # `helm template` only proves the Go templating ran; it will happily
+      # emit a Deployment with a misspelled field. CRDs (KEDA's ScaledObject)
+      # are skipped rather than failed - they are a documented cluster
+      # prerequisite, not part of this repo.
+      - name: validate manifests
+        run: |
+          curl -sSL -o /tmp/kubeconform.tar.gz \
+            https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz
+          tar -xzf /tmp/kubeconform.tar.gz -C /tmp
+          /tmp/kubeconform -strict -ignore-missing-schemas -summary /tmp/*.yaml
+
+      - name: flux overlays build
+        run: |
+          set -euo pipefail
+          for env in dev staging prod; do
+            echo "::group::$env"
+            kubectl kustomize "deploy/flux/$env"
+            echo "::endgroup::"
+          done
+
+  # Proves the images build. Does NOT push - pushing to ACR is Azure Pipelines'
+  # job, because that is where the registry service connection and the client's
+  # audit trail live.
+  images:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [gateway, retrieval, generation, ingestion_worker]
+        # reranker is excluded on purpose: it bakes CPU torch and the
+        # cross-encoder weights into the image, which is ~2GB and several
+        # minutes. It is built on a schedule rather than on every PR.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: build ${{ matrix.service }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/${{ matrix.service }}/Dockerfile
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

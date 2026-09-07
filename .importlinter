@@ -1,0 +1,90 @@
+# Architecture, enforced. `make arch` fails the build on a violation.
+#
+# Every rule here is a claim the README already makes. The difference is that
+# a claim in a README rots silently and a claim in this file fails CI, which
+# is the entire reason the file exists.
+
+[importlinter]
+root_packages =
+    medw_core
+    pipelines
+    ml
+include_external_packages = True
+
+# --- 1. the dependency direction ----------------------------------------
+# medw_core is the floor. It is installed into every service image, so an
+# import that points upward from it would drag a service's dependencies into
+# all four images - and quietly contradict ADR 0005, which is about narrowing
+# what any one pod can reach.
+[importlinter:contract:layers]
+name = medw_core sits below everything
+type = layers
+layers =
+    pipelines
+    ml
+    medw_core
+containers =
+
+# --- 2. services never import each other --------------------------------
+# They talk over HTTP with a correlation header, not by import. This is the
+# rule that keeps them separately deployable; the moment one imports another,
+# the two ship together whether or not anyone intended it.
+#
+# Enforced by pytest rather than here: the service `app` packages are not
+# importable as siblings (each is its own top-level `app` inside its own
+# image), so import-linter cannot see them all at once. See
+# tests/test_architecture.py, which walks the ASTs instead.
+
+# --- 3. the ports stay clean --------------------------------------------
+# medw_core.ports defines the seams. If it imports an SDK, the abstraction has
+# leaked: every consumer of the port would then need that SDK installed, which
+# is precisely what the port exists to prevent.
+[importlinter:contract:ports-are-vendor-free]
+name = ports import no vendor SDKs
+type = forbidden
+source_modules =
+    medw_core.ports
+    medw_core.schemas
+    medw_core.errors
+    medw_core.projections
+forbidden_modules =
+    azure
+    openai
+    qdrant_client
+    sqlalchemy
+    llama_index
+    langchain
+    sklearn
+    mlflow
+
+# --- 4. the domain model stays a domain model ---------------------------
+# schemas.py is the contract between ingestion, retrieval and generation, and
+# it doubles as the JSON schema pasted into prompts. It must not acquire
+# behaviour that needs configuration.
+[importlinter:contract:schemas-are-pure]
+name = schemas does not depend on settings or clients
+type = forbidden
+source_modules =
+    medw_core.schemas
+forbidden_modules =
+    medw_core.settings
+    medw_core.azure
+    medw_core.cosmos
+    medw_core.sql
+
+# --- 5. parsers do not reach for the network ----------------------------
+# table.py and chunker.py are pure functions over already-extracted geometry.
+# Keeping them that way is what lets them be tested against recorded layout
+# fixtures with no per-page extraction cost - the single highest-leverage
+# testing decision in the repo.
+[importlinter:contract:parsers-are-pure]
+name = parsers are pure over already-extracted input
+type = forbidden
+source_modules =
+    pipelines.parsers.table
+    pipelines.parsers.chunker
+forbidden_modules =
+    azure
+    openai
+    httpx
+    qdrant_client

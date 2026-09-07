@@ -1,0 +1,24 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: gateway
+  namespace: medw
+spec:
+  interval: 5m
+  chart:
+    spec:
+      chart: deploy/charts/gateway
+      sourceRef:
+        kind: GitRepository
+        name: medwriter-assist
+        namespace: flux-system
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      # Roll back automatically on a failed upgrade. The alternative is a
+      # release stuck half-applied until someone notices, and "someone
+      # notices" is not a recovery strategy.
+      retries: 3
+      remediateLastFailure: true

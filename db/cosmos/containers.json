@@ -1,0 +1,60 @@
+{
+  "_comment": [
+    "Container definitions, applied by infra/bootstrap.sh. Mirrors CONTAINERS",
+    "in libs/medw_core/cosmos.py - if you change one, change both.",
+    "",
+    "Partition key is the decision that is expensive to reverse: it is fixed at",
+    "creation and changing it means creating a new container and migrating. Two",
+    "rules drove every choice here - reads must be single-partition, and writes",
+    "must spread. /study_id satisfies both for anything scoped to a study;",
+    "sessions use /user_id because that read is always per-writer.",
+    "",
+    "Indexing policy is excludePaths, not includePaths. Cosmos indexes every",
+    "path by default and you pay RU on writes for each one; excluding the large",
+    "free-text fields nobody filters on is most of the write cost back."
+  ],
+  "database": "medw",
+  "throughput": { "mode": "autoscale", "maxRUs": 4000 },
+  "containers": [
+    {
+      "name": "documents",
+      "partitionKey": "/study_id",
+      "description": "One item per ingested source document: blob path, doc type + classifier confidence, parser version, page count, extraction status.",
+      "ttlSeconds": null,
+      "indexingPolicy": {
+        "includedPaths": ["/study_id/?", "/doc_type/?", "/status/?", "/ingested_at/?"],
+        "excludedPaths": ["/extraction/*", "/*"]
+      },
+      "uniqueKeys": ["/doc_id"]
+    },
+    {
+      "name": "jobs",
+      "partitionKey": "/study_id",
+      "description": "Ingestion job state machine, written by both the Airflow DAG and the synchronous worker so a writer can watch progress on a document they just uploaded.",
+      "ttlSeconds": 2592000,
+      "_ttl_note": "30 days. Job state is operational, not evidential - the durable record of what was indexed is audit.index_event in Azure SQL.",
+      "indexingPolicy": {
+        "includedPaths": ["/study_id/?", "/state/?", "/updated_at/?"],
+        "excludedPaths": ["/error/*", "/*"]
+      }
+    },
+    {
+      "name": "sessions",
+      "partitionKey": "/user_id",
+      "description": "Writer session: open study, current section, retrieval context of the last few turns. Never the drafted prose - that goes to core.section_draft.",
+      "ttlSeconds": 43200,
+      "_ttl_note": "12 hours. Expiry is the database's job; a cleanup cron is a thing that silently stops running.",
+      "indexingPolicy": {
+        "includedPaths": ["/user_id/?", "/session_id/?"],
+        "excludedPaths": ["/context/*", "/*"]
+      }
+    },
+    {
+      "name": "generations",
+      "partitionKey": "/study_id",
+      "description": "The raw model output plus slots, skeleton and verification detail. High churn, schema varies by template. The distilled, joinable row is audit.generation_event in SQL; this is the fat payload behind it.",
+      "ttlSeconds": 7776000,
+      "_ttl_note": "90 days. The audit row in SQL is permanent; the full text of every rejected draft is not."
+    }
+  ]
+}

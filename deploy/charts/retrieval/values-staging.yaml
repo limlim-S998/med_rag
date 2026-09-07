@@ -1,0 +1,21 @@
+env: staging
+replicas: 2
+
+image:
+  repository: medwstagingacr.azurecr.io/retrieval
+  # No tag. Promotion is a PR that copies the SHA from the dev values file up
+  # to here - if staging could set its own, "we tested this exact thing" would
+  # stop being true, and that sentence is the whole point of the ceremony.
+
+serviceAccount:
+  annotations:
+    azure.workload.identity/client-id: "22222222-2222-2222-2222-222222222222"
+
+config:
+  aoai_endpoint: https://medwstagingaoai.openai.azure.com/
+  search_endpoint: https://medwstagingsearch.search.windows.net
+  # Model pins deliberately absent, same as values-prod.yaml.
+
+resources:
+  requests: { cpu: 300m, memory: 512Mi }
+  limits:   { cpu: "1",  memory: 1Gi }

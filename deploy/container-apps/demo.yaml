@@ -1,0 +1,53 @@
+# Azure Container Apps - the demo environment, and the honest story about it.
+#
+# Everything ran here before AKS. It was the right call at three services and
+# the wrong one at six: we wanted one deployment model, GitOps, and control
+# over networking and node pools, and Container Apps gives you a managed
+# opinion instead. So production moved to AKS.
+#
+# It was RETAINED for demos, and for exactly one property AKS does not have:
+# minReplicas 0. A demo environment nobody is looking at costs nothing. An AKS
+# node pool sitting idle for a sales cycle does not.
+#
+# The point worth making in an interview: this is not a failed migration, it
+# is two hosting models kept for two different cost profiles.
+
+apiVersion: 2023-05-01
+type: Microsoft.App/containerApps
+name: medw-demo-gateway
+location: westeurope
+properties:
+  managedEnvironmentId: /subscriptions/.../managedEnvironments/medw-demo-env
+  configuration:
+    ingress:
+      external: true
+      targetPort: 8000
+      transport: http
+      allowInsecure: false
+    # Same identity model as AKS: no keys. Container Apps supports managed
+    # identity directly, so DefaultAzureCredential resolves here too - the
+    # application code does not know it moved.
+    registries:
+      - server: medwdevacr.azurecr.io
+        identity: system
+  template:
+    containers:
+      - name: gateway
+        image: medwdevacr.azurecr.io/gateway:PLACEHOLDER
+        resources: { cpu: 0.5, memory: 1Gi }
+        env:
+          - { name: MEDW_ENV, value: demo }
+    scale:
+      # The whole reason this environment still exists.
+      minReplicas: 0
+      maxReplicas: 2
+      rules:
+        - name: http
+          http: { metadata: { concurrentRequests: "20" } }
+identity:
+  type: SystemAssigned
+
+# Cold start is real: scale-from-zero is seconds, and the first request after
+# an idle period is slow. Acceptable for a demo, disqualifying for a writer
+# who expects a section to start streaming immediately - which is the same
+# trade in one sentence.

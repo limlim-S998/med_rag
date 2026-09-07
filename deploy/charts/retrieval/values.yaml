@@ -1,0 +1,48 @@
+# Defaults. Environment files override; nothing here is production-safe.
+name: retrieval
+env: dev
+replicas: 1
+
+image:
+  repository: medwdevacr.azurecr.io/retrieval
+  tag: PLACEHOLDER          # the pipeline commits a real git SHA here
+
+serviceAccount:
+  annotations:
+    azure.workload.identity/client-id: "00000000-0000-0000-0000-000000000000"
+
+# --- the MODEL version axis lives here ----------------------------------
+# Image = git SHA (above). Deployment = the commit that changed this file.
+# Model = these four lines. Three orthogonal axes, all in git, which is why
+# git and not the registry is the source of truth for what is running.
+config:
+  chat_deployment: gpt-4o-2024-08-06
+  embed_deployment: text-embedding-3-large
+  embed_version: v3l-001
+  prompt_bundle_sha: 4f2a91c
+
+  aoai_endpoint: https://medwdevaoai.openai.azure.com/
+  qdrant_url: http://qdrant:6333
+  reranker_url: http://reranker:8000
+  # The sparse half. One shared index for all studies, filtered by study_id -
+  # the opposite partitioning to Qdrant, for the cost reason in ADR 0006.
+  search_endpoint: https://medwdevsearch.search.windows.net
+  search_index: csr-chunks
+  rrf_k: "60"
+  fusion_top_n: "30"
+  rerank_top_k: "8"
+  search_ef: "128"
+
+resources:
+  requests: { cpu: 200m, memory: 512Mi }
+  limits:   { cpu: "1",  memory: 1Gi }
+
+autoscaling:
+  enabled: true
+  # CPU-based autoscaling is close to useless for an LLM-bound service: the
+  # pods sit at 3% CPU blocked on I/O while latency climbs. Scale on in-flight
+  # requests instead (KEDA, prometheus trigger on the concurrency gauge).
+  metric: inflight_requests
+  target: 20
+  minReplicas: 2
+  maxReplicas: 10

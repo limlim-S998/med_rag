@@ -1,0 +1,42 @@
+# The reranker. The only pod in the cluster with model weights in it.
+name: reranker
+env: dev
+replicas: 2
+
+image:
+  # The weights are baked into the image (see the Dockerfile), so the image tag
+  # IS the model version for this service. That is the difference between a
+  # self-hosted model and a hosted one: no registry lookup, no deployment name -
+  # the git SHA that built the image identifies the weights.
+  repository: medwdevacr.azurecr.io/reranker
+  tag: PLACEHOLDER
+
+serviceAccount:
+  annotations:
+    # It calls nothing in Azure. The identity exists for consistency of the
+    # template, and it holds no role assignments at all.
+    azure.workload.identity/client-id: "00000000-0000-0000-0000-000000000003"
+
+config: {}
+
+resources:
+  # CPU-bound, unlike everything else here, so requests and limits actually
+  # bite. 30 cross-encoder pairs at ~512 tokens sits comfortably in 2 cores and
+  # a few hundred milliseconds - inside a generation step measured in seconds.
+  # A GPU node pool would be spending money to make a non-bottleneck faster.
+  requests: { cpu: "1",  memory: 2Gi }
+  limits:   { cpu: "2",  memory: 3Gi }
+
+autoscaling:
+  enabled: true
+  metric: cpu           # the one service where CPU autoscaling is the right signal
+  target: 70
+  minReplicas: 2
+  maxReplicas: 6
+
+startupProbe:
+  # The model loads at process start, which takes tens of seconds. Without a
+  # startup probe the readiness probe fails during load, the liveness probe
+  # follows, and the pod restarts forever without ever finishing loading.
+  initialDelaySeconds: 30
+  failureThreshold: 20

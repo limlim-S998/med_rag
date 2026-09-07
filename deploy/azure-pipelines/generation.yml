@@ -1,0 +1,20 @@
+# Generation. Same shape as retrieval.yml, plus the migration stage.
+#
+# The path trigger includes db/sql: a schema change and the code that depends
+# on it ship from the same commit, in that order, or the pod rolls into a
+# table that does not have the column yet.
+
+trigger:
+  branches: { include: [main] }
+  paths:
+    include:
+      - services/generation
+      - libs/medw_core
+      - db/sql
+
+extends:
+  template: _build-template.yml
+  parameters:
+    service: generation
+    chartPath: deploy/charts/generation
+    runMigrations: true

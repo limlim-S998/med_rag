@@ -1,0 +1,87 @@
+{
+  "name": "csr-chunks",
+  "_comment": [
+    "The BM25 half. One index across all studies, filtered by study_id -",
+    "the opposite of the Qdrant choice (one collection per study), and worth",
+    "being able to explain: Cognitive Search bills per service and per index",
+    "replica, not per collection, so per-study indexes would multiply cost for",
+    "no isolation benefit, while Qdrant collections are free and give a",
+    "one-command teardown. Different cost models, different partitioning.",
+    "",
+    "No vector field here on purpose. The first implementation put dense and",
+    "sparse both in Cognitive Search and it failed on clinical tables: the",
+    "blob-indexer + Document Intelligence skillset gave us no control over",
+    "chunking, so header stacks got orphaned from their rows. Dense moved to",
+    "Qdrant. This index kept the half it is genuinely better at."
+  ],
+  "fields": [
+    { "name": "chunk_id", "type": "Edm.String", "key": true, "filterable": true, "searchable": false },
+
+    { "name": "study_id", "type": "Edm.String", "filterable": true, "facetable": true, "searchable": false },
+    { "name": "doc_id", "type": "Edm.String", "filterable": true, "searchable": false },
+    { "name": "doc_type", "type": "Edm.String", "filterable": true, "facetable": true, "searchable": false },
+    { "name": "kind", "type": "Edm.String", "filterable": true, "searchable": false },
+
+    {
+      "name": "text",
+      "type": "Edm.String",
+      "searchable": true,
+      "analyzer": "en.microsoft",
+      "_note": "Microsoft analyser over Lucene: better clinical lemmatisation ('neutropenic' -> 'neutropenia')."
+    },
+    {
+      "name": "table_number",
+      "type": "Edm.String",
+      "searchable": true,
+      "filterable": true,
+      "analyzer": "keyword_lower",
+      "_note": "'Table 14.3.2.1' must match as one token. The standard analyser splits it on the dots and a search for 14.3.2.1 then also matches 14.3.2.10 - which is a different table."
+    },
+    {
+      "name": "section_path",
+      "type": "Edm.String",
+      "searchable": true,
+      "filterable": true,
+      "analyzer": "keyword_lower"
+    },
+    {
+      "name": "coded_terms",
+      "type": "Collection(Edm.String)",
+      "searchable": true,
+      "filterable": true,
+      "analyzer": "keyword_lower",
+      "_note": "MedDRA PTs and UMLS-linked terms from Azure Language at ingest time. Matched literally - this is precisely what the embedding normalises away."
+    },
+    { "name": "header_stack", "type": "Collection(Edm.String)", "searchable": true, "analyzer": "en.microsoft" },
+    { "name": "footnotes", "type": "Collection(Edm.String)", "searchable": true, "analyzer": "en.microsoft" },
+
+    { "name": "parser_version", "type": "Edm.String", "filterable": true, "searchable": false },
+    { "name": "indexed_at", "type": "Edm.DateTimeOffset", "filterable": true, "sortable": true }
+  ],
+
+  "analyzers": [
+    {
+      "name": "keyword_lower",
+      "@odata.type": "#Microsoft.Azure.Search.CustomAnalyzer",
+      "tokenizer": "keyword_v2",
+      "tokenFilters": ["lowercase"]
+    }
+  ],
+
+  "scoringProfiles": [
+    {
+      "name": "identifier_boost",
+      "_note": "A query that looks like a table number or a coded term should be answered by those fields, not by a passing mention in prose. RRF then only sees the rank, so the boost has to happen here or not at all.",
+      "text": {
+        "weights": { "table_number": 8.0, "coded_terms": 5.0, "section_path": 3.0, "text": 1.0 }
+      }
+    }
+  ],
+  "defaultScoringProfile": "identifier_boost",
+
+  "similarity": {
+    "@odata.type": "#Microsoft.Azure.Search.BM25Similarity",
+    "b": 0.75,
+    "k1": 1.2
+  }
+}

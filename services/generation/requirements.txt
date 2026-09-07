@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+httpx
+pydantic-settings
+openai
+langchain
+langchain-openai
+azure-identity
+azure-ai-textanalytics
+sqlalchemy[asyncio]
+aioodbc
+azure-monitor-opentelemetry

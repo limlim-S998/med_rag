@@ -1,0 +1,38 @@
+{{/*
+Ingress. Only the gateway sets `ingress.enabled`; everything else is
+ClusterIP and unreachable from outside the cluster, which is the intended
+blast radius.
+
+The annotations matter more than they look. Generation streams tokens through
+the gateway, and an ingress that buffers the response defeats the entire
+point of streaming - the writer waits for the whole section anyway and you
+have added a hop. proxy-buffering off is not a tuning preference here, it is
+a functional requirement of the product.
+*/}}
+{{- define "medw-lib.ingress" -}}
+{{- if and .Values.ingress .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Values.name }}
+  annotations:
+    {{- toYaml .Values.ingress.annotations | nindent 4 }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    - hosts: [{{ .Values.ingress.host | quote }}]
+      secretName: {{ .Values.name }}-tls
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Values.name }}
+                port: { number: 8000 }
+{{- end }}
+{{- end -}}

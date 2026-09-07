@@ -1,0 +1,122 @@
+# Packaging for the shared library.
+#
+# This file exists because every service Dockerfile does
+#     pip install --no-cache-dir -r requirements.txt -e ./libs/medw_core
+# and pip cannot install a directory that does not declare itself a project.
+# Without it the image build fails before a single line of service code is
+# copied in - which is a confusing failure, because `pytest` works fine: the
+# root pyproject.toml puts `libs` on pythonpath, so the library is importable
+# for tests and not installable for Docker. Two different mechanisms, and only
+# one of them was ever exercised locally.
+#
+# Layout note: the modules sit directly in this directory rather than in a
+# nested medw_core/ folder, so the package is mapped to "." below. That is the
+# reason for the slightly unusual package-dir line, and it is deliberate: it
+# keeps the four Dockerfiles, the docker-compose build contexts and
+# deploy/azure-pipelines/*.yml working without a single edit.
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "medw-core"
+version = "0.1.0"
+description = "Shared library for the medwriter-assist services: settings, Azure clients, domain schemas, deterministic IDs, tracing and metrics."
+requires-python = ">=3.11"
+
+# Only what EVERY consuming service needs, and nothing else.
+#
+# The temptation is to list every SDK the library imports anywhere. Resist it:
+# these three land in all four service images, and the rest are per-module.
+# The retrieval image has no reason to carry the Cosmos SDK, and an image that
+# carries an SDK it never calls quietly contradicts ADR 0005 - one identity per
+# service is about narrowing what a compromised pod can reach, and a smaller
+# dependency surface is the same argument one layer down.
+#
+# Unpinned to match services/*/requirements.txt, which pin nothing either. The
+# one exception is pydantic: v1 and v2 are different libraries wearing the same
+# name, and schemas.py is v2.
+dependencies = [
+    "pydantic>=2",
+    "pydantic-settings>=2",
+    "azure-identity",
+    # The async credentials in azure.identity.aio need an async HTTP transport,
+    # and azure-core's is aiohttp. It is not pulled in automatically, so
+    # DefaultAzureCredential() raises "aiohttp package is not installed" the
+    # first time a service constructs one - at startup, in lifespan(), in all
+    # four services. Declared here rather than in each requirements.txt because
+    # it is medw_core.azure.credential() that needs it.
+    "aiohttp",
+]
+
+# Grouped by the module that needs them:
+#
+#   medw_core.sql        -> sql
+#   medw_core.auth       -> api
+#   medw_core.rate_limit -> aoai
+#   medw_core.metrics    -> telemetry
+#   medw_core.azure      -> one group per factory you call, not all six:
+#                           openai_client   -> aoai
+#                           blob_client     -> blob
+#                           search_client   -> search
+#                           cosmos_client   -> cosmos
+#                           docintel_client -> docintel
+#                           language_client -> language
+#
+# medw_core.settings, .schemas, .ids, .blob (paths only) and .tracing need
+# nothing beyond the base dependencies above.
+[project.optional-dependencies]
+aoai = ["openai"]
+blob = ["azure-storage-blob"]
+search = ["azure-search-documents"]
+cosmos = ["azure-cosmos"]
+sql = ["sqlalchemy[asyncio]", "aioodbc"]
+docintel = ["azure-ai-documentintelligence"]
+language = ["azure-ai-textanalytics"]
+api = ["fastapi"]
+telemetry = ["opentelemetry-api", "azure-monitor-opentelemetry"]
+
+# Aggregates matching the service boundaries: exactly the client factories each
+# service actually constructs, and nothing else. These are only meaningful
+# because medw_core.azure imports its SDKs inside the factory functions - with
+# the imports at module scope, importing the module at all would drag in all
+# six and every group below would collapse to the same list.
+#
+# Each of these is checkable against the service's lifespan() block: if a
+# service stops calling cosmos_client(), the cosmos entry here should go too.
+retrieval = ["medw-core[aoai,search,api,telemetry]"]
+gateway = ["medw-core[cosmos,blob,api,telemetry]"]
+generation = ["medw-core[aoai,language,sql,api,telemetry]"]
+ingestion = [
+    "medw-core[aoai,blob,search,cosmos,docintel,language,sql,api,telemetry]",
+]
+
+# --- host-side groups ---------------------------------------------------
+# Nothing below ships in a service image. These are what you need on your own
+# machine to run the tests, the linters and the eval harness, and to have an
+# editor that can resolve every import in the repo.
+
+# What ml/ imports. Not in any service's requirements.txt on purpose: training
+# happens in the Azure ML command job, and the serving path loads the fitted
+# pipeline through mlflow (see ml/registry.py) rather than importing lightgbm.
+ml = ["scikit-learn", "mlflow", "lightgbm"]
+
+# What pipelines/parsers/readers.py imports.
+parsers = ["llama-index-core"]
+
+# The one-liner. `pip install -e ./libs/medw_core[dev]` gets you every import
+# in the repo except the two that belong in containers - see requirements-dev.txt
+# at the repo root for why torch and airflow are deliberately not here.
+dev = [
+    "medw-core[ingestion,ml,parsers]",
+    "pytest",
+    "ruff",
+    "mypy",
+]
+
+[tool.setuptools]
+# Flat layout: the package IS this directory, so map it to "." rather than
+# letting discovery look for a nested folder that does not exist.
+package-dir = { medw_core = "." }
+packages = ["medw_core"]

@@ -1,0 +1,3 @@
+{"study_id":"ABC-101","query":"Grade 3 or higher neutropenia by treatment arm","relevant_chunk_ids":["<uuid>"],"note":"MedDRA PT - sparse half should carry this"}
+{"study_id":"ABC-101","query":"Table 14.3.2.1","relevant_chunk_ids":["<uuid>"],"note":"literal identifier - dense retrieval alone fails"}
+{"study_id":"ABC-101","query":"how were subjects who discontinued early handled in the primary efficacy analysis","relevant_chunk_ids":["<uuid>"],"note":"long narrative - dense wins"}

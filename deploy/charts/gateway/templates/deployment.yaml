@@ -1,0 +1,17 @@
+{{ include "medw-lib.deployment" . }}
+---
+{{ include "medw-lib.service" . }}
+---
+{{ include "medw-lib.serviceaccount" . }}
+{{- with (include "medw-lib.autoscaling" .) }}
+---
+{{ . }}
+{{- end }}
+{{- with (include "medw-lib.ingress" .) }}
+---
+{{ . }}
+{{- end }}
+{{- with (include "medw-lib.pdb" .) }}
+---
+{{ . }}
+{{- end }}

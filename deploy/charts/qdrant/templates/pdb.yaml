@@ -1,0 +1,18 @@
+{{- if .Values.podDisruptionBudget }}
+# The values file asked for this and nothing rendered it. Without it, a
+# rolling node upgrade can drain two of three Qdrant replicas simultaneously
+# and the drain will not wait - the vector store goes read-degraded in the
+# middle of a routine cluster operation.
+#
+# Not shared with medw-lib: this chart deliberately has no library dependency,
+# because it is the one workload that is a StatefulSet rather than a
+# Deployment and shares none of the other templates.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: qdrant
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels: { app: qdrant }
+{{- end }}

@@ -1,0 +1,45 @@
+# The synchronous single-document path. The Airflow DAG is the bulk path and
+# is not deployed by this chart - it lives in the managed Airflow environment.
+name: ingestion-worker
+env: dev
+replicas: 1
+
+image:
+  repository: medwdevacr.azurecr.io/ingestion-worker
+  tag: PLACEHOLDER
+
+serviceAccount:
+  annotations:
+    # The widest identity in the system: it reads and writes Blob, calls
+    # Document Intelligence, Language and AOAI embeddings, writes Qdrant and
+    # Cognitive Search, and writes Cosmos plus the SQL document registry.
+    # Which is itself an argument for it being one service doing one job,
+    # rather than those permissions being spread across four.
+    azure.workload.identity/client-id: "00000000-0000-0000-0000-000000000005"
+
+config:
+  aoai_endpoint: https://medwdevaoai.openai.azure.com/
+  embed_deployment: text-embedding-3-large
+  embed_version: v3l-001            # must match retrieval's, or the query and
+                                    # index vectors are in different spaces
+  docintel_endpoint: https://medwdevdi.cognitiveservices.azure.com/
+  language_endpoint: https://medwdevlang.cognitiveservices.azure.com/
+  search_endpoint: https://medwdevsearch.search.windows.net
+  search_index: csr-chunks
+  blob_account_url: https://medwdevsa.blob.core.windows.net
+  cosmos_endpoint: https://medwdevcosmos.documents.azure.com:443/
+  cosmos_database: medw
+  qdrant_url: http://qdrant:6333
+  # Pinned classifier version. Changing it re-labels document types, which
+  # changes which parser runs. It is a model version axis like any other.
+  table_classifier_version: "7"
+
+resources:
+  requests: { cpu: 500m, memory: 1Gi }
+  limits:   { cpu: "2",  memory: 4Gi }
+
+autoscaling:
+  # Not autoscaled. Ingestion is bounded by the shared AOAI embedding quota and
+  # by Document Intelligence transactions per second, so more pods would turn a
+  # queue into a pile of 429s. Concurrency is bounded in-process instead.
+  enabled: false

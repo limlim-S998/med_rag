@@ -1,0 +1,36 @@
+# Azure ML command job. This is what CT in CI/CD/CT actually triggers.
+#
+# The trigger is not a schedule. It is new labelled data: a new table shell
+# appears in a study, a writer corrects a misclassification in the UI, and
+# those corrections accumulate into the training set. Below a threshold of new
+# labels, retraining is noise.
+#
+# The gate is macro F1 against a held-out set, compared to the currently
+# registered version. Better -> register a new version. Not better -> the run
+# is recorded and nothing ships. Registration is not deployment: the pinned
+# version in Helm values still has to be bumped by a commit, which keeps the
+# "git is the source of truth for what is running" property intact even for
+# models the registry does hold.
+
+$schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
+type: command
+
+experiment_name: table-type-classification
+display_name: train-table-type-classifier
+
+code: ../
+command: >-
+  python -m table_classifier.train
+  --labels ${{inputs.labels}}
+  --min-macro-f1 ${{inputs.min_macro_f1}}
+
+inputs:
+  labels:
+    type: uri_file
+    path: azureml://datastores/medw/paths/labels/table_types.parquet
+  min_macro_f1: 0.91      # the currently registered version's score
+
+environment: azureml:medw-sklearn-env@latest
+compute: azureml:cpu-cluster
+# CPU. TF-IDF + LinearSVC over a few thousand short documents trains in
+# seconds; a GPU here would be spending money to wait on data loading.

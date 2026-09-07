@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+httpx
+qdrant-client
+openai
+azure-identity
+azure-search-documents
+azure-storage-blob
+pydantic-settings

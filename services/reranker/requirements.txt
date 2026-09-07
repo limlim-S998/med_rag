@@ -1,0 +1,15 @@
+# --index-url is a GLOBAL option in a requirements file, so it has to sit on
+# its own line. Written as `torch --index-url https://...` pip parses the line,
+# silently ignores the option, and resolves torch from PyPI - which is the CUDA
+# build, and pulls ~2GB of nvidia-* wheels into an image whose whole design
+# argument is that it runs on CPU.
+#
+# Primary index is the PyTorch CPU channel (it carries only torch and friends);
+# PyPI is the fallback for everything else.
+--index-url https://download.pytorch.org/whl/cpu
+--extra-index-url https://pypi.org/simple
+
+fastapi
+uvicorn[standard]
+sentence-transformers
+torch

@@ -1,0 +1,55 @@
+# The one file. From a fresh venv:
+#
+#     python3 -m venv .venv && source .venv/bin/activate
+#     pip install -r requirements-dev.txt
+#
+# or `make dev`, which does both.
+#
+# That gets you: every module in the repo importable, `make test`, `make fmt`,
+# `make eval`, and an editor that can resolve medw_core. Nothing here ships in
+# a service image - the images install their own requirements.txt and only the
+# medw_core extra they need.
+
+# The shared library, editable, plus the host-side groups. `dev` pulls in
+# `ingestion` (the widest client set - the only service that constructs all six
+# Azure clients), `ml`, `parsers`, and the pytest/ruff/mypy toolchain.
+-e ./libs/medw_core[dev]
+
+# Service dependencies. medw_core's extras cover the Azure SDKs; these add what
+# the service code itself imports - qdrant-client, httpx, langchain, aioodbc.
+-r services/retrieval/requirements.txt
+-r services/gateway/requirements.txt
+-r services/generation/requirements.txt
+-r services/ingestion_worker/requirements.txt
+
+
+# --- deliberately NOT here ----------------------------------------------
+#
+# services/reranker/requirements.txt
+#   torch + sentence-transformers, ~500MB even as the CPU build. You never
+#   need them on the host: the reranker only ever runs as a container, and
+#   nothing outside services/reranker/ imports it. That file also sets a
+#   global --index-url, which would repoint this entire install at the PyTorch
+#   channel if it were included with -r.
+#
+#   If you do want it locally:
+#       pip install -r services/reranker/requirements.txt
+#
+# apache-airflow
+#   pipelines/dags/*.py import it, but Airflow pins large parts of the
+#   dependency tree and installing it bare will happily downgrade SQLAlchemy
+#   out from under the generation service. It must be installed against the
+#   constraints file for its exact version and Python:
+#       AF=2.10.5
+#       pip install "apache-airflow==$AF" \
+#         -c "https://raw.githubusercontent.com/apache/airflow/constraints-$AF/constraints-3.12.txt"
+#
+#   Ruff lints the DAG files without importing them, so you only need this if
+#   you are actually running a scheduler - which is its own container anyway.
+
+# --- architecture enforcement (Phase A) ----------------------------------
+# import-linter reads .importlinter and fails the build on a boundary
+# violation. It is in the dev set rather than a service requirements.txt
+# because nothing ships it - it only ever runs on a developer machine or in CI.
+import-linter
+pytest-asyncio

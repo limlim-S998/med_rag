@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+httpx
+pydantic-settings
+azure-identity
+azure-cosmos
+azure-storage-blob
+python-jose[cryptography]
+azure-monitor-opentelemetry

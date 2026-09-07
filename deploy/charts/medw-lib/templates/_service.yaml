@@ -1,0 +1,21 @@
+{{/*
+ClusterIP for everything. Only the gateway is reachable from outside, and it
+gets there through the ingress, not through a LoadBalancer Service per app.
+
+The service name is the hostname the other services use - `http://reranker:8000`
+in the retrieval settings is this object. Which means renaming a chart renames
+a DNS name that appears in another chart's values, and that is the one place
+where these thin charts are coupled to each other.
+*/}}
+{{- define "medw-lib.service" -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.name }}
+spec:
+  type: ClusterIP
+  selector: { app: {{ .Values.name }} }
+  ports:
+    - port: 8000
+      targetPort: 8000
+{{- end -}}

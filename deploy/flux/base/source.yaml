@@ -1,0 +1,15 @@
+# The source. Flux polls this and everything else refers back to it by name.
+#
+# The interval is how long a bad deploy can live before a revert takes effect,
+# so it is a recovery-time decision rather than a performance one. One minute
+# is cheap: it is a shallow fetch that no-ops when the SHA has not moved.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: medwriter-assist
+  namespace: flux-system
+spec:
+  interval: 1m
+  url: https://github.com/CHANGEME/medwriter-assist
+  ref:
+    branch: main

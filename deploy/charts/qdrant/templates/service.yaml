@@ -1,0 +1,43 @@
+# Two Services, and the StatefulSet needs both.
+#
+# This was missing entirely. Every other chart's values point at
+# `qdrant_url: http://qdrant:6333`, and nothing in the repo created a Service
+# by that name - so retrieval and ingestion would have failed DNS resolution
+# on their first call. The StatefulSet rendered fine, which is exactly why it
+# went unnoticed: `helm template` succeeding says nothing about whether the
+# pieces can find each other.
+
+# 1. The headless Service. `clusterIP: None` gives each pod a stable DNS name
+#    of its own (qdrant-0.qdrant, qdrant-1.qdrant, ...), which is how the
+#    replicas find each other to form a cluster. A StatefulSet's serviceName
+#    must point at a headless Service or the per-pod names never exist.
+apiVersion: v1
+kind: Service
+metadata:
+  name: qdrant-headless
+  labels: { app: qdrant }
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true   # peers must be discoverable *while* joining
+  selector: { app: qdrant }
+  ports:
+    - { name: http, port: 6333 }
+    - { name: grpc, port: 6334 }
+    - { name: p2p,  port: 6335 }
+---
+# 2. The ordinary ClusterIP Service. This is the one clients talk to, and its
+#    name is the `qdrant` in every other chart's qdrant_url. Load-balances
+#    across ready replicas, which is what a client wants - as opposed to the
+#    headless Service, which is for peer discovery and would hand a client a
+#    single specific pod.
+apiVersion: v1
+kind: Service
+metadata:
+  name: qdrant
+  labels: { app: qdrant }
+spec:
+  type: ClusterIP
+  selector: { app: qdrant }
+  ports:
+    - { name: http, port: 6333, targetPort: 6333 }
+    - { name: grpc, port: 6334, targetPort: 6334 }

@@ -1,0 +1,46 @@
+# Secrets. .env holds endpoints and the one local-only SQL password; the
+# example file is the one that is committed.
+.env
+!.env.example
+
+# Helm vendors its dependencies into charts/*.tgz and pins them in Chart.lock.
+#
+# The .tgz is a build artifact - `helm dependency update` regenerates it and
+# committing it means every medw-lib change produces a binary diff nobody can
+# review. Chart.lock IS committed on purpose: it pins the exact library chart
+# version each service resolved, which is the same argument as committing a
+# lockfile for application dependencies.
+deploy/charts/*/charts/
+*.tgz
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# The generated architecture viewer: 3.4MB of inlined mermaid, rebuilt on
+# demand from docs/architecture.md. Committing it would put a megabyte-scale
+# binary-ish diff in front of every reviewer for a file nobody edits by hand.
+docs/architecture.html
+
+# Local data and model artifacts
+data/
+mlruns/
+*.joblib
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Per-machine tool permissions, not project config. Excluded here as well as
+# in most people's global gitignore - relying on the global one means the file
+# gets committed the first time someone clones this on a machine that has not
+# set one up.
+.claude/settings.local.json

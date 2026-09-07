@@ -1,0 +1,19 @@
+# Staging. Same base, same charts, same images - only the values differ.
+#
+# Promotion is a PR that copies an image tag from dev into this overlay. The
+# artifact is never rebuilt, so what ships is bit-for-bit what was tested. If
+# this overlay could set its own model deployment or prompt bundle SHA, "we
+# tested this exact thing" would stop being true - and that sentence is the
+# entire reason the promotion ceremony exists.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: medw
+resources:
+  - ../base
+patches:
+  - target: { kind: HelmRelease }
+    patch: |
+      - op: add
+        path: /spec/values
+        value:
+          env: staging

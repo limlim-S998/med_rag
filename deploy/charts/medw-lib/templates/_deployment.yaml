@@ -1,0 +1,66 @@
+{{/*
+The shared Deployment. Every service chart calls this and supplies only
+values. Helm stays thin on purpose: it propagates versions, it does not hold
+logic. The moment a chart contains a conditional about *behaviour* rather
+than about environment, that logic belongs in the application.
+*/}}
+{{- define "medw-lib.deployment" -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.name }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  # Only set when nothing else owns this number. With an HPA or a KEDA
+  # ScaledObject in play, a replicas value here and the autoscaler fight: Helm
+  # sets it back on every reconcile, the autoscaler corrects it, and with Flux
+  # reconciling on a loop that oscillation never settles. Omitting the field
+  # is the fix, not setting it to the same number.
+  replicas: {{ .Values.replicas }}
+  {{- end }}
+  selector:
+    matchLabels: { app: {{ .Values.name }} }
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.name }}
+        azure.workload.identity/use: "true"   # opt this pod into token projection
+    spec:
+      serviceAccountName: {{ .Values.name }}
+      containers:
+        - name: app
+          # Always a git SHA. Never :latest - :latest makes "what is running"
+          # unanswerable, and rollback impossible.
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          ports: [{ containerPort: 8000 }]
+          env:
+            - name: MEDW_ENV
+              value: {{ .Values.env }}
+            - name: MEDW_SERVICE_NAME
+              value: {{ .Values.name }}
+            {{- range $k, $v := .Values.config }}
+            - name: MEDW_{{ $k | upper }}
+              value: {{ $v | quote }}
+            {{- end }}
+          {{- if .Values.startupProbe }}
+          # For services that load something slow at boot. While a startup
+          # probe is failing, Kubernetes suppresses the liveness probe - which
+          # is the whole point. Without it the reranker (tens of seconds to
+          # load its weights) fails liveness three times at 10s intervals and
+          # gets killed before it ever finishes loading. That is an infinite
+          # crash loop caused entirely by probe configuration.
+          startupProbe:
+            httpGet: { path: /readyz, port: 8000 }
+            periodSeconds: 5
+            initialDelaySeconds: {{ .Values.startupProbe.initialDelaySeconds | default 10 }}
+            failureThreshold: {{ .Values.startupProbe.failureThreshold | default 12 }}
+          {{- end }}
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8000 }
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /readyz, port: 8000 }
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+{{- end -}}

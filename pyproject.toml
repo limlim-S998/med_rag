@@ -1,0 +1,97 @@
+[project]
+name = "medwriter-assist"
+version = "0.1.0"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# Beyond the defaults: bugbear, async correctness, datetime hygiene, and the
+# simplify set. Chosen because each has already caught something real here.
+extend-select = ["B", "ASYNC", "DTZ", "SIM", "I", "PIE", "UP", "RUF"]
+
+ignore = [
+    # `...` as a function body is the house style for a stub: it marks "the
+    # shape is decided, the implementation is not" and it type-checks as a
+    # valid body. PIE790 wants them deleted, which would turn every stub into
+    # a syntax error. This repo is roughly half stubs on purpose.
+    "PIE790",
+    # FastAPI's whole dependency-injection design is a call in a default
+    # argument - `user: Principal = Depends(current_user)`. B008 is correct in
+    # general and wrong for every FastAPI handler ever written.
+    "B008",
+]
+
+[tool.ruff.lint.isort]
+# medw_core is pip-installed (editable) into every environment, so isort would
+# otherwise file it under third-party alongside the Azure SDKs. It is ours, and
+# the import block should say so - the visual separation between "our library"
+# and "a vendor" is the same boundary .importlinter enforces mechanically.
+# `app` is here because each service's package is top-level inside its image.
+known-first-party = ["medw_core", "app", "pipelines", "ml"]
+
+[tool.ruff.lint.per-file-ignores]
+# Readiness probes catch bare Exception deliberately: any failure to reach a
+# dependency means "not ready", and enumerating the exception types of five
+# SDKs is a maintenance burden that buys nothing.
+"services/*/app/main.py" = ["BLE001"]
+# The DAGs are read by Airflow, which imports them for their side effects;
+# the module-level call is the API, not an accident.
+"pipelines/dags/*.py" = ["B018"]
+
+[tool.mypy]
+# python_version is deliberately NOT pinned here. Pinning it to the 3.11 floor
+# while developing on 3.12 makes mypy parse the *installed* third-party stubs
+# under 3.11 rules, and numpy's stubs use `type` statements that only exist in
+# 3.12 - so mypy fails inside numpy before it reaches any of our code. Letting
+# it follow the running interpreter is correct; CI runs 3.11 and checks the
+# floor, a 3.12 laptop checks 3.12, and both are useful.
+#
+# Deliberately not strict. Half this repo is stubs whose bodies are `...`, and
+# strict mode would demand return types that the stubs cannot honestly give
+# yet. What is wanted today is "the signatures agree with each other", which
+# is what these three flags check.
+warn_redundant_casts = true
+warn_unused_ignores = true
+check_untyped_defs = true
+
+# A `...` body on a function that declares a return type is this repo's stub
+# idiom - the same decision as ignoring PIE790 in ruff. Without this, mypy
+# reports "missing return statement" for every seam that has been designed and
+# not yet implemented, which is most of them by intent.
+disable_error_code = ["empty-body"]
+# The Azure SDKs ship partial stubs; missing imports are noise, not signal.
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Airflow's decorators are untyped and the DAG files are not application code.
+module = ["pipelines.dags.*"]
+ignore_errors = true
+
+[tool.pytest.ini_options]
+# Async tests are the norm here: every service is async and the interesting
+# behaviour (backoff, concurrency, pacing) only exists on an event loop.
+asyncio_mode = "auto"
+filterwarnings = [
+    # qdrant-client pings the server for a version check when the client is
+    # constructed. The filter translators are pure and testable offline, but
+    # constructing the repo to reach them still triggers it. Worth knowing
+    # rather than fixing: client construction doing network I/O is the
+    # library's choice, and suppressing the warning is cheaper than adding a
+    # constructor flag to production code purely for tests.
+    "ignore:Failed to obtain server version:UserWarning",
+]
+# Each service's `app` package is importable on its own, the way it is inside
+# its own container. Adding the repo root instead would let a service import
+# another service's module and never notice.
+pythonpath = [
+    "libs",
+    ".",
+    "services/retrieval",
+    "services/gateway",
+    "services/generation",
+    "services/reranker",
+    "services/ingestion_worker",
+]

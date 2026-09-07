@@ -1,0 +1,16 @@
+fastapi
+uvicorn[standard]
+httpx
+pydantic-settings
+openai
+azure-identity
+azure-storage-blob
+azure-search-documents
+azure-cosmos
+azure-ai-documentintelligence
+azure-ai-textanalytics
+qdrant-client
+llama-index-core
+scikit-learn
+azureml-mlflow
+azure-monitor-opentelemetry

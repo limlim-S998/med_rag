@@ -1,0 +1,65 @@
+{{/*
+Autoscaling, and the fork in it is the whole point.
+
+The values files already argued that CPU autoscaling is close to useless for
+an LLM-bound service: the pods sit at 3% CPU blocked on I/O while latency
+climbs, so the signal you scale on has to be in-flight requests, not CPU.
+That argument was written in a comment next to a value nothing rendered.
+
+So: `metric: cpu` renders a plain HPA, and anything else renders a KEDA
+ScaledObject. The reranker is the one service that genuinely is CPU-bound -
+it runs a cross-encoder on CPU - and it is the only chart that sets cpu.
+Every other service gets the concurrency trigger.
+
+PREREQUISITE: the KEDA CRDs must exist in the cluster, or a release with a
+non-cpu metric fails to install. That is a real cluster dependency and it
+belongs in the bootstrap, not hidden behind a default that silently degrades
+to CPU - degrading silently is how you end up with an autoscaler that does
+nothing and a service that looks like it scales.
+*/}}
+{{- define "medw-lib.autoscaling" -}}
+{{- if .Values.autoscaling.enabled }}
+{{- if eq .Values.autoscaling.metric "cpu" }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ .Values.name }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ .Values.name }}
+  minReplicas: {{ .Values.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.target }}
+{{- else }}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ .Values.name }}
+spec:
+  scaleTargetRef:
+    name: {{ .Values.name }}
+  minReplicaCount: {{ .Values.autoscaling.minReplicas }}
+  maxReplicaCount: {{ .Values.autoscaling.maxReplicas }}
+  # Scaling down fast is worse than scaling up slow here: a pod removed while
+  # holding an open token stream drops a writer's half-drafted section.
+  cooldownPeriod: 300
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: {{ .Values.autoscaling.prometheusAddress | default "http://prometheus-operated.monitoring:9090" }}
+        # The gauge the services export. Named here so the chart and the
+        # application agree on one string; a typo means an autoscaler that
+        # reports healthy and never fires.
+        query: sum(medw_{{ .Values.autoscaling.metric }}{app="{{ .Values.name }}"})
+        threshold: "{{ .Values.autoscaling.target }}"
+{{- end }}
+{{- end }}
+{{- end -}}
