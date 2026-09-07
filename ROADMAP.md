@@ -65,6 +65,34 @@ architecture-led while staying grounded in something that runs.
 
 ---
 
+## Implementation currently held back
+
+The repo is deliberately in a **scaffolding-first** state: system design, ops
+and delivery are the subject, and domain/modelling implementations have been
+pulled out so they can be reviewed and reintroduced one at a time.
+
+Held back (stubbed here, with signatures and reasoning intact):
+
+`pipelines/parsers/table.py` · `chunker.py` · `pipelines/cli.py` ·
+`services/retrieval/app/fusion.py` · `services/generation/app/table_to_text.py`
+· `verify.py` · the reranker's cross-encoder · `ml/table_classifier/*` ·
+`ml/reranker_baseline/*` · `evals/run_retrieval_eval.py` · the populated golden
+set and the DI-layout fixtures.
+
+**The durable copy is the `implementation/retrieval-slice` branch.**
+`holding/` is a gitignored working copy for convenience, not the backup — it
+is not committed and will not survive a clean checkout.
+
+Kept, because these *are* the system design: all of `libs/medw_core` (ports,
+errors, schemas, settings, projections, ids, tracing, metrics, rate limiting,
+Azure clients), every service shell with its lifespan and probe semantics, the
+retrieval adapters that prove the ports are satisfiable, and everything under
+`deploy/`, `infra/`, `db/`, `tests/`, `scripts/bump_image_tag.py` and CI.
+
+Reintroducing is a copy back plus its tests. Nothing in the scaffolding
+depends on any of it — verified: 79 tests, 4 architecture contracts, all
+charts and Flux overlays still pass with every one of those files stubbed.
+
 ## Phases
 
 ### A. Contracts and boundaries — DONE

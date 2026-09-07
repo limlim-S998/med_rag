@@ -32,6 +32,14 @@ async def access_token_struct(cred: DefaultAzureCredential) -> bytes:
 
 
 def engine(s: Settings, token: bytes) -> AsyncEngine:
+    if not s.sql_server:
+        # An empty host silently produces "mssql+aioodbc://@/medw", which is a
+        # valid URL that connects to nothing - so the failure surfaces later,
+        # somewhere unrelated, as a driver error. Say what is actually wrong.
+        raise RuntimeError(
+            "MEDW_SQL_SERVER is not set. Azure SQL is not provisioned in this "
+            "environment; see RESUME.md. The audit sink is unavailable until it is."
+        )
     return create_async_engine(
         f"mssql+aioodbc://@{s.sql_server}/{s.sql_database}"
         "?driver=ODBC+Driver+18+for+SQL+Server",

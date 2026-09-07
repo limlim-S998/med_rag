@@ -57,7 +57,36 @@ forbidden_modules =
     sklearn
     mlflow
 
-# --- 4. the domain model stays a domain model ---------------------------
+# --- 4. the local backend stays local -----------------------------------
+[importlinter:contract:local-is-vendor-free]
+name = local implementations import no vendor SDKs
+type = forbidden
+source_modules =
+    medw_core.local
+forbidden_modules =
+    azure
+    openai
+    qdrant_client
+    sqlalchemy
+    langchain
+    llama_index
+
+# The composition root is the ONLY module allowed to know both worlds. Nothing
+# else may import medw_core.local - if a service imported it directly, the
+# backend switch would stop being a switch.
+[importlinter:contract:only-composition-knows-local]
+name = only the composition root imports the local backend
+type = forbidden
+source_modules =
+    medw_core.ports
+    medw_core.schemas
+    medw_core.projections
+    medw_core.azure
+    medw_core.settings
+forbidden_modules =
+    medw_core.local
+
+# --- 5. the domain model stays a domain model ---------------------------
 # schemas.py is the contract between ingestion, retrieval and generation, and
 # it doubles as the JSON schema pasted into prompts. It must not acquire
 # behaviour that needs configuration.

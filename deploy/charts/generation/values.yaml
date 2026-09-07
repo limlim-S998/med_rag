@@ -23,10 +23,13 @@ config:
   temperature: "0"                  # not creative writing. Pinned, not defaulted.
 
   aoai_endpoint: https://med-rag-test1.openai.azure.com/
-  language_endpoint: https://medwdevlang.cognitiveservices.azure.com/
-  sql_server: medwdevsql.database.windows.net
+  language_endpoint: https://medrag325744d5lang-158de.cognitiveservices.azure.com/
+  # Not provisioned. Azure SQL needs an AAD admin principal decision
+  # (no AAD group exists on this subscription), so it is deliberately
+  # empty rather than pointing at a server that does not exist.
+  sql_server: ""
   sql_database: medw
-  cosmos_endpoint: https://medwdevcosmos.documents.azure.com:443/
+  cosmos_endpoint: https://medrag325744d5cosmos.documents.azure.com:443/
   cosmos_database: medw
 
 resources:

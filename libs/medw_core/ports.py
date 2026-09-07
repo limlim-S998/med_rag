@@ -21,6 +21,7 @@
 # the method names exist, never the signatures, which makes it a weak check
 # and a bad habit outside a test.
 
+from collections.abc import AsyncIterator
 from typing import Protocol, runtime_checkable
 
 from medw_core.schemas import Chunk, ParsedTable, RetrievalFilter, TableType
@@ -142,7 +143,11 @@ class ChatClient(Protocol):
     that reliably.
     """
 
-    async def stream(self, prompt: str, *, max_tokens: int = 2048): ...
+    # NOT `async def`. An async generator function is typed as a plain def
+    # returning AsyncIterator - `async def` here would mean "a coroutine that
+    # resolves to an iterator", which no `async def ... yield` satisfies. The
+    # Protocol was unsatisfiable until a second implementation exposed it.
+    def stream(self, prompt: str, *, max_tokens: int = 2048) -> AsyncIterator[str]: ...
 
     async def complete_json(self, prompt: str, schema: dict) -> dict:
         """Structured output. Implementations own the parse-validate-retry
@@ -176,6 +181,34 @@ class JobStore(Protocol):
     async def fail(self, job: dict, state: str, error: str) -> dict: ...
 
     async def get(self, study_id: str, job_id: str) -> dict | None: ...
+
+
+@runtime_checkable
+class SessionStore(Protocol):
+    """Writer session: open study, current section, recent retrieval context.
+
+    Cosmos in the cloud, partitioned by /user_id because the read is always
+    "this writer's session" and never "this study's sessions". Short-lived and
+    TTL'd - expiry is the database's job, not a cleanup cron.
+    """
+
+    async def get(self, user_id: str, session_id: str) -> dict | None: ...
+
+    async def put(self, session: dict) -> None: ...
+
+
+@runtime_checkable
+class DocumentStore(Protocol):
+    """Metadata for one ingested source document.
+
+    The bytes stay in Blob; this is the row saying where they are, what type
+    the classifier called them, and which parser version last touched them.
+    Partitioned by /study_id, so `by_study` is a single-partition read.
+    """
+
+    async def upsert(self, doc: dict) -> dict: ...
+
+    async def by_study(self, study_id: str) -> list[dict]: ...
 
 
 @runtime_checkable

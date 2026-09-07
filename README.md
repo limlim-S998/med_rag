@@ -59,11 +59,10 @@ medwriter-assist/
 │   │   └── app/routes/        search, draft (streaming), documents
 │   ├── retrieval/
 │   │   ├── app/main.py        ★ async FastAPI, probes, dense∥sparse, rerank
-│   │   ├── app/fusion.py      ★ RRF in 8 lines
+│   │   ├── app/fusion.py      stub — RRF held back (see ROADMAP)
 │   │   ├── app/qdrant_repo.py ★ collections, payload indexes, pre-ANN filters
 │   │   ├── app/sparse_repo.py Cognitive Search BM25 half
-│   │   └── tests/test_fusion.py
-│   ├── reranker/app/main.py   ★ the one model with weights in the cluster
+│   ├── reranker/app/main.py   ★ service shell + probe semantics; model held back
 │   ├── generation/
 │   │   ├── app/table_to_text.py ★ deterministic numeric spine
 │   │   ├── app/verify.py        ★ four verification layers

@@ -16,6 +16,19 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     service_name: str = "unset"
 
+    # --- which implementations get wired -----------------------------------
+    # The ONLY switch between the real stack and the local one. Read in exactly
+    # one place (medw_core.composition); anywhere else reading this would be a
+    # conditional in application code, which is what the ports exist to avoid.
+    #
+    #   azure  real services, real credential, real cost
+    #   local  in-memory stand-ins, no network, no credential
+    backend: str = "azure"
+
+    # Recorded Document Intelligence layout responses, replayed by the local
+    # LayoutExtractor. Point this at a directory of *.layout.json.
+    fixture_dir: str = "data/sample/ABC-101"
+
     # --- Azure OpenAI ---------------------------------------------------
     # You call a *deployment name*, not a model name. The deployment is a
     # named instance of a model inside your AOAI resource. Pin the version
@@ -30,6 +43,12 @@ class Settings(BaseSettings):
     # Qdrant collection name so old and new vectors can never be compared.
     embed_version: str = "v3l-001"
 
+    # This pod's share of the deployment's tokens-per-minute quota. Per-pod,
+    # not global: a distributed limiter would need a shared store on the hot
+    # path to solve what replica-count arithmetic already solves. maxReplicas
+    # in values.yaml times this number must stay under the provisioned quota.
+    pod_tpm: int = 10_000
+
     # --- Qdrant ---------------------------------------------------------
     qdrant_url: str = "http://localhost:6333"
     hnsw_m: int = 16
@@ -37,26 +56,29 @@ class Settings(BaseSettings):
     search_ef: int = 128
 
     # --- Azure Cognitive Search (BM25 half) -----------------------------
-    search_endpoint: str = "https://medw-dev-search.search.windows.net"
+    search_endpoint: str = "https://medrag325744d5search.search.windows.net"
     search_index: str = "csr-chunks"
 
     # --- Storage / state -------------------------------------------------
-    blob_account_url: str = "https://medwdevsa.blob.core.windows.net"
+    blob_account_url: str = "https://medrag325744d5sa.blob.core.windows.net"
     blob_container: str = "raw"
 
     # Cosmos: semi-structured, high-churn (documents, jobs, sessions).
-    cosmos_endpoint: str = "https://medwdevcosmos.documents.azure.com:443/"
+    cosmos_endpoint: str = "https://medrag325744d5cosmos.documents.azure.com:443/"
     cosmos_database: str = "medw"
 
     # Azure SQL: relational + append-only audit. No password field, on purpose:
     # auth is an AAD token, see medw_core.sql.
-    sql_server: str = "medwdevsql.database.windows.net"
+    sql_server: str = ""   # not provisioned yet
     sql_database: str = "medw"
 
     # --- Document parsing / clinical NER ----------------------------------
-    docintel_endpoint: str = "https://medwdevdi.cognitiveservices.azure.com/"
+    # NOTE the random suffix. Azure generates a custom subdomain when one is
+    # not requested, so this URL CANNOT be built from the resource name -
+    # it has to be read back with `az cognitiveservices account show`.
+    docintel_endpoint: str = "https://medragdevdi-40aab.cognitiveservices.azure.com/"
     docintel_model: str = "prebuilt-layout"   # layout, not prebuilt-document
-    language_endpoint: str = "https://medwdevlang.cognitiveservices.azure.com/"
+    language_endpoint: str = "https://medrag325744d5lang-158de.cognitiveservices.azure.com/"
 
     # --- Models with weights ----------------------------------------------
     # Registry name + pinned version. Never "latest": a classifier that changes

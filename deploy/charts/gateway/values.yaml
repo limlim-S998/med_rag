@@ -12,10 +12,13 @@ serviceAccount:
     azure.workload.identity/client-id: "00000000-0000-0000-0000-000000000004"
 
 config:
-  cosmos_endpoint: https://medwdevcosmos.documents.azure.com:443/
+  cosmos_endpoint: https://medrag325744d5cosmos.documents.azure.com:443/
   cosmos_database: medw
-  blob_account_url: https://medwdevsa.blob.core.windows.net
-  sql_server: medwdevsql.database.windows.net
+  blob_account_url: https://medrag325744d5sa.blob.core.windows.net
+  # Not provisioned. Azure SQL needs an AAD admin principal decision
+  # (no AAD group exists on this subscription), so it is deliberately
+  # empty rather than pointing at a server that does not exist.
+  sql_server: ""
   sql_database: medw
   # Internal service DNS. These are the Service objects from medw-lib.
   retrieval_url: http://retrieval:8000

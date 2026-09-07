@@ -1,4 +1,8 @@
 # Verification, layered. No layer is "prompt it nicely".
+#
+# IMPLEMENTATION HELD BACK. numeric_fidelity in holding/ and on the
+# implementation/retrieval-slice branch. The *layering* is the architecture
+# and stays here; the matching rules are modelling.
 
 import re
 
@@ -18,9 +22,9 @@ class StructuralVerdict(BaseModel):
 
 def numeric_fidelity(generated: str, allowed: dict) -> list[str]:
     # Layer 1, and the one that actually matters: every numeral in the output
-    # must appear in the slot values that came from the parsed table.
-    permitted = {str(v) for v in allowed.values()}
-    return [n for n in NUMERAL.findall(generated) if n not in permitted]
+    # must appear in the slot values that came from the parsed table. Returns
+    # the offenders; a non-empty list fails the section rather than warning.
+    ...
 
 
 def structural_rules(section_path: str, text: str) -> list[str]:

@@ -68,6 +68,16 @@ def test_environment_overlays_never_pin_their_own_tag(chart):
     (prod uses a different ACR) but never the tag.
     """
     for overlay in chart.glob("values-*.yaml"):
+        # values-local.yaml is NOT in the promotion chain. It is a manual
+        # `helm install -f` for a laptop, using images side-loaded with
+        # `minikube image load` rather than pulled from a registry - so it must
+        # pin `tag: dev` and set pullPolicy: Never. Flux never reads it.
+        #
+        # Excluded by name rather than by relaxing the rule: dev, staging and
+        # prod are still forbidden from pinning their own tag, because that is
+        # what makes "promotion ships exactly what was tested" true.
+        if overlay.name == "values-local.yaml":
+            continue
         image = values(chart, overlay.name).get("image", {})
         assert "tag" not in image, (
             f"{overlay.relative_to(ROOT)} pins its own image tag; promotion must carry "

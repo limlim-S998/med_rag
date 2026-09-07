@@ -26,7 +26,7 @@ config:
   reranker_url: http://reranker:8000
   # The sparse half. One shared index for all studies, filtered by study_id -
   # the opposite partitioning to Qdrant, for the cost reason in ADR 0006.
-  search_endpoint: https://medwdevsearch.search.windows.net
+  search_endpoint: https://medrag325744d5search.search.windows.net
   search_index: csr-chunks
   rrf_k: "60"
   fusion_top_n: "30"

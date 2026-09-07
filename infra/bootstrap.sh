@@ -139,6 +139,17 @@ az cognitiveservices account create -n ${PREFIX}di -g $RG -l $LOC \
 az cognitiveservices account create -n ${PREFIX}lang -g $RG -l $LOC \
   --kind TextAnalytics --sku $AI_SKU      # Azure AI Language: healthcare NER + UMLS
 
+# --- read the endpoints back; they cannot be constructed ----------------
+# Azure appends a random suffix when it generates a custom subdomain, so a
+# Document Intelligence account named `medwdevdi` answers on something like
+# https://medwdevdi-40aab.cognitiveservices.azure.com/. Building that URL from
+# the resource name gives a hostname that does not resolve, and the failure
+# looks like a network problem rather than a naming one.
+for acct in ${PREFIX}di ${PREFIX}lang; do
+  az cognitiveservices account show -n $acct -g $RG --query properties.endpoint -o tsv
+done
+# Feed those into the Helm values; do not hand-write them.
+
 # --- Azure ML: experiment tracking + the model registry -----------------
 # The registry earns its keep on the models that have weights we trained -
 # the sklearn classifiers. A hosted model has no artifact to register, which

@@ -10,13 +10,12 @@
 #
 # k dampens the top: with k=60 the gap between rank 1 and rank 2 is small, so
 # one list being confidently wrong cannot dominate.
-
-from collections import defaultdict
+#
+# IMPLEMENTATION HELD BACK. Eight lines, in holding/ and on the
+# implementation/retrieval-slice branch. It is a ranking algorithm with a
+# tunable constant, so it belongs with the modelling work rather than the
+# service shape.
 
 
 def rrf(rank_lists: list[list[str]], k: int = 60) -> list[tuple[str, float]]:
-    scores: dict[str, float] = defaultdict(float)
-    for lst in rank_lists:
-        for rank, doc_id in enumerate(lst, start=1):
-            scores[doc_id] += 1.0 / (k + rank)
-    return sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
+    ...

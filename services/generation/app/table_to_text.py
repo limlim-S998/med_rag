@@ -7,27 +7,25 @@
 # So: the numeric spine is a template filled from the parsed table. The model
 # is only allowed to write connective prose, and it never sees a slot it can
 # overwrite. The classifier picks which template - which is why that little
-# LinearSVC is load-bearing rather than decoration.
+# LinearSVC in ml/ is load-bearing rather than decoration.
+#
+# IMPLEMENTATION HELD BACK. Templates and slot extraction in holding/ and on
+# the implementation/retrieval-slice branch. The template *wording* is
+# clinical content owned by the medical writers; what the scaffolding fixes is
+# the contract: render() takes a ParsedTable and returns slots the
+# verification layer can diff against.
 
 from medw_core.schemas import ParsedTable, TableType
 
-TEMPLATES: dict[TableType, str] = {
-    TableType.demographics: (
-        "A total of {total_n} subjects were randomised. "
-        "{arm_sentences} Demographic characteristics were {balance_word} across treatment groups."
-    ),
-    TableType.ae_summary: (
-        "Treatment-emergent adverse events were reported in {teae_line}. "
-        "The most frequently reported events by system organ class were {top_socs}."
-    ),
-}
+# One template per table type. Content lives with the writers, not here.
+TEMPLATES: dict[TableType, str] = {}
 
 
 def render(table: ParsedTable, table_type: TableType) -> dict:
     # Every value here comes out of ParsedTable.cells - never out of a model.
-    slots = _extract_slots(table, table_type)
-    skeleton = TEMPLATES[table_type].format(**slots)
-    return {"skeleton": skeleton, "slots": slots, "source_table": table.table_number}
+    # Returns {"skeleton", "slots", "source_table"}; `slots` is the set the
+    # verification pass re-extracts the output against.
+    ...
 
 
 def _extract_slots(table: ParsedTable, table_type: TableType) -> dict:

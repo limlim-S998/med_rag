@@ -44,3 +44,8 @@ mlruns/
 # gets committed the first time someone clones this on a machine that has not
 # set one up.
 .claude/settings.local.json
+
+# Working copies of implementations pulled out while the scaffolding is
+# reviewed. Not committed - the durable copy is the implementation/* branch.
+# This directory is a convenience, not the backup.
+holding/

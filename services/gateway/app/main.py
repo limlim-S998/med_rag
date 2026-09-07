@@ -16,14 +16,14 @@
 # This is also the only service exposed through the ingress. Nothing else has
 # a public address.
 
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 
 import httpx
 from fastapi import Depends, FastAPI, Request, Response
 
-from medw_core import azure, tracing
+from medw_core import tracing
 from medw_core.auth import Principal, current_user
-from medw_core.cosmos import SessionRepo, containers
+from medw_core.composition import build
 from medw_core.settings import get_settings
 
 from .routes import documents, draft, search
@@ -34,18 +34,22 @@ ctx: dict = {}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Session store comes from the composition root; the HTTP client does not.
+
+    `sessions` is a port with a Cosmos implementation and an in-memory one, so
+    it is wired centrally. The httpx client is not a seam - it is this
+    service's own connection pool to the internal services, and there is no
+    second implementation anyone would want.
+    """
     tracing.configure_logging(s.log_level, "gateway")
-    cred = azure.credential()
-    ctx["cred"] = cred
-    ctx["cosmos"] = azure.cosmos_client(s, cred)
-    ctx["sessions"] = SessionRepo(containers(ctx["cosmos"], s)["sessions"])
-    # One client, reused. A new AsyncClient per request leaks connections and
-    # loses keep-alive to the internal services, which is most of the win.
-    ctx["http"] = httpx.AsyncClient(timeout=60.0)
-    yield
-    await ctx["http"].aclose()
-    await ctx["cosmos"].close()
-    await cred.close()
+    async with AsyncExitStack() as stack:
+        ctx["services"] = await build(s, stack)
+        # One client, reused. A new AsyncClient per request leaks connections
+        # and loses keep-alive to the internal services, which is most of the
+        # win. 60s because generation streams and the gateway proxies it.
+        ctx["http"] = httpx.AsyncClient(timeout=60.0)
+        stack.push_async_callback(ctx["http"].aclose)
+        yield
 
 
 app = FastAPI(title="gateway", lifespan=lifespan)

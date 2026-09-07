@@ -6,12 +6,14 @@
 # them just adds their latencies together for no reason.
 
 import asyncio
-from contextlib import asynccontextmanager
+import dataclasses
+from contextlib import AsyncExitStack, asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, Request, Response
 
-from medw_core import azure, tracing
+from medw_core import tracing
+from medw_core.composition import build
 from medw_core.projections import SECTION_FIELD, TEXT_FIELD
 from medw_core.schemas import Hit, RetrievalRequest, RetrievalResponse
 from medw_core.settings import get_settings
@@ -26,16 +28,42 @@ ctx: dict = {}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Wiring comes from the composition root, not from here.
+
+    This used to build a credential, an AOAI client and two repos inline into
+    an untyped dict — the same block, slightly different, in four services. Now
+    the shared dependencies come from medw_core.composition and this function
+    only attaches the two adapters that belong to *this* service.
+
+    The store adapters are attached with dataclasses.replace rather than built
+    in the composition root, because they live in this package and medw_core
+    must never import service code (tests/test_architecture.py enforces it).
+    """
     tracing.configure_logging(s.log_level, "retrieval")
-    cred = azure.credential()
-    ctx["cred"] = cred
-    ctx["aoai"] = azure.openai_client(s, cred)
-    ctx["qdrant"] = QdrantRepo(s)
-    ctx["sparse"] = SparseRepo(azure.search_client(s, cred))
-    ctx["http"] = httpx.AsyncClient(timeout=10.0)
-    yield
-    await ctx["http"].aclose()
-    await cred.close()
+    async with AsyncExitStack() as stack:
+        if s.backend == "azure":
+            # Built here and passed in, so this process has ONE credential.
+            # Letting build() make its own would give two token caches
+            # refreshing independently against the same tenant.
+            from medw_core import azure
+            cred = azure.credential()
+            await stack.enter_async_context(cred)
+            services = await build(s, stack, credential=cred)
+            services = dataclasses.replace(
+                services,
+                vectors=QdrantRepo(s),
+                sparse=SparseRepo(azure.search_client(s, cred)),
+            )
+        else:
+            services = await build(s, stack)
+            # Qdrant is the real thing locally too; only the sparse half is
+            # substituted, and build() has already wired the in-memory one.
+            services = dataclasses.replace(services, vectors=QdrantRepo(s))
+
+        ctx["services"] = services
+        ctx["http"] = httpx.AsyncClient(timeout=10.0)
+        stack.push_async_callback(ctx["http"].aclose)
+        yield
 
 
 app = FastAPI(title="retrieval", lifespan=lifespan)
@@ -61,7 +89,7 @@ async def healthz() -> Response:
 @app.get("/readyz")
 async def readyz() -> Response:
     try:
-        await ctx["qdrant"].client.get_collections()
+        await ctx["services"].require("vectors").client.get_collections()
         await ctx["http"].get(f"{s.reranker_url}/healthz")
         return Response(status_code=200)
     except Exception:
@@ -77,15 +105,14 @@ async def search(req: RetrievalRequest) -> RetrievalResponse:
     # Building it here means the two halves cannot be given different things.
     flt = req.to_filter()
 
-    emb = await ctx["aoai"].embeddings.create(
-        model=s.embed_deployment,          # deployment name, and it MUST be the
-        input=[req.query],                 # same one used at index time
-    )
-    vector = emb.data[0].embedding
+    svc = ctx["services"]
+    # Through the port. This handler no longer knows whether it is talking to
+    # Azure OpenAI or a hash function, which is the entire point.
+    vector = (await svc.require("embedder").embed([req.query]))[0]
 
     dense, sparse = await asyncio.gather(
-        ctx["qdrant"].search(vector, flt, limit=s.fusion_top_n),
-        ctx["sparse"].search(req.query, flt, limit=s.fusion_top_n),
+        svc.require("vectors").search(vector, flt, limit=s.fusion_top_n),
+        svc.require("sparse").search(req.query, flt, limit=s.fusion_top_n),
     )
 
     # Results from the two halves are merged into one dict and then read

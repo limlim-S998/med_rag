@@ -22,12 +22,12 @@ config:
   embed_deployment: text-embedding-3-large-1
   embed_version: v3l-001            # must match retrieval's, or the query and
                                     # index vectors are in different spaces
-  docintel_endpoint: https://medwdevdi.cognitiveservices.azure.com/
-  language_endpoint: https://medwdevlang.cognitiveservices.azure.com/
-  search_endpoint: https://medwdevsearch.search.windows.net
+  docintel_endpoint: https://medragdevdi-40aab.cognitiveservices.azure.com/
+  language_endpoint: https://medrag325744d5lang-158de.cognitiveservices.azure.com/
+  search_endpoint: https://medrag325744d5search.search.windows.net
   search_index: csr-chunks
-  blob_account_url: https://medwdevsa.blob.core.windows.net
-  cosmos_endpoint: https://medwdevcosmos.documents.azure.com:443/
+  blob_account_url: https://medrag325744d5sa.blob.core.windows.net
+  cosmos_endpoint: https://medrag325744d5cosmos.documents.azure.com:443/
   cosmos_database: medw
   qdrant_url: http://qdrant:6333
   # Pinned classifier version. Changing it re-labels document types, which
