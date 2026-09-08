@@ -1,6 +1,6 @@
 apiVersion: v2
 name: qdrant
-version: 0.1.0
+version: 0.2.0
 appVersion: "1.12.1"
 # No medw-lib dependency: this is the one workload that is a StatefulSet, not
 # a Deployment, so it shares none of the library templates. A chart that had
