@@ -7,3 +7,4 @@ azure-cosmos
 azure-storage-blob
 python-jose[cryptography]
 azure-monitor-opentelemetry
+opentelemetry-exporter-prometheus

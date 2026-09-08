@@ -10,3 +10,4 @@ azure-ai-textanalytics
 sqlalchemy[asyncio]
 aioodbc
 azure-monitor-opentelemetry
+opentelemetry-exporter-prometheus

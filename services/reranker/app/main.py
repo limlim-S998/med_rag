@@ -20,6 +20,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Response
 from pydantic import BaseModel
 
+from medw_core import metrics
+
 MODEL_ID = "cross-encoder/ms-marco-MiniLM-L-6-v2"   # baked into the image
 model = None
 
@@ -35,6 +37,18 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="reranker", lifespan=lifespan)
+
+# Scrape endpoint and the in-flight gauge. Prometheus is what KEDA reads; the
+# same instruments also go to App Insights via metrics.configure(). One set of
+# instruments, two readers - see medw_core.metrics.
+metrics.configure_prometheus()
+app.add_middleware(metrics.InFlightMiddleware, service="reranker")
+
+
+@app.get("/metrics")
+async def prometheus_metrics() -> Response:
+    body, content_type = metrics.render_prometheus()
+    return Response(content=body, media_type=content_type)
 
 
 class Candidate(BaseModel):

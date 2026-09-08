@@ -7,3 +7,4 @@ azure-identity
 azure-search-documents
 azure-storage-blob
 pydantic-settings
+opentelemetry-exporter-prometheus

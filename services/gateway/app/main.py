@@ -21,7 +21,7 @@ from contextlib import AsyncExitStack, asynccontextmanager
 import httpx
 from fastapi import Depends, FastAPI, Request, Response
 
-from medw_core import tracing
+from medw_core import metrics, tracing
 from medw_core.auth import Principal, current_user
 from medw_core.composition import build, readiness
 from medw_core.settings import get_settings
@@ -53,6 +53,18 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="gateway", lifespan=lifespan)
+
+# Scrape endpoint and the in-flight gauge. Prometheus is what KEDA reads; the
+# same instruments also go to App Insights via metrics.configure(). One set of
+# instruments, two readers - see medw_core.metrics.
+metrics.configure_prometheus()
+app.add_middleware(metrics.InFlightMiddleware, service="gateway")
+
+
+@app.get("/metrics")
+async def prometheus_metrics() -> Response:
+    body, content_type = metrics.render_prometheus()
+    return Response(content=body, media_type=content_type)
 app.include_router(search.router)
 app.include_router(draft.router)
 app.include_router(documents.router)

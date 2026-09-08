@@ -14,3 +14,4 @@ llama-index-core
 scikit-learn
 azureml-mlflow
 azure-monitor-opentelemetry
+opentelemetry-exporter-prometheus

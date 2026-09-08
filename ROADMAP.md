@@ -261,7 +261,7 @@ revert to prove the reconcile loop).
 SHA → values bump committed → Flux reconciles → pods pass both probes →
 `git revert` rolls it back.
 
-### C¾. Prometheus, to make KEDA real — REQUESTED, not started
+### C¾. Prometheus, to make KEDA real — CODE DONE, cluster install pending
 
 Wanted in the project: **Prometheus, deployed as part of the stack**, so the
 KEDA autoscaling is actually driven rather than described.
@@ -289,22 +289,37 @@ fidelity failures and JSON retries — no in-flight gauge. The values files argu
 at length that in-flight requests are the right signal for an LLM-bound
 service, and nothing measures it.
 
-**What this needs, in order:**
+**Done:**
 
-- An **in-flight requests gauge** in `metrics.py`, incremented and decremented
-  by ASGI middleware in `medw-lib`'s shape — the one metric the autoscaler
-  actually reads.
-- A **Prometheus exporter** alongside the Azure Monitor one. OpenTelemetry
-  supports multiple readers on the same meter provider, so the same instrument
-  can feed App Insights and a `/metrics` endpoint without a second definition.
-  Note Prometheus naming: `medw.tokens_per_request` becomes
-  `medw_tokens_per_request`, so the query in `_autoscaling.yaml` and the
-  instrument names must be checked against each other rather than assumed.
-- **kube-prometheus-stack** (or the Prometheus Operator alone) in the cluster,
-  plus a `ServiceMonitor` per service so it discovers the pods.
-- A **test** that the metric name in the rendered `ScaledObject` matches an
-  instrument that actually exists — this is exactly the class of silent
-  mismatch the versioning tests were written for.
+- `medw.inflight_requests` — an UpDownCounter in `metrics.py`, the metric the
+  ScaledObject was already querying and nothing emitted.
+- `InFlightMiddleware` — pure ASGI, not `BaseHTTPMiddleware`, because the
+  latter buffers responses and generation streams tokens. Middleware that
+  disabled streaming in order to count requests would be measuring the thing
+  it broke. The decrement is in a `finally`, so a raising handler cannot
+  strand a count and drift the gauge upward forever.
+- `configure_prometheus()` adds a second reader to the **same** meter provider,
+  so App Insights and `/metrics` share one set of instruments. Verified that
+  OTel forwards instruments created at import time to a provider installed
+  later — an assumption worth checking, since if it were false the gauge would
+  silently record nothing and produce the exact empty-query failure.
+- `/metrics` on all five services.
+- `tests/test_metrics.py` — 7 tests, including the one that would have caught
+  the original break: every chart's `autoscaling.metric` must correspond to an
+  instrument that actually exists. Mutation-tested by pointing a chart at
+  `concurrent_requests` and confirming it fails.
+
+Exported name verified end to end through the real exporter:
+`medw_inflight_requests{app="retrieval"}` — matching
+`sum(medw_inflight_requests{app="retrieval"})` in the rendered ScaledObject.
+
+**Still needs a cluster:**
+
+- **kube-prometheus-stack** (or the Prometheus Operator alone), plus a
+  `ServiceMonitor` per service so it discovers the pods and scrapes `/metrics`.
+- **KEDA**, whose CRDs `values-local.yaml` currently disables.
+- Then the actual proof: drive concurrent requests at a service and watch the
+  replica count move.
 
 Locally this is also what makes the autoscaling path testable at all: KEDA and
 Prometheus both install into minikube, so the trigger can be exercised without
