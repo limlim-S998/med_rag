@@ -123,12 +123,30 @@ class InFlightMiddleware:
     autoscaler would scale on a number that only goes up.
     """
 
+    # Paths that must not count towards load.
+    #
+    # /metrics is the scrape itself: the middleware increments, the handler
+    # renders the gauge INCLUDING that increment, and the scrape records 1 on a
+    # completely idle service. Measured on the cluster before this exclusion
+    # existed - the query returned exactly 1 with no traffic.
+    #
+    # That is not cosmetic. KEDA divides the metric by the replica count and
+    # compares to the target, so a permanent floor of one-per-pod is load the
+    # autoscaler cannot distinguish from real work: with target 2 it eats half
+    # the headroom, and a metric that never returns to zero can never scale
+    # back down to minReplicas.
+    #
+    # The probes are excluded for the same reason at higher frequency: liveness
+    # every 10s and readiness every 5s would otherwise be a constant baseline
+    # that grows with how carefully you configured your probes.
+    EXCLUDED = frozenset({"/metrics", "/healthz", "/readyz"})
+
     def __init__(self, app, service: str):
         self.app = app
         self.attrs = {"app": service}   # matches the ScaledObject's label filter
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http":
+        if scope["type"] != "http" or scope.get("path") in self.EXCLUDED:
             return await self.app(scope, receive, send)
         inflight_requests.add(1, self.attrs)
         try:

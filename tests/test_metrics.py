@@ -137,3 +137,37 @@ def test_non_http_scopes_are_not_counted():
         m.inflight_requests = original
 
     assert recorded == [], "lifespan scope must not touch the gauge"
+
+
+def test_scrapes_and_probes_do_not_count_as_load():
+    """Measured on a real cluster: the gauge read 1 on an idle service.
+
+    The middleware incremented for the /metrics request, the handler rendered
+    the gauge including that increment, and the scrape recorded its own
+    observation. KEDA divides by replica count and compares to the target, so a
+    permanent floor of one-per-pod is load the autoscaler cannot distinguish
+    from real work — and a metric that never returns to zero can never scale
+    back to minReplicas.
+    """
+    import asyncio
+
+    recorded = []
+
+    class Recorder:
+        def add(self, amount, attrs=None):
+            recorded.append(amount)
+
+    original, m.inflight_requests = m.inflight_requests, Recorder()
+    try:
+        async def app(scope, receive, send):
+            return None
+
+        mw = m.InFlightMiddleware(app, service="gateway")
+        for path in ("/metrics", "/healthz", "/readyz"):
+            asyncio.run(mw({"type": "http", "path": path}, None, None))
+        assert recorded == [], f"{recorded} — scrape/probe traffic must not count"
+
+        asyncio.run(mw({"type": "http", "path": "/search"}, None, None))
+        assert recorded == [1, -1], "real traffic must still be counted"
+    finally:
+        m.inflight_requests = original
