@@ -1,14 +1,18 @@
 # Local cluster overlay for Flux.
 #
-# dev / staging / prod describe Azure: managed-csi-premium volumes, KEDA
-# ScaledObjects, workload-identity client IDs, images from ACR. None of those
-# exist on minikube, so a local Flux run needs its own overlay rather than a
-# weakened dev - the defaults must keep describing the target environment.
+# dev / staging / prod describe Azure: managed-csi-premium volumes, ACR images,
+# workload-identity client IDs. None of those exist on minikube, so a local
+# Flux run needs its own overlay rather than a weakened dev - the defaults must
+# keep describing the target environment.
 #
-# Values are inlined here rather than referencing values-local.yaml because
+# Values are inlined rather than referencing values-local.yaml because
 # helm-controller renders from the git source and cannot read a path on your
-# laptop; it only knows what is committed. That constraint IS the GitOps
-# point: if it is not in git, the cluster cannot have it.
+# laptop; it only knows what is committed. That constraint IS the GitOps point:
+# if it is not in git, the cluster cannot have it.
+#
+# Corollary discovered the hard way: once Flux owns these releases, a manual
+# `helm upgrade` is REJECTED with a field-manager conflict against
+# helm-controller. The cluster is git-owned. To change it, change git.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: medw
@@ -22,12 +26,20 @@ patches:
         value:
           image:
             repository: medw-gateway
-            tag: dev-1788834019
+            tag: dev-1788843639
             pullPolicy: Never
           serviceAccount:
             annotations: {}
           autoscaling:
-            enabled: false
+            enabled: true
+            metric: inflight_requests
+            target: 2
+            minReplicas: 1
+            maxReplicas: 4
+            prometheusAddress: http://kps-kube-prometheus-stack-prometheus.monitoring:9090
+          serviceMonitor:
+            enabled: true
+            interval: 5s
           replicas: 1
           resources:
             requests:
@@ -53,12 +65,20 @@ patches:
         value:
           image:
             repository: medw-retrieval
-            tag: dev-1788834019
+            tag: dev-1788843639
             pullPolicy: Never
           serviceAccount:
             annotations: {}
           autoscaling:
-            enabled: false
+            enabled: true
+            metric: inflight_requests
+            target: 2
+            minReplicas: 1
+            maxReplicas: 4
+            prometheusAddress: http://kps-kube-prometheus-stack-prometheus.monitoring:9090
+          serviceMonitor:
+            enabled: true
+            interval: 5s
           replicas: 1
           resources:
             requests:
@@ -76,12 +96,20 @@ patches:
         value:
           image:
             repository: medw-generation
-            tag: dev-1788834019
+            tag: dev-1788843639
             pullPolicy: Never
           serviceAccount:
             annotations: {}
           autoscaling:
-            enabled: false
+            enabled: true
+            metric: inflight_requests
+            target: 2
+            minReplicas: 1
+            maxReplicas: 4
+            prometheusAddress: http://kps-kube-prometheus-stack-prometheus.monitoring:9090
+          serviceMonitor:
+            enabled: true
+            interval: 5s
           replicas: 1
           resources:
             requests:
@@ -99,12 +127,20 @@ patches:
         value:
           image:
             repository: medw-ingestion-worker
-            tag: dev-1788834019
+            tag: dev-1788843639
             pullPolicy: Never
           serviceAccount:
             annotations: {}
           autoscaling:
-            enabled: false
+            enabled: true
+            metric: inflight_requests
+            target: 2
+            minReplicas: 1
+            maxReplicas: 4
+            prometheusAddress: http://kps-kube-prometheus-stack-prometheus.monitoring:9090
+          serviceMonitor:
+            enabled: true
+            interval: 5s
           replicas: 1
           resources:
             requests:

@@ -21,10 +21,19 @@ serviceAccount:
   annotations: {}   # no workload identity locally; there is no AAD to federate to
 
 autoscaling:
-  # KEDA CRDs are not installed on this cluster, and a ScaledObject referencing
-  # a missing CRD fails the whole release rather than degrading. Off locally;
-  # the production behaviour is still described in values.yaml.
-  enabled: false
+  # KEDA and the Prometheus operator ARE installed on this cluster now, so the
+  # real trigger runs rather than being described. minReplicas 1 to keep the
+  # footprint small on a single 8GB node.
+  enabled: true
+  metric: inflight_requests
+  target: 2                 # low, so a handful of concurrent requests scales
+  minReplicas: 1
+  maxReplicas: 4
+  prometheusAddress: http://kps-kube-prometheus-stack-prometheus.monitoring:9090
+
+serviceMonitor:
+  enabled: true
+  interval: 5s              # this series drives scaling; 30s would be stale
 
 replicas: 1
 

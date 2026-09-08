@@ -12,10 +12,18 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ .Values.name }}
+  # A ServiceMonitor selects on SERVICE labels, not pod labels - so without
+  # this the monitor matches nothing and Prometheus scrapes nothing, silently.
+  labels:
+    app: {{ .Values.name }}
 spec:
   type: ClusterIP
   selector: { app: {{ .Values.name }} }
   ports:
-    - port: 8000
+    # Named, because a ServiceMonitor endpoint refers to the port BY NAME.
+    # An unnamed port cannot be scraped, and the failure is again an empty
+    # query rather than an error.
+    - name: http
+      port: 8000
       targetPort: 8000
 {{- end -}}

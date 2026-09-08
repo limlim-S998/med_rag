@@ -1,0 +1,38 @@
+{{/*
+ServiceMonitor: how Prometheus finds the pods.
+
+The missing link in the chain. The services expose /metrics and the KEDA
+ScaledObject queries Prometheus, but nothing told Prometheus these pods exist.
+Without this object the query is syntactically fine and returns no series, and
+KEDA reads "no series" as "no load" - so the autoscaler sits at minReplicas
+looking like it has considered the situation and decided against acting.
+
+That is the same silent-empty-result failure as the metric-name mismatch, one
+layer out, and it is why the whole chain now has a test at each hop.
+
+Requires the Prometheus Operator CRDs. Rendered only when
+`serviceMonitor.enabled` is set, so a cluster without the operator installs
+cleanly rather than failing on an unknown kind - the same reasoning as the
+KEDA ScaledObject in _autoscaling.yaml.
+*/}}
+{{- define "medw-lib.servicemonitor" -}}
+{{- if and .Values.serviceMonitor .Values.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ .Values.name }}
+  labels:
+    app: {{ .Values.name }}
+spec:
+  selector:
+    matchLabels: { app: {{ .Values.name }} }
+  endpoints:
+    - port: http
+      path: /metrics
+      # Faster than the 30s default. This series drives an autoscaler, and a
+      # scrape interval longer than the scaling decision window means scaling
+      # on data that is already stale - the exact objection to using Azure
+      # Monitor for this signal in the first place (ROADMAP C¾).
+      interval: {{ .Values.serviceMonitor.interval | default "15s" }}
+{{- end }}
+{{- end -}}

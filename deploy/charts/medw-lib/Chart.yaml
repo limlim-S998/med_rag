@@ -2,4 +2,4 @@ apiVersion: v2
 name: medw-lib
 description: Library chart. Holds the templates every service shares.
 type: library
-version: 0.5.0
+version: 0.6.0

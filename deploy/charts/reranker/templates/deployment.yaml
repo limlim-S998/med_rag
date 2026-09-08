@@ -15,3 +15,7 @@
 ---
 {{ . }}
 {{- end }}
+{{- with (include "medw-lib.servicemonitor" .) }}
+---
+{{ . }}
+{{- end }}
