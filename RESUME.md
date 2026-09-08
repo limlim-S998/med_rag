@@ -14,7 +14,7 @@ Working on the scaffolding gap list. Items 1–3 and 7–8 are done; 6 is part-d
 | 1 | Composition root | **Done.** `libs/medw_core/composition.py`, `MEDW_BACKEND=local\|azure` |
 | 2 | Second implementation per port | **Done.** `libs/medw_core/local/` — all 12 ports |
 | 3 | Wire remaining 3 services to composition root | **Done.** All 4 verified starting under both backends |
-| 3½ | **Prometheus + in-flight metric** | **Code done.** Gauge, middleware, exporter, /metrics, 7 tests. Cluster install (kube-prometheus-stack + KEDA) pending |
+| 3½ | **Prometheus + in-flight metric** | **Done.** KEDA + Prometheus installed; 4/4 targets up; HPA resolves the metric and scaled down on it |
 | 4 | Provenance stamp | **Done.** `medw_core/provenance.py`, wired into the audit write |
 | 5 | Consistency & failure model | **Done.** Job FSM in medw_core, retry-cost table, two-store reconciliation, 26 tests |
 | 6 | Cluster proof | **Done.** Flux installed; deploy + `git revert` rollback both proven |

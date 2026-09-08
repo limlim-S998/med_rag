@@ -261,7 +261,7 @@ revert to prove the reconcile loop).
 SHA → values bump committed → Flux reconciles → pods pass both probes →
 `git revert` rolls it back.
 
-### C¾. Prometheus, to make KEDA real — CODE DONE, cluster install pending
+### C¾. Prometheus, to make KEDA real — DONE
 
 Wanted in the project: **Prometheus, deployed as part of the stack**, so the
 KEDA autoscaling is actually driven rather than described.
@@ -313,13 +313,48 @@ Exported name verified end to end through the real exporter:
 `medw_inflight_requests{app="retrieval"}` — matching
 `sum(medw_inflight_requests{app="retrieval"})` in the rendered ScaledObject.
 
-**Still needs a cluster:**
+**Cluster half, done:**
 
-- **kube-prometheus-stack** (or the Prometheus Operator alone), plus a
-  `ServiceMonitor` per service so it discovers the pods and scrapes `/metrics`.
-- **KEDA**, whose CRDs `values-local.yaml` currently disables.
-- Then the actual proof: drive concurrent requests at a service and watch the
-  replica count move.
+kube-prometheus-stack (operator only — no Grafana or Alertmanager, on an 8GB
+node) and KEDA installed. `_servicemonitor.yaml` added to `medw-lib`.
+Verified end to end:
+
+```
+Prometheus targets in medw:  gateway up, generation up,
+                             ingestion-worker up, retrieval up   (4/4)
+medw_inflight_requests{app="gateway"}  = 0        (idle, correct)
+keda-hpa-gateway  TARGETS 0/2 (avg)  MIN 1  MAX 4
+```
+
+KEDA resolves the query to a real number rather than `<unknown>`, and scaled
+the gateway from 4 replicas back to `minReplicas` once the metric read 0 —
+an actual autoscaler decision, not a rendered manifest.
+
+**Three defects found by running it, all silent:**
+
+1. **The Service had no label and no named port.** A `ServiceMonitor` selects
+   on *Service* labels and refers to a port *by name*; `_service.yaml` had
+   neither. The monitor would have matched nothing and Prometheus scraped
+   nothing — an empty query, not an error.
+2. **The gauge read 1 on a completely idle service.** The middleware counted
+   the `/metrics` scrape itself: increment, render the gauge including that
+   increment, record. KEDA divides by replica count, so a permanent floor of
+   one-per-pod is load indistinguishable from real work — and a metric that
+   never returns to zero can never scale back to `minReplicas`. `/metrics`,
+   `/healthz` and `/readyz` are now excluded.
+3. **Chart versions never moved.** All the service charts stayed at `0.1.0`
+   while their templates and their `medw-lib` dependency changed underneath.
+   helm-controller caches a built chart by name and version, so retrieval,
+   generation and ingestion-worker kept rendering *without* the ServiceMonitor
+   that gateway had. Bumping them to `0.2.0` fixed it immediately. Same class
+   of failure as a reused image tag: a version that does not move when the
+   content moves makes caching indistinguishable from correctness.
+
+**What is NOT demonstrated:** an actual scale-*up*. The handlers are stubs that
+return in microseconds, so 40 concurrent requests produce roughly zero
+concurrency at any scrape instant. Real handlers embed and stream, which take
+seconds — this becomes demonstrable when the implementations come back out of
+`holding/`, not before.
 
 Locally this is also what makes the autoscaling path testable at all: KEDA and
 Prometheus both install into minikube, so the trigger can be exercised without
