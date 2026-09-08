@@ -22,7 +22,7 @@ patches:
         value:
           image:
             repository: medw-gateway
-            tag: dev-1788842035
+            tag: dev-1788834019
             pullPolicy: Never
           serviceAccount:
             annotations: {}
@@ -53,7 +53,7 @@ patches:
         value:
           image:
             repository: medw-retrieval
-            tag: dev-1788842035
+            tag: dev-1788834019
             pullPolicy: Never
           serviceAccount:
             annotations: {}
@@ -76,7 +76,7 @@ patches:
         value:
           image:
             repository: medw-generation
-            tag: dev-1788842035
+            tag: dev-1788834019
             pullPolicy: Never
           serviceAccount:
             annotations: {}
@@ -99,7 +99,7 @@ patches:
         value:
           image:
             repository: medw-ingestion-worker
-            tag: dev-1788842035
+            tag: dev-1788834019
             pullPolicy: Never
           serviceAccount:
             annotations: {}
