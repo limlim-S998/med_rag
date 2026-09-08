@@ -217,3 +217,45 @@ async def test_document_store_upsert_is_idempotent():
     for _ in range(2):
         await store.upsert({"doc_id": "d1", "study_id": "ABC-101", "doc_type": "tfl"})
     assert len(await store.by_study("ABC-101")) == 1
+
+
+# --- readiness -----------------------------------------------------------
+
+
+async def test_readiness_is_true_locally_when_dependencies_are_wired():
+    """Under the local backend the dependencies are in-process objects. If the
+    composition root wired them they are available, and there is nothing
+    further to check."""
+    from medw_core.composition import readiness
+
+    async with AsyncExitStack() as stack:
+        svc = await build(Settings(backend="local"), stack)
+    ready, reason = readiness(svc, ("jobs", "sessions"))
+    assert ready and "local" in reason
+
+
+async def test_readiness_is_false_when_a_dependency_is_unwired():
+    """`classifier` is wired by neither backend, so a service declaring it
+    required must report not-ready and name it."""
+    from medw_core.composition import readiness
+
+    async with AsyncExitStack() as stack:
+        svc = await build(Settings(backend="local"), stack)
+    ready, reason = readiness(svc, ("classifier",))
+    assert not ready and "classifier" in reason
+
+
+def test_readiness_never_claims_ready_on_the_azure_backend_from_wiring_alone():
+    """The important asymmetry.
+
+    Constructing an AsyncAzureOpenAI does no I/O, so a wired Azure client
+    proves nothing about reachability. Reporting 200 on "I hold an object"
+    would be the lying-probe bug again, just better disguised — Kubernetes
+    would route traffic to a pod that cannot reach anything.
+    """
+    from medw_core.composition import Services, readiness
+
+    svc = Services(backend="azure", jobs=object(), sessions=object())  # type: ignore[arg-type]
+    ready, reason = readiness(svc, ("jobs", "sessions"))
+    assert not ready
+    assert "not implemented" in reason

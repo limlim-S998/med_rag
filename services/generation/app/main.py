@@ -22,7 +22,8 @@ from fastapi import FastAPI, Response
 from fastapi.responses import StreamingResponse
 
 from medw_core import metrics, tracing
-from medw_core.composition import build
+from medw_core.composition import build, readiness
+from medw_core.provenance import Provenance
 from medw_core.settings import get_settings
 from medw_core.sql import access_token_struct, engine
 
@@ -45,6 +46,9 @@ async def lifespan(app: FastAPI):
     dependency whose construction reaches the network.
     """
     tracing.configure_logging(s.log_level, "generation")
+    # Captured once. A per-request read would report the config at write time,
+    # which during a rollout differs from what produced the text.
+    ctx["provenance"] = Provenance.from_settings(s)
     if s.appinsights_connection_string:
         metrics.configure(s.appinsights_connection_string, "generation")
     async with AsyncExitStack() as stack:
@@ -105,15 +109,10 @@ async def healthz() -> Response:
 
 @app.get("/readyz")
 async def readyz() -> Response:
-    # Will check AOAI reachability and ping SQL. The AOAI check must not be a
-    # real completion - a readiness probe that spends quota every five seconds
-    # is a readiness probe that causes the outage it is watching for.
-    #
-    # 503 until that exists. An unimplemented readiness probe must fail
-    # closed: a stub returning None becomes a 200, so Kubernetes routes
-    # traffic to a pod that cannot serve, and the probe is worse than absent
-    # because it looks like it works.
-    return Response(status_code=503)
+    # the chat client is the one dependency a draft cannot proceed without.
+    ready, reason = readiness(ctx["services"], ("chat",))
+    return Response(status_code=200 if ready else 503,
+                    headers={"x-readiness-reason": reason})
 
 
 @app.post("/draft")

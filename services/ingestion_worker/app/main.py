@@ -15,7 +15,7 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from fastapi import BackgroundTasks, FastAPI, Response
 
 from medw_core import tracing
-from medw_core.composition import build
+from medw_core.composition import build, readiness
 from medw_core.settings import get_settings
 
 from .jobs import run_ingest
@@ -61,12 +61,10 @@ async def healthz() -> Response:
 
 @app.get("/readyz")
 async def readyz() -> Response:
-    # Will check Blob, Cosmos, Qdrant and Document Intelligence - this service
-    # has the widest dependency set in the system, so it is the one most
-    # likely to be up and unable to work.
-    #
-    # 503 until then: an unimplemented readiness probe has to fail closed.
-    return Response(status_code=503)
+    # job state and the document registry; the extraction clients are checked when a job actually runs.
+    ready, reason = readiness(ctx["services"], ("jobs", "documents"))
+    return Response(status_code=200 if ready else 503,
+                    headers={"x-readiness-reason": reason})
 
 
 @app.post("/ingest", status_code=202)

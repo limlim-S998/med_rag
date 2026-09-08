@@ -40,3 +40,10 @@ ingress:
   annotations:
     nginx.ingress.kubernetes.io/proxy-buffering: "off"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+
+config:
+  # The whole point of the local backend: these pods run with no Azure
+  # credential, no endpoint and no cost. Readiness then reflects something
+  # true — the in-process dependencies are wired — rather than reporting 503
+  # forever because reachability checks against Azure do not exist yet.
+  backend: local

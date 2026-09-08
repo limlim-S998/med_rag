@@ -103,6 +103,12 @@ class Settings(BaseSettings):
     # answer "which prompt produced this paragraph" six months later.
     prompt_bundle_sha: str = "local-dev"
 
+    # The git SHA of the image this process is running. Set by Helm from
+    # .Values.image.tag, so a pod can report what it IS rather than what the
+    # values file currently says - which differ during a rollout, and a
+    # rollout is exactly when you need to tell them apart.
+    image_sha: str = "unknown"
+
     # In-cluster this is unset and DefaultAzureCredential uses workload
     # identity. Locally it is unset too and you fall back to `az login`.
     # There is deliberately no api_key field. Adding one is how keys end up

@@ -23,7 +23,7 @@ from fastapi import Depends, FastAPI, Request, Response
 
 from medw_core import tracing
 from medw_core.auth import Principal, current_user
-from medw_core.composition import build
+from medw_core.composition import build, readiness
 from medw_core.settings import get_settings
 
 from .routes import documents, draft, search
@@ -76,14 +76,10 @@ async def healthz() -> Response:
 
 @app.get("/readyz")
 async def readyz() -> Response:
-    # Will check the dependencies it cannot serve without: Cosmos for
-    # sessions, retrieval and generation downstream. Not liveness - a slow
-    # Cosmos should take this pod out of rotation, not restart it.
-    #
-    # 503 until then. Fails closed on purpose: this endpoint returned 200 with
-    # every dependency unreachable, because a `...` body returns None and
-    # FastAPI renders that as a 200.
-    return Response(status_code=503)
+    # Cosmos holds the session; retrieval and generation are reached over HTTP.
+    ready, reason = readiness(ctx["services"], ("sessions",))
+    return Response(status_code=200 if ready else 503,
+                    headers={"x-readiness-reason": reason})
 
 
 @app.get("/me")

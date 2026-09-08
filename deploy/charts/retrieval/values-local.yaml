@@ -31,3 +31,10 @@ replicas: 1
 resources:
   requests: { cpu: 50m, memory: 128Mi }
   limits:   { cpu: 500m, memory: 512Mi }
+
+config:
+  # The whole point of the local backend: these pods run with no Azure
+  # credential, no endpoint and no cost. Readiness then reflects something
+  # true — the in-process dependencies are wired — rather than reporting 503
+  # forever because reachability checks against Azure do not exist yet.
+  backend: local

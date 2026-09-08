@@ -174,3 +174,34 @@ async def _build_azure(s: Settings, stack: AsyncExitStack, credential=None) -> S
 # alternative — threading eight arguments through every call — buys purity at
 # the cost of a signature change every time a dependency is added. The frozen
 # dataclass keeps the graph explicit and greppable without that churn.
+
+
+def readiness(services: Services, required: tuple[str, ...]) -> tuple[bool, str]:
+    """Is this service able to serve, given what it was wired with?
+
+    Shared because the alternative is the same logic written three times and
+    drifting - which is how the gateway and ingestion worker ended up returning
+    200 from an unimplemented probe in the first place.
+
+    The honest split:
+
+      local   dependencies are in-process objects. If the composition root
+              wired them, they are available - there is nothing else to check
+              and claiming otherwise would be theatre.
+      azure   wiring proves a client was CONSTRUCTED, not that anything is
+              reachable. Constructing an AsyncAzureOpenAI does no I/O. So
+              wired-but-unverified is reported as NOT ready, because a probe
+              that answers 200 on "I have an object" is the lying probe again,
+              just better disguised.
+
+    That asymmetry is deliberate and is why this returns a reason string: a
+    503 whose reason is "reachability checks not implemented for the azure
+    backend" is a very different operational signal from one that says a
+    dependency is down.
+    """
+    missing = [name for name in required if getattr(services, name, None) is None]
+    if missing:
+        return False, f"not wired: {', '.join(missing)}"
+    if services.backend == "local":
+        return True, "local backend: dependencies are in-process"
+    return False, "azure backend: dependency reachability checks not implemented"

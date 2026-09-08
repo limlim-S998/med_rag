@@ -38,6 +38,12 @@ spec:
               value: {{ .Values.env }}
             - name: MEDW_SERVICE_NAME
               value: {{ .Values.name }}
+            # The image tag IS the git SHA (never :latest - see values.yaml).
+            # Injecting it means a running pod can report the code it is
+            # executing, which is not the same as what the values file says
+            # during a rollout.
+            - name: MEDW_IMAGE_SHA
+              value: {{ .Values.image.tag | quote }}
             {{- range $k, $v := .Values.config }}
             - name: MEDW_{{ $k | upper }}
               value: {{ $v | quote }}

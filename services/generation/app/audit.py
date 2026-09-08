@@ -16,13 +16,26 @@ import uuid
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from medw_core.settings import Settings
+from medw_core.provenance import Provenance
 from medw_core.sql import AUDIT_INSERT
 
 
-async def record(eng: AsyncEngine, s: Settings, *, correlation_id: str, study_id: str,
-                 section_path: str, user_oid: str, source_chunk_ids: list[str],
-                 numeric_ok: bool, structural_ok: bool) -> str:
+async def record(eng: AsyncEngine, prov: Provenance, *, correlation_id: str,
+                 study_id: str, section_path: str, user_oid: str,
+                 source_chunk_ids: list[str], numeric_ok: bool,
+                 structural_ok: bool) -> str:
+    """Takes a Provenance, not Settings.
+
+    The difference matters: Settings is what this process was configured with
+    and is mutable in principle; Provenance is a frozen snapshot captured at
+    startup. Passing Settings here would let the version columns be read at
+    write time, which during a rolling deploy is a different answer from the
+    one that actually produced the text.
+
+    It also means adding a fourth version axis touches medw_core.provenance
+    and nothing else - previously it would have meant editing this call site,
+    the metric dimensions and every log record independently.
+    """
     event_id = str(uuid.uuid4())
     async with eng.begin() as conn:
         await conn.execute(text(AUDIT_INSERT), {
@@ -31,10 +44,7 @@ async def record(eng: AsyncEngine, s: Settings, *, correlation_id: str, study_id
             "study_id": study_id,
             "section_path": section_path,
             "user_oid": user_oid,
-            # The three version axes, read from effective settings.
-            "chat_deployment": s.chat_deployment,
-            "prompt_bundle_sha": s.prompt_bundle_sha,
-            "embed_version": s.embed_version,
+            **prov.as_dict(),
             "source_chunk_ids": '["' + '","'.join(source_chunk_ids) + '"]',
             "numeric_ok": numeric_ok,
             "structural_ok": structural_ok,

@@ -227,12 +227,126 @@ finding them now is cheaper than finding them after three more layers.
    probes now fail closed with an explicit 503, and
    `test_no_readiness_probe_is_a_bare_stub` prevents a recurrence.
 
-**Still needs you:** a local k3d cluster to prove the reconcile loop, and
-confirmation that the first CI run passed.
+**Third pass — the stack actually runs on Kubernetes.**
+
+minikube (k3d is not in the Arch repos; minikube was already installed and is
+equivalent for Helm and Flux). All six workloads deployed and healthy:
+5 Deployments, 1 StatefulSet, 7 Services, 1 Ingress.
+
+Two findings, both from running rather than rendering:
+
+1. **`helm --wait` cannot deploy a service whose readiness fails closed.**
+   The three unimplemented `/readyz` handlers returned 503 forever, so the
+   install timed out — correctly. This matters beyond Helm: the `HelmRelease`
+   in `deploy/flux/base` sets `remediateLastFailure: true`, so Flux would
+   install, wait, fail, retry three times and roll back, in a loop, forever.
+   Fixed with `medw_core.composition.readiness`: under the local backend the
+   dependencies are in-process objects, so wired means available; under azure
+   it still reports 503 with the reason `reachability checks not implemented`,
+   because a constructed SDK client does no I/O and reporting ready on
+   "I hold an object" is the lying probe again in better disguise.
+
+2. **A reused image tag is invisible to the kubelet.** `minikube image load
+   medw-gateway:dev` plus `pullPolicy: Never` left the pods running the *old*
+   binary — verified by grepping the container filesystem. No error; the pod
+   restarted, reported healthy and ran stale code. This is the repo's own
+   `:latest` argument arriving locally. `scripts/local_deploy.sh` now builds
+   with an immutable per-build tag, the same discipline production uses.
+
+**Still needs you:** nothing. Flux itself is not yet installed on the cluster —
+that is the last step of this phase (`flux bootstrap`, then a tag bump and a
+revert to prove the reconcile loop).
 
 **Done when:** the loop closes — commit → CI green → image tagged with the git
 SHA → values bump committed → Flux reconciles → pods pass both probes →
 `git revert` rolls it back.
+
+### C¾. Prometheus, to make KEDA real — REQUESTED, not started
+
+Wanted in the project: **Prometheus, deployed as part of the stack**, so the
+KEDA autoscaling is actually driven rather than described.
+
+This is not a preference — it closes a chain that is currently broken in four
+places, and the break is silent. A `ScaledObject` whose query returns no series
+does not error; it scales to `minReplicaCount` and stays there, looking like
+an autoscaler that has decided nothing needs scaling.
+
+**The chain, as it stands:**
+
+1. `medw-lib/templates/_autoscaling.yaml` renders a KEDA `ScaledObject` with
+   `serverAddress: http://prometheus-operated.monitoring:9090`.
+2. **Nothing deploys Prometheus.** That address resolves to nothing.
+3. **No service exposes `/metrics`** — verified, there is no such endpoint
+   anywhere in `services/`.
+4. `medw_core/metrics.py` exports through `configure_azure_monitor`, i.e. to
+   **Application Insights only**. There is no Prometheus reader, so even with a
+   scrape endpoint there would be nothing to scrape.
+
+**And the metric the autoscaler scales on does not exist.** The rendered query
+is `sum(medw_inflight_requests{app="<name>"})`, but `metrics.py` defines
+tokens-per-request, cost-per-section, retrieval hit@k, reranker score, numeric
+fidelity failures and JSON retries — no in-flight gauge. The values files argue
+at length that in-flight requests are the right signal for an LLM-bound
+service, and nothing measures it.
+
+**What this needs, in order:**
+
+- An **in-flight requests gauge** in `metrics.py`, incremented and decremented
+  by ASGI middleware in `medw-lib`'s shape — the one metric the autoscaler
+  actually reads.
+- A **Prometheus exporter** alongside the Azure Monitor one. OpenTelemetry
+  supports multiple readers on the same meter provider, so the same instrument
+  can feed App Insights and a `/metrics` endpoint without a second definition.
+  Note Prometheus naming: `medw.tokens_per_request` becomes
+  `medw_tokens_per_request`, so the query in `_autoscaling.yaml` and the
+  instrument names must be checked against each other rather than assumed.
+- **kube-prometheus-stack** (or the Prometheus Operator alone) in the cluster,
+  plus a `ServiceMonitor` per service so it discovers the pods.
+- A **test** that the metric name in the rendered `ScaledObject` matches an
+  instrument that actually exists — this is exactly the class of silent
+  mismatch the versioning tests were written for.
+
+Locally this is also what makes the autoscaling path testable at all: KEDA and
+Prometheus both install into minikube, so the trigger can be exercised without
+AKS.
+
+**Why not just use Azure Monitor — it is already wired.**
+
+A fair challenge, and the answer is not "Azure Monitor cannot do it". KEDA has
+an `azure-monitor` scaler, so scaling on an App Insights metric with no
+Prometheus at all is a real option. Three reasons it is the wrong tool for
+*this* trigger:
+
+- **Freshness.** Azure Monitor metric ingestion lags by minutes. Prometheus
+  scrapes in-cluster every 15-30s. A signal whose whole purpose is reacting to
+  a burst of concurrent LLM calls is useless at two minutes stale - you scale
+  up after the burst has passed and down before the next one.
+- **Blast radius.** The KEDA operator would need its own workload identity and
+  a role assignment to read Azure metrics. In-cluster Prometheus needs neither.
+- **Locality.** The `azure-monitor` scaler cannot run on minikube, so the
+  autoscaling path would have no local exercise at all.
+
+**These are not either/or, and the split is the point.** Azure Monitor stays,
+and keeps the *analytical* signals - cost per section, recall@k, numeric
+fidelity failures, drift - because those want long retention and ad-hoc
+queries. Prometheus carries only the *operational* signal the autoscaler
+reads. OpenTelemetry supports multiple readers on one meter provider, so the
+same instrument feeds both without a second definition:
+
+| Signal | Destination | Why |
+|---|---|---|
+| in-flight requests | Prometheus | seconds-fresh, drives scaling |
+| tokens, cost, recall@k, drift | Application Insights | long retention, ad-hoc analysis |
+
+**Third option worth pricing before committing:** *Azure Monitor managed
+service for Prometheus*. Azure operates the Prometheus server and it
+integrates with AKS, while KEDA keeps using its `prometheus` scaler - so
+`_autoscaling.yaml` barely changes and nobody runs a StatefulSet. Check
+availability and cost in `australiaeast` first; this has not been verified.
+
+**Unrelated, since it came up:** Flux has nothing to do with any of this. Flux
+is GitOps - it reconciles the cluster to what is committed. Azure Monitor and
+Prometheus are observability. The two concerns do not touch.
 
 ### D. Provenance as a cross-cutting concern
 

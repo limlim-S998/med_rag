@@ -1,0 +1,155 @@
+# Local cluster overlay for Flux.
+#
+# dev / staging / prod describe Azure: managed-csi-premium volumes, KEDA
+# ScaledObjects, workload-identity client IDs, images from ACR. None of those
+# exist on minikube, so a local Flux run needs its own overlay rather than a
+# weakened dev - the defaults must keep describing the target environment.
+#
+# Values are inlined here rather than referencing values-local.yaml because
+# helm-controller renders from the git source and cannot read a path on your
+# laptop; it only knows what is committed. That constraint IS the GitOps
+# point: if it is not in git, the cluster cannot have it.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: medw
+resources:
+  - ../base
+patches:
+  - target: { kind: HelmRelease, name: gateway }
+    patch: |
+      - op: add
+        path: /spec/values
+        value:
+          image:
+            repository: medw-gateway
+            tag: dev-1788834019
+            pullPolicy: Never
+          serviceAccount:
+            annotations: {}
+          autoscaling:
+            enabled: false
+          replicas: 1
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          ingress:
+            enabled: true
+            className: nginx
+            host: medw.local
+            tls: false
+            annotations:
+              nginx.ingress.kubernetes.io/proxy-buffering: 'off'
+              nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+          config:
+            backend: local
+  - target: { kind: HelmRelease, name: retrieval }
+    patch: |
+      - op: add
+        path: /spec/values
+        value:
+          image:
+            repository: medw-retrieval
+            tag: dev-1788834019
+            pullPolicy: Never
+          serviceAccount:
+            annotations: {}
+          autoscaling:
+            enabled: false
+          replicas: 1
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          config:
+            backend: local
+  - target: { kind: HelmRelease, name: generation }
+    patch: |
+      - op: add
+        path: /spec/values
+        value:
+          image:
+            repository: medw-generation
+            tag: dev-1788834019
+            pullPolicy: Never
+          serviceAccount:
+            annotations: {}
+          autoscaling:
+            enabled: false
+          replicas: 1
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          config:
+            backend: local
+  - target: { kind: HelmRelease, name: ingestion-worker }
+    patch: |
+      - op: add
+        path: /spec/values
+        value:
+          image:
+            repository: medw-ingestion-worker
+            tag: dev-1788834019
+            pullPolicy: Never
+          serviceAccount:
+            annotations: {}
+          autoscaling:
+            enabled: false
+          replicas: 1
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          config:
+            backend: local
+  - target: { kind: HelmRelease, name: qdrant }
+    patch: |
+      - op: add
+        path: /spec/values
+        value:
+          replicas: 1
+          persistence:
+            storageClass: standard
+            size: 2Gi
+          podDisruptionBudget: null
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              cpu: '1'
+              memory: 2Gi
+  - target: { kind: HelmRelease, name: reranker }
+    patch: |
+      - op: add
+        path: /spec/values
+        value:
+          image:
+            repository: medw-reranker
+            tag: dev
+            pullPolicy: Never
+          serviceAccount:
+            annotations: {}
+          autoscaling:
+            enabled: false
+          replicas: 1
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

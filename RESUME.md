@@ -14,9 +14,10 @@ Working on the scaffolding gap list. Items 1–3 and 7–8 are done; 6 is part-d
 | 1 | Composition root | **Done.** `libs/medw_core/composition.py`, `MEDW_BACKEND=local\|azure` |
 | 2 | Second implementation per port | **Done.** `libs/medw_core/local/` — all 12 ports |
 | 3 | Wire remaining 3 services to composition root | **Done.** All 4 verified starting under both backends |
-| 4 | Provenance stamp | **Not started** |
+| 3½ | **Prometheus + in-flight metric** (requested) | **Not started.** See ROADMAP C¾ — KEDA queries a metric nothing emits |
+| 4 | Provenance stamp | **Done.** `medw_core/provenance.py`, wired into the audit write |
 | 5 | Consistency & failure model | **Not started** |
-| 6 | Cluster proof | **Part-done** — see below |
+| 6 | Cluster proof | **Part-done.** Full stack deployed and healthy on minikube; Flux not yet installed |
 | 7 | Azure provisioning | **Done** (except SQL) |
 | 8 | CI confirmation | **Done** — all runs green |
 
