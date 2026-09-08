@@ -9,6 +9,8 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+from medw_core.jobs import JobState, check_transition
+
 
 class InMemoryJobStore:
     """Satisfies medw_core.ports.JobStore. Not durable, by construction."""
@@ -29,6 +31,11 @@ class InMemoryJobStore:
         return job
 
     async def advance(self, job: dict, state: str) -> dict:
+        # Validated against the shared FSM, not against rules this store
+        # invents. A local store with looser rules would let a job take a path
+        # Cosmos rejects - and that only shows up in the environment you
+        # cannot attach a debugger to.
+        check_transition(JobState(job["state"]), JobState(state))
         job["state"] = state
         job["history"].append(state)
         job["updated_at"] = datetime.now(UTC).isoformat()
@@ -36,6 +43,9 @@ class InMemoryJobStore:
         return job
 
     async def fail(self, job: dict, state: str, error: str) -> dict:
+        # `failed` is reachable from every non-terminal state, so this needs no
+        # transition check - but it records WHICH stage failed, because that
+        # determines whether a retry is free or re-buys extraction.
         job["state"] = "failed"
         job["failed_at_state"] = state
         job["error"] = error

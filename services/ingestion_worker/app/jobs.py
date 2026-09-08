@@ -10,26 +10,16 @@
 # deterministic IDs, and it is the reason the whole pipeline can be retried
 # blind after a parser fix.
 
-from enum import StrEnum
+from medw_core.jobs import RETRY_COST, JobState, attempts_for, is_expensive
 
+# State, transitions and retry costs live in medw_core.jobs, shared with the
+# in-memory store and with the Airflow DAG. They were defined here, which meant
+# the local backend and Cosmos could disagree about what a legal path was.
+State = JobState
 
-class State(StrEnum):
-    queued = "queued"
-    extracting = "extracting"      # Document Intelligence -> Blob parsed/
-    classifying = "classifying"    # sklearn doc-type classifier
-    chunking = "chunking"          # parsers/table.py + parsers/chunker.py
-    annotating = "annotating"      # Azure Language clinical NER
-    embedding = "embedding"        # AOAI, rate-limited
-    indexing = "indexing"          # Qdrant upsert + Cognitive Search upload
-    done = "done"
-    failed = "failed"
-
-
-# Terminal-failure states get the exception text and the stage. Retries are
-# bounded and per-stage: re-running `embedding` after a 429 is free, but
-# re-running `extracting` costs real money per page, which is exactly why the
-# layout JSON is cached in Blob before that transition is recorded.
-MAX_RETRIES = {State.embedding: 5, State.indexing: 3, State.extracting: 1}
+# Re-exported so the recovery decision is greppable from the service that
+# makes it: resume in place, or start over?
+__all__ = ["RETRY_COST", "JobStore", "State", "attempts_for", "is_expensive", "run_ingest"]
 
 
 class JobStore:

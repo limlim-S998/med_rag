@@ -372,14 +372,36 @@ today that is duplicated across `audit.py`, `metrics.py` and `settings.py`.
 **Done when:** one `Provenance` value is threaded to every exit point, and
 adding a fourth axis is a one-line change.
 
-### E. Consistency and failure model
+### E. Consistency and failure model — DONE
 
-Currently prose comments. Make them properties.
+Was prose comments. Now properties.
 
-- Property test: upserting twice equals upserting once, for both sinks.
-- Two-store reconciliation as a real function (set difference on chunk IDs).
-- The ingestion job FSM with illegal transitions unrepresentable.
-- Explicit retry boundaries: which stage is safe to re-run, and what it costs.
+- **`medw_core/jobs.py`** — the state machine as data. Transitions are derived
+  from the linear pipeline, so the interesting content is what the map omits:
+  there is no edge from `queued` to `indexing`, so a bug that skipped
+  extraction cannot produce an indexed document with no parsed artefact behind
+  it. `done` and `failed` are terminal — a completed job is re-run by creating
+  a new one, so the record of what happened survives instead of being
+  overwritten by the retry.
+- **It lives in `medw_core`, not the service.** Two things implement
+  `JobStore`, and if each enforced its own rules a job could take a path
+  locally that Cosmos rejects — the worst kind of divergence, because it only
+  appears in the environment you cannot attach a debugger to. The store
+  persists; the rules are shared.
+- **`RETRY_COST`** — the retry decision is not "how many times" but "is this
+  stage safe and cheap to repeat", and the answers differ per stage.
+  Extraction gets **one** attempt because Document Intelligence bills per page
+  and a TFL package is hundreds; embedding gets **five** because 429 is its
+  expected failure and backing off is the correct response. Every entry
+  records whether repeating it costs money, quota or nothing.
+- **`pipelines/reconcile.py`** — two-store drift as a set difference on chunk
+  IDs, possible only because the IDs are a pure function of the content path.
+  Read-only by design: an automatic repair would hide a systematic problem
+  behind a nightly fix, and the interesting question about drift is why it
+  happened. `Drift.interpretation()` distinguishes the two directions, which
+  have different causes and different urgencies.
+- **26 tests**, mutation-verified: allowing a stage to be skipped, and giving
+  extraction as many retries as embedding, each fail the suite.
 
 ### F. Composition root
 

@@ -16,7 +16,7 @@ Working on the scaffolding gap list. Items 1–3 and 7–8 are done; 6 is part-d
 | 3 | Wire remaining 3 services to composition root | **Done.** All 4 verified starting under both backends |
 | 3½ | **Prometheus + in-flight metric** | **Code done.** Gauge, middleware, exporter, /metrics, 7 tests. Cluster install (kube-prometheus-stack + KEDA) pending |
 | 4 | Provenance stamp | **Done.** `medw_core/provenance.py`, wired into the audit write |
-| 5 | Consistency & failure model | **Not started** |
+| 5 | Consistency & failure model | **Done.** Job FSM in medw_core, retry-cost table, two-store reconciliation, 26 tests |
 | 6 | Cluster proof | **Done.** Flux installed; deploy + `git revert` rollback both proven |
 | 7 | Azure provisioning | **Done** (except SQL) |
 | 8 | CI confirmation | **Done** — all runs green |
