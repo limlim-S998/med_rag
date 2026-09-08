@@ -3,6 +3,21 @@
 Five application services, six backing stores, two entry points into
 ingestion. Nothing here is exotic; the interesting parts are the boundaries.
 
+**Read this with two things in mind.**
+
+*The diagram shows the target system.* Several of the request-path
+implementations are held back on the `implementation/retrieval-slice` branch
+while the platform is reviewed separately — the shells, contracts and wiring
+are all here, the domain logic is not. See the README section *Why finished
+files are missing*.
+
+*Nothing talks to a concrete dependency directly.* Every arrow crossing into
+"Azure services" goes through a Protocol in `medw_core.ports`, resolved once at
+startup by `medw_core.composition`. The same diagram describes
+`MEDW_BACKEND=local`, where the Azure boxes are replaced by in-memory
+stand-ins and the arrows are unchanged. That substitutability is the point of
+the port layer, and it is checked by tests rather than asserted.
+
 ## The whole picture
 
 ```mermaid
@@ -30,7 +45,7 @@ flowchart TB
     end
 
     subgraph AZ["Azure services"]
-        AOAI[[Azure OpenAI<br/>gpt-4o · text-embedding-3-large]]
+        AOAI[[Azure OpenAI<br/>gpt-4.1-mini · text-embedding-3-large]]
         ACS[(Cognitive Search<br/>BM25)]
         BLOB[(Blob Storage<br/>raw · parsed · snapshots)]
         COS[(Cosmos DB<br/>documents · jobs · sessions)]
@@ -54,6 +69,29 @@ flowchart TB
     AF --> DI & AOAI & QD & ACS & BLOB
     GW & RT & RR & GEN & IW -.->|correlation ID| AI
 ```
+
+## The port layer
+
+Between every service and every external dependency sits a Protocol.
+
+| Port | Azure | Local |
+|---|---|---|
+| `Embedder` | Azure OpenAI `text-embedding-3-large` | seeded hash embedder |
+| `ChatClient` | Azure OpenAI `gpt-4.1-mini` | scripted responder |
+| `VectorIndex` | Qdrant | Qdrant — real in both |
+| `SparseIndex` | Cognitive Search (OData filters) | BM25 over a dict |
+| `LayoutExtractor` | Document Intelligence | recorded layout JSON |
+| `EntityExtractor` | Azure AI Language | dictionary matcher |
+| `SessionStore` / `DocumentStore` / `JobStore` | Cosmos | in-memory |
+| `AuditSink` | Azure SQL, INSERT-only by grant | append-only list |
+| `Reranker` / `TableClassifier` | cross-encoder / sklearn | — |
+
+`SparseIndex` is the one that justifies the layer. Cognitive Search filters
+with OData strings; a local BM25 index has no such concept. Had the Protocol
+been typed `filter: str`, no second implementation could ever have satisfied
+it — the abstraction would have been the Azure SDK with extra steps. It takes
+a structured `RetrievalFilter` instead, and both halves of hybrid retrieval
+translate the same object into their own dialect.
 
 ## Who talks to what, and why
 
@@ -92,6 +130,38 @@ backfill story rests on.
 6. One row into `audit.generation_event` with every version identifier, the
    source chunk IDs, and each layer's verdict.
 
+## Cross-cutting concerns
+
+Three things every service does, each defined once:
+
+- **Correlation.** One writer action = one ID, minted at the gateway,
+  forwarded on every hop, landing in the audit row. `medw_core.tracing`.
+- **Provenance.** A frozen stamp of the five version axes, captured at
+  startup rather than read at write time — during a rollout those differ, and
+  a row reporting intended configuration is confidently wrong exactly then.
+  `medw_core.provenance`.
+- **Metrics.** One set of OpenTelemetry instruments, two readers: Application
+  Insights for the analytical signals (cost, recall, drift) and Prometheus for
+  the one operational signal KEDA scales on. `medw_core.metrics`.
+
+## Delivery
+
+```
+commit ──► Azure Pipelines: build, push image:<git-sha>
+                            │
+                            └──► commit the tag into a values file
+                                          │
+                                   Flux reconciles ──► cluster
+```
+
+The pipeline never deploys. Its last act is a commit, and Flux applies it.
+Rollback is `git revert` — proven on a local cluster, gateway rolled forward by
+one commit and back by another with nobody running `helm`.
+
+Consequence worth knowing: once Flux owns a release, a manual `helm upgrade` is
+**rejected** with a field-manager conflict. The cluster is git-owned. To change
+it, change git.
+
 ## What is deliberately not here
 
 - **Frontend.** Owned by a different pod. The clickable-citation UI is theirs.
@@ -101,3 +171,8 @@ backfill story rests on.
   repo has the layer that executes rules and the harness that tests it.
 - **Prompt content.** Written by the medical writers with a client SME. What
   is here is the versioning, serving and evaluation harness around it.
+- **The domain implementations**, temporarily — parsing, chunking, RRF,
+  slot extraction, verification, the classifiers. On the
+  `implementation/retrieval-slice` branch, to be reintroduced one at a time.
+  Their absence is why the repo currently proves *structure* thoroughly and
+  *behaviour* barely at all.

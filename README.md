@@ -1,230 +1,207 @@
 # medwriter-assist
 
-A working-directory skeleton for the Medical Writing Assistant. Not a
-finished product — a repo shaped the way that system would actually be
-shaped, so the architecture you can describe in an interview has a physical
-layout attached to it.
+A reconstruction of a Medical Writing Assistant: a co-pilot that drafts
+Clinical Study Report sections from protocols and statistical tables, and
+verifies every number against its source.
 
-Files split into two kinds:
-
-- **Real code.** ~20 files with actual implementations and comments that say
-  *why*, not *what*. These are the ones to read.
-- **Stubs.** Files that exist to make the tree honest — the route handlers,
-  the generation chains, the CLI. `...` where a body would go. They still
-  carry the reasoning in comments; the shape is the point.
-
-Every service in the stack appears somewhere, including the ones that are one
-file. If a store is named in the prep doc, it has a schema, a client and a
-place in the tree here — because "we used Cosmos" is a claim, and a partition
-key is not.
+**This repo is deliberately a platform, not a product.** The system design,
+the delivery pipeline and the operational contracts are the subject. The
+domain implementations — parsing, chunking, ranking, generation — have been
+pulled out and kept separately so the two can be reviewed independently. See
+[Why finished files are missing](#why-finished-files-are-missing).
 
 ---
 
-## The tree
-
-```
-medwriter-assist/
-├── libs/medw_core/            shared library, installed into every service
-│   ├── ports.py               ★★ the seams. 10 Protocols = the architecture.
-│   ├── errors.py              ★ shared error model; retryability is a property
-│   ├── settings.py            ★ config → env var → Helm value. One place.
-│   ├── azure.py               ★ DefaultAzureCredential + every SDK client
-│   ├── ids.py                 ★ deterministic chunk IDs; collection naming
-│   ├── schemas.py             ★ domain types incl. RetrievalFilter
-│   ├── projections.py         ★★ Chunk → Qdrant payload / Search doc. One place.
-│   ├── cosmos.py              ★ containers + the partition-key decision
-│   ├── sql.py                 ★ AAD token → ODBC; the audit INSERT
-│   ├── blob.py                three containers, three lifecycles
-│   ├── language.py            clinical NER + UMLS (and what it is NOT)
-│   ├── metrics.py             ★ the ML signals, not just latency
-│   ├── auth.py                Entra ID validation — gateway only
-│   ├── rate_limit.py          token bucket + Retry-After backoff for TPM quota
-│   └── tracing.py             correlation ID: one writer action = one trace
-│
-├── pipelines/                 the batch side
-│   ├── parsers/table.py       ★ Document Intelligence cells → header stack
-│   ├── parsers/chunker.py     ★ row-group chunking; small-to-big prose
-│   ├── parsers/doc_intelligence.py  ★ prebuilt-layout, and why not -document
-│   ├── parsers/clinical_ner.py      Azure Language at ingest time
-│   ├── parsers/readers.py     LlamaIndex — and where the LangChain line falls
-│   ├── sinks/qdrant_sink.py   ★ the write path; alias flip on embed change
-│   ├── sinks/search_sink.py   ★ the other write path; keeping two stores in step
-│   ├── dags/ingest_study.py   Airflow DAG (bulk); worker shares the functions
-│   ├── dags/backfill_reindex.py  ★ parser bump vs embed bump; the eval gate
-│   └── cli.py                 stub — the seam DAG and worker both call
-│
-├── services/
-│   ├── gateway/               ★ auth, session, SAS upload, correlation IDs
-│   │   ├── app/main.py        the only service with a public address
-│   │   └── app/routes/        search, draft (streaming), documents
-│   ├── retrieval/
-│   │   ├── app/main.py        ★ async FastAPI, probes, dense∥sparse, rerank
-│   │   ├── app/fusion.py      stub — RRF held back (see ROADMAP)
-│   │   ├── app/qdrant_repo.py ★ collections, payload indexes, pre-ANN filters
-│   │   ├── app/sparse_repo.py Cognitive Search BM25 half
-│   ├── reranker/app/main.py   ★ service shell + probe semantics; model held back
-│   ├── generation/
-│   │   ├── app/table_to_text.py ★ deterministic numeric spine
-│   │   ├── app/verify.py        ★ four verification layers
-│   │   ├── app/audit.py         ★ effective config, not intended config
-│   │   ├── app/main.py          ★ streaming, per-pod TPM bucket, audit write
-│   │   └── app/prompts/         the harness, not the clinical content
-│   └── ingestion_worker/      ★ synchronous single-doc path
-│       └── app/jobs.py        ★ ingestion as an explicit state machine
-│
-├── db/                        ★★ which store holds what, and why
-│   ├── sql/0001_core.sql      studies, documents, E3 shell, drafts
-│   ├── sql/0002_audit.sql     ★ append-only generation + index events
-│   ├── sql/0003_grants.sql    ★ append-only by grant, not by promise
-│   └── cosmos/containers.json ★ partition keys, TTLs, indexing policy
-│
-├── ml/                        the models you actually trained
-│   ├── table_classifier/      ★ TF-IDF + LinearSVC; the CT target
-│   ├── reranker_baseline/     LightGBM ranker the cross-encoder had to beat
-│   ├── registry.py            ★ pinned version, never `latest`
-│   └── azureml/               the command job CT triggers
-│
-├── evals/
-│   ├── run_retrieval_eval.py  ★ recall@k, MRR against the golden set
-│   └── golden_set.jsonl       3 rows, each illustrating a different failure
-│
-├── deploy/
-│   ├── charts/medw-lib/       ★ library chart — deployment, service, SA
-│   ├── charts/{gateway,retrieval,generation,reranker,ingestion-worker}/
-│   │                          thin charts + values.yaml = the model version axis
-│   ├── charts/qdrant/         ★ StatefulSet — the one workload that is stateful
-│   ├── flux/{dev,staging,prod}/  what Flux reconciles each cluster to
-│   ├── azure-pipelines/       ★ builds, then commits a tag. Does NOT deploy.
-│   └── container-apps/        the demo host that scales to zero
-│
-├── infra/
-│   ├── bootstrap.sh           ★★ what "using Azure" actually looks like
-│   ├── teardown.sh            deleting must be easier than forgetting
-│   └── search/csr-chunks-index.json  ★ analyzers, scoring profile, BM25 params
-│
-├── tests/                     ★ the boundaries, as tests
-│   ├── test_architecture.py   services never import each other (ast walk)
-│   ├── test_ports.py          ★ conformance + the section_prefix regression
-│   ├── test_projections.py    ★ the two stores cannot diverge silently
-│   └── test_rate_limit.py     the backoff bug that only appeared under 429s
-│
-├── .importlinter              ★★ the architecture, enforced. `make arch`.
-├── .github/workflows/ci.yml   lint → architecture → types → tests → helm
-│
-├── scripts/bump_image_tag.py  ★ the pipeline's last act, as testable code
-│
-├── docs/
-│   ├── architecture.md        ★ every service, every store, what touches what
-│   ├── versioning.md          ★★ the four version axes and what enforces each
-│   └── adr/                   eight ADRs = your hardest decisions
-├── ROADMAP.md                 ★ where this is going, and local-vs-Azure fidelity
-├── docker-compose.yml         local: real Qdrant + emulators, az-login auth
-└── Makefile
-```
-
-★ = has real code worth reading. ★★ = read this first.
-
----
-
-## Reading order
-
-1. **`docs/architecture.md`** — the map. One diagram, one table of who talks to
-   what. Read it before anything else so the rest has somewhere to attach.
-2. **`infra/bootstrap.sh`** — the Azure account from nothing, in `az` commands.
-   Every portal blade is a GUI over one of these. Pay attention to the
-   workload-identity block at the bottom: that is the answer to "how does a
-   pod call Azure OpenAI with no secret in the cluster".
-3. **`libs/medw_core/azure.py`** — the client side of the same story.
-   `DefaultAzureCredential` is the whole trick. Note the commented example at
-   the bottom: `model=` takes a *deployment name*, not a model name.
-4. **`libs/medw_core/settings.py` → `deploy/charts/retrieval/values.yaml`** —
-   read these back to back. Same names on both sides. That's the three-axis
-   versioning story as a physical fact rather than a claim.
-5. **`db/README.md`** — five shapes of data, six stores, and the two questions
-   ("what is the state of this thing" vs "across everything, show me…") that
-   decide which is which. Then `db/sql/0002_audit.sql` and
-   `db/cosmos/containers.json` for what that looks like in a schema.
-6. **`services/retrieval/app/main.py`** — the request path end to end.
-   `fusion.py` and `qdrant_repo.py` are the two files it leans on.
-7. **`pipelines/parsers/chunker.py`** — the part that makes it clinical rather
-   than generic RAG. `doc_intelligence.py` is what feeds it.
-8. **`services/generation/app/table_to_text.py` + `verify.py` + `audit.py`** —
-   why the little `LinearSVC` in `ml/` is load-bearing and not decoration,
-   and what a defensible provenance record looks like.
-9. **`deploy/azure-pipelines/retrieval.yml`** — the pipeline's last act is a
-   commit, not a deploy.
-
----
-
-## Where each backing service lives in the tree
-
-Every store named in the prep doc, and the file that makes it real.
-
-| Service | Client | Schema / config | Deployed by |
-|---|---|---|---|
-| Azure OpenAI | `libs/medw_core/azure.py` | `settings.py` deployment names | `bootstrap.sh` |
-| Qdrant | `services/retrieval/app/qdrant_repo.py`, `pipelines/sinks/qdrant_sink.py` | `deploy/charts/qdrant/values.yaml` | Helm StatefulSet |
-| Cognitive Search | `services/retrieval/app/sparse_repo.py`, `pipelines/sinks/search_sink.py` | `infra/search/csr-chunks-index.json` | `make search-index` |
-| Blob Storage | `libs/medw_core/blob.py` | three containers, lifecycle policy | `bootstrap.sh` |
-| Cosmos DB | `libs/medw_core/cosmos.py` | `db/cosmos/containers.json` | `bootstrap.sh` |
-| Azure SQL | `libs/medw_core/sql.py` | `db/sql/*.sql` | `make migrate` |
-| Document Intelligence | `pipelines/parsers/doc_intelligence.py` | `settings.docintel_model` | `bootstrap.sh` |
-| Azure AI Language | `libs/medw_core/language.py` | — | `bootstrap.sh` |
-| Azure ML | `ml/registry.py` | `ml/azureml/*.yml` | `bootstrap.sh` |
-| App Insights | `libs/medw_core/metrics.py`, `tracing.py` | connection string in Helm values | `bootstrap.sh` |
-| Hugging Face (reranker) | `services/reranker/app/main.py` | weights baked into the image | Helm |
-| Container Apps (demo) | — | `deploy/container-apps/demo.yaml` | `bootstrap.sh` |
-
----
-
-## The Azure mental model, in four sentences
-
-**Hierarchy.** Subscription → resource group → resource. A resource group is
-a folder with a lifecycle; `az group delete` takes everything with it, which
-is why environments get their own.
-
-**Identity.** You almost never hold a key. You hold a *credential object*,
-every SDK client takes one, and `DefaultAzureCredential` resolves it
-differently in AKS (workload identity), on your laptop (`az login` cache) and
-in CI (federated service connection) — with identical code in all three.
-
-**Deployments vs models.** In Azure OpenAI you provision a resource, create a
-*named deployment* of a model inside it, and call the deployment name. Pin the
-version in the name or Azure rolls it forward under you and your outputs
-change with no commit anywhere.
-
-**Managed ≠ magic.** Cognitive Search, Document Intelligence and Cosmos are
-just services with endpoints, RBAC roles and quotas. The learning curve is
-almost entirely "which role grants which action", and `az role assignment
-create --assignee X --role Y --scope Z` is 90% of it — with the one exception
-that Cosmos data-plane access uses a separate role family and its own command.
-
----
-
-## Running it locally
+## Start here (2 minutes)
 
 ```bash
-cp .env.example .env
-az login                          # DefaultAzureCredential picks this up
-make up                           # qdrant + reranker + retrieval
-make up-full                      # + gateway, generation, ingestion, emulators
-make eval                         # recall@k, once you have indexed something
+make dev                    # .venv + everything importable
+make check                  # lint, architecture contracts, types, tests, charts
+MEDW_BACKEND=local make test
 ```
 
-Qdrant and the reranker run for real. Blob, Cosmos and SQL run against
-emulators under the `full` profile — Azurite, the Cosmos emulator, and Azure
-SQL Edge. What genuinely cannot run locally is the AI layer: Azure OpenAI,
-Document Intelligence, Azure Language and Cognitive Search have no emulators,
-so you either point at a dev resource or run the fakes.
+`make check` should be green: **147 tests, 6 architecture contracts, 0 type
+errors, 7 charts and 5 Flux overlays rendering.**
 
-That dividing line is worth knowing rather than discovering: the stores have
-local equivalents, the models do not.
+Then read, in this order:
+
+1. **[docs/architecture.md](docs/architecture.md)** — the map. One diagram,
+   one table of who talks to what.
+2. **[libs/medw_core/ports.py](libs/medw_core/ports.py)** — 12 Protocols. This
+   is the architecture; everything else is a detail.
+3. **[libs/medw_core/composition.py](libs/medw_core/composition.py)** — the
+   one place implementations are chosen. `MEDW_BACKEND=local|azure`.
+4. **[docs/versioning.md](docs/versioning.md)** — four version axes and what
+   enforces each.
+5. **[ROADMAP.md](ROADMAP.md)** — what was built, in what order, and the
+   defects each phase surfaced.
 
 ---
 
-## Deliberate gaps
+## Why finished files are missing
 
-No frontend, no Bicep, no FDA rule catalogue, no clinical prompt content.
-Those sit outside the lane the prep doc defines and are named in
-`docs/architecture.md`. The gaps are the same gaps you'd name in the
-interview, which is the point.
+Some files here are stubs (`...` bodies) whose *comments* are the content,
+while the working implementations live elsewhere. That is deliberate and
+recent.
+
+The repo was built architecture-first: define the boundaries, then fill them.
+Partway through, the implementation work had run ahead of the system design —
+so the domain code was pulled out to keep the two reviewable separately.
+
+**The durable copy is the `implementation/retrieval-slice` branch**
+(commit `089dd50`). There is also a gitignored `holding/` directory used as a
+local working copy; it is a convenience, not a backup, and will not survive a
+clean checkout.
+
+Held back:
+
+| Area | Files |
+|---|---|
+| Parsing | `pipelines/parsers/table.py`, `chunker.py`, `doc_intelligence.py` |
+| Pipeline seam | `pipelines/cli.py` |
+| Ranking | `services/retrieval/app/fusion.py` (RRF) |
+| Generation | `table_to_text.py`, `verify.py` |
+| Models | `ml/table_classifier/*`, `ml/reranker_baseline/*`, the reranker's cross-encoder |
+| Evaluation | `evals/run_retrieval_eval.py`, the populated golden set, DI-layout fixtures |
+
+Kept, because these **are** the system design: all of `libs/medw_core`, every
+service shell with its lifespan and probe semantics, the retrieval adapters
+that prove the ports are satisfiable, and everything under `deploy/`, `infra/`,
+`db/`, `tests/` and CI.
+
+Verified: with every one of those files stubbed, the suite still passes. Nothing
+in the scaffolding depends on any of them.
+
+---
+
+## Very brief history
+
+Roughly in order, each phase ending in something demonstrable:
+
+- **Contracts and boundaries.** 12 Protocols, a shared error model, and
+  `import-linter` contracts that fail CI on a boundary violation.
+- **One source of truth for data contracts.** `projections.py` — the Qdrant
+  payload and the Search document derive from one place, checked against the
+  real index definition.
+- **The delivery loop.** Charts render and lint; five images build, start and
+  serve correct probes; versioning enforced by tests.
+- **Real Azure.** Azure OpenAI provisioned, embeddings and chat verified live
+  through `DefaultAzureCredential`. Storage, AI Search, Cosmos, Document
+  Intelligence and Language on free tiers.
+- **Local backend + composition root.** Every port gained a second
+  implementation, so `MEDW_BACKEND=local` runs the whole stack with no
+  credential and no cost.
+- **Cluster proof.** Full stack deployed to minikube via Flux; a commit rolled
+  the gateway forward and `git revert` rolled it back, with nobody running
+  `helm`.
+- **Observability and autoscaling.** Prometheus scraping all four services,
+  KEDA resolving the in-flight metric and scaling on it.
+- **Consistency model.** Ingestion FSM with illegal transitions unrepresentable,
+  per-stage retry economics, two-store drift detection.
+
+**Eleven silent defects were found along the way**, and they are the most
+useful thing in the repo — none would have surfaced from reading the code. Full
+list in [ROADMAP.md](ROADMAP.md). Three of them are the same lesson: *a version
+that does not move when the content moves makes caching indistinguishable from
+correctness* — which bit at the image tag, the chart dependency, and the chart
+version.
+
+---
+
+## Layout
+
+```
+libs/medw_core/            the shared library, installed into every service
+  ports.py                 ★★ 12 Protocols = the architecture
+  composition.py           ★★ the only place implementations are chosen
+  adapters.py              Azure-side Embedder and ChatClient
+  local/                   ★ a second implementation of every port
+  projections.py           ★ Chunk -> Qdrant payload / Search doc. One place.
+  schemas.py               domain types incl. RetrievalFilter
+  provenance.py            ★ the version stamp on every audit row
+  jobs.py                  ★ ingestion FSM + per-stage retry economics
+  metrics.py               ★ in-flight gauge (KEDA) + analytical signals
+  errors.py                shared error model; retryability is a property
+  settings.py              config -> env var -> Helm value
+  azure.py, cosmos.py, sql.py, blob.py, language.py, auth.py
+  ids.py, tracing.py, rate_limit.py
+
+services/                  gateway, retrieval, generation, reranker,
+                           ingestion_worker — shells + probe semantics
+pipelines/                 parsers, sinks, Airflow DAGs (mostly held back)
+ml/                        classifiers and the Azure ML job spec
+db/                        which store holds what, and why
+deploy/
+  charts/medw-lib/         ★ library chart: deployment, service, SA, HPA,
+                             ScaledObject, Ingress, PDB, ServiceMonitor
+  charts/<service>/        thin charts; values.yaml = the model version axis
+  flux/{base,local,dev,staging,prod}/
+  azure-pipelines/         builds, then commits a tag. Does NOT deploy.
+infra/                     bootstrap.sh, teardown.sh, search index definition
+tests/                     ★ 9 modules; the boundaries as executable rules
+scripts/                   bump_image_tag.py, local_deploy.sh
+docs/                      architecture.md, versioning.md, 8 ADRs
+```
+
+★ = worth reading. ★★ = read first.
+
+---
+
+## The two backends
+
+```bash
+MEDW_BACKEND=local     # in-memory everything. No credential, no network, no cost.
+MEDW_BACKEND=azure     # the real services.
+```
+
+Read in exactly one place ([`composition.py`](libs/medw_core/composition.py)).
+Application code never constructs a dependency — it receives one through a
+port. Qdrant is the real thing in both, because it runs in a container.
+
+The local backend exists to prove the ports are abstractions rather than the
+Azure SDK renamed. That is not rhetorical: `ChatClient.stream` was an
+**unsatisfiable** Protocol until a second implementation existed to check it
+against.
+
+---
+
+## Running it
+
+```bash
+make up            # qdrant + reranker + retrieval
+make up-full       # + gateway, generation, ingestion, store emulators
+make check         # everything CI runs
+make charts        # render + lint every chart, build every Flux overlay
+make release DRY=1 # preview the image-tag bump the pipeline commits
+```
+
+Local Kubernetes (minikube; `k3d` is not in the Arch repos):
+
+```bash
+minikube start -p medw
+./scripts/local_deploy.sh              # builds with an immutable per-build tag
+```
+
+Flux: see [deploy/flux/local/README.md](deploy/flux/local/README.md).
+
+---
+
+## Known gaps
+
+- **Nothing is measured.** No trained classifier, no retrieval number, no CT.
+  All of it blocked on the held-back implementations, not on missing design.
+- **Scale-*up* is undemonstrated.** KEDA reads the metric and scales *down* on
+  it, but stub handlers return in microseconds, so concurrent load never
+  registers. Real handlers embed and stream.
+- **Azure SQL is not provisioned** — it needs an AAD admin principal decision.
+  `sql_server` is empty and `engine()` fails loudly rather than building a
+  connection string to nowhere.
+- **The Azure backend's readiness reports 503** with reason
+  `reachability checks not implemented`. Honest, and it means nothing deploys
+  to AKS until those are written.
+
+## Deliberately out of scope
+
+No frontend, no Bicep, no FDA rule catalogue, no clinical prompt content. Those
+sit outside the lane this project is about, and building them would weaken the
+story rather than strengthen it.

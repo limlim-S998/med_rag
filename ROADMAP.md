@@ -533,89 +533,18 @@ building them would weaken the story rather than strengthen it.
 
 ---
 
-## Handover: finishing Phase C
+## Historical note on the handover section
 
-Four things are left, in order. Each is verifiable on its own.
+An earlier version of this file ended with step-by-step instructions to install
+k3d and run `helm install` by hand. Both are now wrong:
 
-### 1. Put it under git
+- **k3d is not in the Arch repos** (AUR only, flagged out of date). minikube
+  was already installed and is arguably the closer analogue to AKS anyway,
+  since k3s is a trimmed distribution that swaps components (servicelb for a
+  cloud load balancer, Traefik for nginx) while AKS is upstream Kubernetes.
+- **Manual `helm upgrade` is now rejected.** Flux owns these releases, so a
+  hand-run upgrade fails with a field-manager conflict against helm-controller.
+  The cluster is git-owned: to change it, change git.
 
-```bash
-cd medwriter-assist
-git init -b main
-git add -A && git commit -m "medwriter-assist: architecture, contracts and delivery scaffold"
-git remote add origin git@github.com:<you>/medwriter-assist.git
-git push -u origin main
-```
-
-Then create a branch to work on — this is the command to reach for:
-
-```bash
-git switch -c phase-c/delivery-loop
-```
-
-`git switch -c <name>` creates and checks out in one step (`git checkout -b`
-is the older spelling of the same thing). Push it the first time with
-`git push -u origin phase-c/delivery-loop`; after that plain `git push`.
-
-Then update the placeholder in `deploy/flux/base/source.yaml` — it says
-`CHANGEME`, and Flux needs the real URL.
-
-### 2. Build the remaining images
-
-`retrieval` is verified. The rest use the same pattern:
-
-```bash
-docker build -f services/gateway/Dockerfile -t medw-gateway:dev .
-```
-
-Same for `generation` and `ingestion_worker`. Note the build context is `.`
-(the repo root), not the service directory — the Dockerfiles copy
-`libs/medw_core` in, so a narrower context cannot see it.
-
-Two to expect trouble from:
-
-- **generation** installs the Microsoft ODBC driver from `packages.microsoft.com`.
-  If that apt step fails, it is the repository key or a network policy, not
-  your Dockerfile.
-- **reranker** bakes CPU torch plus the cross-encoder weights: ~2GB, several
-  minutes, and its `requirements.txt` sets a global `--index-url` pointing at
-  the PyTorch channel. Build it last and separately.
-
-Smoke-test any image the same way retrieval was:
-
-```bash
-docker run --rm -p 18000:8000 medw-gateway:dev
-```
-
-`/healthz` should return 200 immediately; `/readyz` should return 503 until
-its dependencies exist. If `/readyz` returns 200 with nothing running, the
-readiness probe is checking the wrong thing.
-
-### 3. First CI run
-
-Pushing to `main` or opening a PR triggers `.github/workflows/ci.yml`. The
-`delivery` job downloads kubeconform, renders every chart and builds the Flux
-overlays; the `images` job builds four of the five services. None of it has
-run on a real runner yet — expect the first run to surface something, most
-likely in the image matrix.
-
-### 4. Prove the reconcile loop
-
-```bash
-k3d cluster create medw --agents 2
-kubectl create namespace medw
-helm install qdrant deploy/charts/qdrant -n medw
-```
-
-Then KEDA (every service except the reranker renders a `ScaledObject` and the
-CRDs must exist first), then `flux bootstrap` per `deploy/flux/README.md`.
-
-The loop is closed when you can change an image tag in `deploy/flux/dev`,
-commit, watch Flux reconcile, and `git revert` it back.
-
-**Local-cluster caveat:** the charts assume `managed-csi-premium` (Azure) for
-Qdrant's volumes and reference an nginx ingress class. On k3d you will need
-`--set persistence.storageClass=local-path` and the bundled Traefik, or a
-`values-local.yaml`. Do not "fix" this by changing the defaults — the defaults
-describe the target environment, and a local override file is the honest way
-to say so.
+Current instructions live in [deploy/flux/local/README.md](deploy/flux/local/README.md)
+and `scripts/local_deploy.sh`.
