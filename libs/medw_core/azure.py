@@ -7,7 +7,7 @@
 #   in AKS   -> workload identity. The pod's service account is annotated with a
 #               client ID; AKS projects a signed token file into the pod at
 #               AZURE_FEDERATED_TOKEN_FILE; the SDK exchanges it for an AAD token.
-#               Nothing secret is ever in the cluster.
+#               Azure calls need no account key; Qdrant uses separate Secrets.
 #   locally  -> whatever `az login` left in your CLI cache.
 #   in CI    -> the service connection's federated credential.
 #
@@ -19,14 +19,12 @@
 # Azure clients. Importing a module runs every top-level line in it, so with
 # the imports at the top, `from medw_core import azure` required all six SDKs
 # to be installed - in every image, including the ones that call two of them.
-# The retrieval image does not install azure-cosmos or the Document
-# Intelligence SDK and has no reason to, so it could not import this file at
-# all.
+# Retrieval now needs Cosmos for generation selection, but not Document
+# Intelligence. It should not require every SDK just to import this module.
 #
 # Moving each import into its factory makes the cost pay-per-use: you need an
 # SDK installed only if you actually construct that client. It is the same
-# argument as ADR 0005 one layer down - retrieval holds no Cosmos role, so it
-# should not be carrying the Cosmos SDK either.
+# service-specific dependency boundary described in README.md#major-decisions.
 #
 # The cost is one import statement per function. Python caches modules in
 # sys.modules, so every call after the first is a dict lookup, and these are
@@ -36,9 +34,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-# azure-identity is the one SDK every service genuinely needs - there is no
-# path through this file that does not go through a credential - so it stays
-# eager. azure-core comes with it, which is why AzureKeyCredential is safe here.
+# The credential factory uses azure-identity and its azure-core dependency.
+# Local adapters and the held-back reranker do not construct credentials.
 from azure.core.credentials import AzureKeyCredential  # noqa: F401  (local only)
 from azure.identity.aio import DefaultAzureCredential, get_bearer_token_provider
 

@@ -6,7 +6,9 @@ replicas: 1
 
 image:
   repository: medwdevacr.azurecr.io/ingestion-worker
-  tag: PLACEHOLDER
+  digest: ""
+  sourceSha: unversioned
+  tag: scaffold
 
 serviceAccount:
   annotations:
@@ -15,19 +17,24 @@ serviceAccount:
     # Cognitive Search, and writes Cosmos plus the SQL document registry.
     # Which is itself an argument for it being one service doing one job,
     # rather than those permissions being spread across four.
-    azure.workload.identity/client-id: "00000000-0000-0000-0000-000000000005"
+    azure.workload.identity/client-id: ""
 
 config:
-  aoai_endpoint: https://med-rag-test1.openai.azure.com/
+  cosmos_state_container: "platform-state"
+  blob_container: "raw"
+  sql_server: ""
+  sql_database: "medw"
+  aoai_resource_id: ""
+  aoai_endpoint: ""
   embed_deployment: text-embedding-3-large-1
   embed_version: v3l-001            # must match retrieval's, or the query and
                                     # index vectors are in different spaces
-  docintel_endpoint: https://medragdevdi-40aab.cognitiveservices.azure.com/
-  language_endpoint: https://medrag325744d5lang-158de.cognitiveservices.azure.com/
-  search_endpoint: https://medrag325744d5search.search.windows.net
+  docintel_endpoint: ""
+  language_endpoint: ""
+  search_endpoint: ""
   search_index: csr-chunks
-  blob_account_url: https://medrag325744d5sa.blob.core.windows.net
-  cosmos_endpoint: https://medrag325744d5cosmos.documents.azure.com:443/
+  blob_account_url: ""
+  cosmos_endpoint: ""
   cosmos_database: medw
   qdrant_url: http://qdrant:6333
   # Pinned classifier version. Changing it re-labels document types, which

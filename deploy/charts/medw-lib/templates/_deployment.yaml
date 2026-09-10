@@ -5,6 +5,14 @@ logic. The moment a chart contains a conditional about *behaviour* rather
 than about environment, that logic belongs in the application.
 */}}
 {{- define "medw-lib.deployment" -}}
+{{- if .Values.releaseRequired }}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" (.Values.image.digest | default "")) }}
+{{- fail "releaseRequired requires an immutable image digest" }}
+{{- end }}
+{{- if not (regexMatch "^[0-9a-f]{40}$" (.Values.image.sourceSha | default "")) }}
+{{- fail "releaseRequired requires the full source SHA" }}
+{{- end }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -24,29 +32,48 @@ spec:
     metadata:
       labels:
         app: {{ .Values.name }}
-        azure.workload.identity/use: "true"   # opt this pod into token projection
+        {{- if get (.Values.serviceAccount.annotations | default dict) "azure.workload.identity/client-id" }}
+        azure.workload.identity/use: "true"
+        {{- end }}
     spec:
       serviceAccountName: {{ .Values.name }}
       containers:
         - name: app
           # Always a git SHA. Never :latest - :latest makes "what is running"
           # unanswerable, and rollback impossible.
+          {{- if .Values.image.digest }}
+          image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+          {{- else }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          {{- end }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" }}
           ports: [{ containerPort: 8000 }]
           env:
             - name: MEDW_ENV
               value: {{ .Values.env }}
             - name: MEDW_SERVICE_NAME
               value: {{ .Values.name }}
+            # A target-values snapshot, explicitly not a claimed Git commit.
+            - name: MEDW_DEPLOYMENT_REVISION
+              value: {{ printf "values-sha256:%s" (toJson .Values | sha256sum) | quote }}
             # The image tag IS the git SHA (never :latest - see values.yaml).
             # Injecting it means a running pod can report the code it is
             # executing, which is not the same as what the values file says
             # during a rollout.
             - name: MEDW_IMAGE_SHA
-              value: {{ .Values.image.tag | quote }}
+              value: {{ .Values.image.sourceSha | default "unversioned" | quote }}
+            - name: MEDW_IMAGE_DIGEST
+              value: {{ .Values.image.digest | default "" | quote }}
             {{- range $k, $v := .Values.config }}
             - name: MEDW_{{ $k | upper }}
               value: {{ $v | quote }}
+            {{- end }}
+            {{- range .Values.secretEnv }}
+            - name: {{ .name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .secretKeyRef.name }}
+                  key: {{ .secretKeyRef.key }}
             {{- end }}
           {{- if .Values.startupProbe }}
           # For services that load something slow at boot. While a startup
@@ -67,6 +94,17 @@ spec:
           readinessProbe:
             httpGet: { path: /readyz, port: 8000 }
             periodSeconds: 5
+          {{- if and .Values.localState .Values.localState.enabled }}
+          volumeMounts:
+            - name: local-state
+              mountPath: /data
+          {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+      {{- if and .Values.localState .Values.localState.enabled }}
+      volumes:
+        - name: local-state
+          persistentVolumeClaim:
+            claimName: {{ required "localState.existingClaim is required" .Values.localState.existingClaim }}
+      {{- end }}
 {{- end -}}

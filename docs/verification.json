@@ -1,0 +1,266 @@
+{
+  "scope": "Preserved synthetic local completion evidence from 2026-09-10, before documentation consolidation. Artifact hashes and temporary Git revisions refer to those original runs; no proof was rerun by combining these records.",
+  "records": {
+    "checks": {
+      "verified_at": "2026-09-10T03:12:14.824522+00:00",
+      "scope": "Uncommitted completion working tree; clean source export and fresh virtual environment. No Azure deployment or shared Git push.",
+      "clean_setup": {
+        "python": "3.14.7",
+        "make_dev": "passed",
+        "pip_check": "passed"
+      },
+      "make_check": {
+        "result": "passed",
+        "pytest_passed": 197,
+        "pytest_seconds": 8.67,
+        "import_contracts_kept": 6,
+        "mypy_files": 42,
+        "ruff": "passed",
+        "deployable_charts": 6,
+        "flux_configurations": 5
+      },
+      "kubeconform": {
+        "version": "0.6.7",
+        "resources": 79,
+        "valid": 37,
+        "invalid": 0,
+        "errors": 0,
+        "skipped_crd_schemas": 42
+      },
+      "image_tag": "scaffold-complete-1789009275285",
+      "image_config_digests": {
+        "gateway": "sha256:db2582a65777622dc58a38b07ff6e4695329aa2f9d890e83f07462dbdb7aff59",
+        "retrieval": "sha256:7fe163cb4aa670653be175fb215fc779b086810b30ed9769cd1a4173b4ed9876",
+        "generation": "sha256:53f030b5b8e179c33d7209bf26689deaff4f5d5d3d4e56c51d45d78fba5b33ec",
+        "ingestion-worker": "sha256:9466c737464c8ba2840b0e4a91232d2e26a055a1b675a5225df702fc602fdae4",
+        "reranker": "sha256:6092f63b7ac66e40cb871ba2171c144c7f0606dbe6551a436e3ebf68b2a9419b"
+      },
+      "image_smoke": {
+        "pip_check": "passed for all five images",
+        "liveness": "200 for all five images",
+        "isolated_local_readiness": {
+          "gateway": 503,
+          "retrieval": 503,
+          "generation": 200,
+          "ingestion-worker": 200,
+          "reranker": 200
+        },
+        "azure_reranker": {
+          "liveness": 200,
+          "readiness": 503
+        },
+        "initialization_errors": 0
+      }
+    },
+    "medw-compose-proof": {
+      "result": "passed",
+      "image_tag": "scaffold-complete-1789009275285",
+      "versions": {
+        "gateway": {
+          "env": "local",
+          "service": "gateway",
+          "image_sha": "unknown",
+          "chat_deployment": "local-scripted",
+          "embed_version": "local-hash-000",
+          "prompt_bundle_sha": "local-dev",
+          "classifier_version": "held-back",
+          "image_digest": "",
+          "release_bundle_sha": "",
+          "chat_model_name": "synthetic",
+          "chat_model_version": "1",
+          "embed_model_name": "synthetic-hash",
+          "embed_model_version": "1",
+          "deployment_revision": "",
+          "backend": "local",
+          "medical_handlers": "held-back"
+        },
+        "retrieval": {
+          "env": "local",
+          "service": "retrieval",
+          "image_sha": "unknown",
+          "chat_deployment": "local-scripted",
+          "embed_version": "local-hash-000",
+          "prompt_bundle_sha": "local-dev",
+          "classifier_version": "held-back",
+          "image_digest": "",
+          "release_bundle_sha": "",
+          "chat_model_name": "synthetic",
+          "chat_model_version": "1",
+          "embed_model_name": "synthetic-hash",
+          "embed_model_version": "1",
+          "deployment_revision": "",
+          "backend": "local",
+          "medical_handlers": "held-back"
+        },
+        "generation": {
+          "env": "local",
+          "service": "generation",
+          "image_sha": "unknown",
+          "chat_deployment": "local-scripted",
+          "embed_version": "local-hash-000",
+          "prompt_bundle_sha": "sha256:20a2580878634548307d9ce66daf51572e4e0b8042e0077ef44b716141a2328b",
+          "classifier_version": "held-back",
+          "image_digest": "",
+          "release_bundle_sha": "",
+          "chat_model_name": "synthetic",
+          "chat_model_version": "1",
+          "embed_model_name": "synthetic-hash",
+          "embed_model_version": "1",
+          "deployment_revision": "",
+          "backend": "local",
+          "medical_handlers": "held-back"
+        },
+        "ingestion-worker": {
+          "env": "local",
+          "service": "ingestion-worker",
+          "image_sha": "unknown",
+          "chat_deployment": "local-scripted",
+          "embed_version": "local-hash-000",
+          "prompt_bundle_sha": "local-dev",
+          "classifier_version": "held-back",
+          "image_digest": "",
+          "release_bundle_sha": "",
+          "chat_model_name": "synthetic",
+          "chat_model_version": "1",
+          "embed_model_name": "synthetic-hash",
+          "embed_model_version": "1",
+          "deployment_revision": "",
+          "backend": "local",
+          "medical_handlers": "held-back"
+        },
+        "reranker": {
+          "env": "local",
+          "service": "reranker",
+          "image_sha": "unknown",
+          "chat_deployment": "local-scripted",
+          "embed_version": "local-hash-000",
+          "prompt_bundle_sha": "local-dev",
+          "classifier_version": "held-back",
+          "image_digest": "",
+          "release_bundle_sha": "",
+          "chat_model_name": "synthetic",
+          "chat_model_version": "1",
+          "embed_model_name": "synthetic-hash",
+          "embed_model_version": "1",
+          "deployment_revision": "",
+          "backend": "local",
+          "medical_handlers": "held-back"
+        }
+      },
+      "checks": [
+        "all five services live and ready with synthetic local dependencies",
+        "persisted session survives application container restart",
+        "Qdrant outage propagates readiness503 while liveness200",
+        "dependency recovery restores readiness without app restart"
+      ],
+      "verified_at": "2026-09-10T03:04:27.012017+00:00",
+      "scope": "Disposable credential-free local synthetic stack; uncommitted source images are explicitly unversioned. No live Azure verification."
+    },
+    "medw-network-proof": {
+      "context": "medw-scaffold-proof",
+      "calico": "3.29.3",
+      "result": "passed",
+      "checks": [
+        "unrestricted baseline reaches both targets",
+        "unapproved caller blocked from reranker and Qdrant",
+        "retrieval caller reaches reranker and Qdrant"
+      ],
+      "verified_at": "2026-09-10T02:59:39.796028+00:00",
+      "scope": "Disposable local synthetic data only. No live Azure verification."
+    },
+    "medw-qdrant-proof": {
+      "result": "passed",
+      "peers": 3,
+      "replication_factor": 2,
+      "points": 60,
+      "acl": "read-only rejects mutation",
+      "node_loss": "reads match",
+      "restored": "content identity and sample search match",
+      "restored_shard_copies": {
+        "0": 2,
+        "1": 2,
+        "2": 2
+      },
+      "blob": true,
+      "verified_at": "2026-09-10T02:59:39.796232+00:00",
+      "scope": "Disposable local synthetic data only. No live Azure verification."
+    },
+    "medw-scaffold-proof": {
+      "image_config_digests": [
+        "sha256:662b7b3e852bd0243e83655b8ac4b5f305da466aa3c8e265dbd7191cfbfc3883",
+        "sha256:4cc98d4f643a4ea7dc02ac95672ad7c54acddf42f7b744c9e5e7e8a36ec0b3ba"
+      ],
+      "context": "medw-scaffold-proof",
+      "kubernetes": "1.32.2",
+      "keda": "2.17.2",
+      "prometheus_chart": "27.11.0",
+      "checks": [
+        "Flux installed baseline generation image",
+        "Flux applied image-only release change",
+        "Flux applied chart-only change at unchanged chart version/image",
+        "Flux rolled back to baseline image",
+        "Prometheus measured bounded synthetic load; KEDA scaled up and down"
+      ],
+      "image_commit": "3ecf94c6bd0d183aecd1ef986de31bfaa682c16c",
+      "chart_commit": "0f1f00e5e21fca5c794d69bda17f2d4d38ede11b",
+      "rollback_commit": "ea807506b8e7051d8a3e2830ed9a19c53cdf5b63",
+      "peak_inflight": 12.0,
+      "scaled_up_replicas": 4,
+      "scaled_down_replicas": 1,
+      "final_inflight": 0.0,
+      "verified_at": "2026-09-10T02:58:01.912318+00:00",
+      "scope": "Disposable local synthetic proof. Commit IDs identify temporary test repositories, not the project release. No live Azure verification."
+    },
+    "sql-proof": {
+      "recorded_at_utc": "2026-09-10 03:00:29 UTC",
+      "verification_script": "db/verify_sql.py",
+      "scope": "Disposable local SQL Server with synthetic source, output, user and study data",
+      "sql_image": "mcr.microsoft.com/mssql/server@sha256:d252932ef839c24c61c1139cc98f69c85ca774fa7c6bfaaa0015b7eb02b9dc87",
+      "observed_result": {
+        "migrations": 4,
+        "repeat_applied": 0,
+        "failed_migration_rollback": "verified",
+        "audit_columns_read_back": 27,
+        "append_only_grants": "verified",
+        "study_access": "verified",
+        "output_digest": "37292f7b652c1ae69cee7a30998bee6d65397f0efe9e5b5556bdac56571b51d8"
+      },
+      "additional_checks": [
+        "SqlAuditSink and SqlStudyAccess schema/permission readiness checks succeeded",
+        "Runtime generation principal had INSERT and was denied actual UPDATE and DELETE statements",
+        "Full sha256-prefixed image, prompt and release identifiers and values-sha256 deployment identity round-tripped"
+      ],
+      "cleanup": "Disposable test database, SQL container, Docker network and temporary password environment file were removed",
+      "not_verified_by_this_run": [
+        "Azure SQL managed identity or cloud networking",
+        "Live Cosmos DB or Azure Blob Storage",
+        "Clinical correctness or retrieval quality"
+      ]
+    }
+  },
+  "documentation_cleanup": {
+    "verified_at": "2026-09-10T03:50:08.247203+00:00",
+    "scope": "Documentation consolidation and unchanged-template packaging checks only; original six completion records above are preserved.",
+    "project_documentation": "README.md",
+    "remaining_markdown_files": 3,
+    "removed_redundant_markdown_files": 22,
+    "original_evidence_records_preserved": 6,
+    "checks": {
+      "markdown_links_and_anchors": "passed",
+      "stale_document_references": "none",
+      "ruff": "passed",
+      "diff_whitespace": "passed",
+      "versioning_delivery_tests_passed": 35
+    },
+    "prompt_templates_changed": false,
+    "prompt_bundle_sha": "sha256:500b813e155a44de5f1b2a229bdea7043c86f03f1baa9b4779bb5e6873279048",
+    "generation_image": "medw-generation:docs-cleanup-1789012063147",
+    "generation_image_checks": {
+      "build": "passed",
+      "pip_check": "passed",
+      "liveness": 200,
+      "readiness": 200,
+      "packaged_prompt_hash_matches_source": true
+    }
+  }
+}

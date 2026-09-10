@@ -1,0 +1,7 @@
+{
+  "sku": {"name": "Standard", "capacity": 10},
+  "properties": {
+    "model": {"format": "OpenAI", "name": "text-embedding-3-large", "version": "1"},
+    "versionUpgradeOption": "NoAutoUpgrade"
+  }
+}

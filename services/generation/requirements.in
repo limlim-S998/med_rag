@@ -1,0 +1,22 @@
+fastapi
+uvicorn[standard]
+httpx
+pydantic-settings
+openai
+langchain
+langchain-openai
+azure-identity
+azure-ai-textanalytics
+sqlalchemy[asyncio]
+aioodbc
+azure-monitor-opentelemetry
+opentelemetry-exporter-prometheus
+
+# Shared medw-core runtime requirements (installed from source with --no-deps).
+pydantic>=2
+pydantic-settings>=2
+azure-identity
+aiohttp
+
+azure-cosmos
+azure-storage-blob

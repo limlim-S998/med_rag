@@ -1,0 +1,11 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: medwriter-release-charts
+  namespace: flux-system
+spec:
+  suspend: true
+  interval: 1m
+  url: https://github.com/limlim-S998/med_rag
+  ref:
+    commit: '0000000000000000000000000000000000000000'

@@ -1,0 +1,40 @@
+# No artifact selected yet. A release selection replaces only this file.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: gateway
+  namespace: medw
+spec:
+  suspend: true
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: retrieval
+  namespace: medw
+spec:
+  suspend: true
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: generation
+  namespace: medw
+spec:
+  suspend: true
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: ingestion-worker
+  namespace: medw
+spec:
+  suspend: true
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: reranker
+  namespace: medw
+spec:
+  suspend: true

@@ -1,0 +1,14 @@
+{
+  "Id": "dc85bc95-ff26-58ce-b769-8eb3f340ec8b",
+  "RoleName": "medw-platform-writer",
+  "Type": "CustomRole",
+  "AssignableScopes": ["/dbs/medw/colls/platform-state"],
+  "Permissions": [{"DataActions": [
+    "Microsoft.DocumentDB/databaseAccounts/readMetadata",
+    "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers/items/read",
+    "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers/items/create",
+    "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers/items/replace",
+    "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers/executeQuery",
+    "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers/readChangeFeed"
+  ]}]
+}

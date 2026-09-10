@@ -1,33 +1,23 @@
-# Local-cluster overrides. NOT a description of any deployed environment.
-#
-# The defaults in values.yaml describe the target: Azure storage classes, an
-# nginx ingress, KEDA-based autoscaling, workload-identity client IDs. Those
-# are correct and must stay correct - so a local run overrides them in a
-# separate file rather than weakening the defaults. A chart whose defaults
-# have been softened to run on a laptop no longer documents production.
-#
-#   helm install <name> deploy/charts/<name> -n medw -f deploy/charts/<name>/values-local.yaml
-
 image:
-  # Images are side-loaded with `minikube image load`, never pulled. Never is
-  # the operative word: without this, the kubelet tries a registry it has no
-  # credential for and the pod sits in ImagePullBackOff looking like a network
-  # problem rather than a policy one.
   repository: medw-reranker
   tag: dev
   pullPolicy: Never
-
 serviceAccount:
-  annotations: {}   # no workload identity locally; there is no AAD to federate to
-
+  annotations: {}
 autoscaling:
-  # KEDA CRDs are not installed on this cluster, and a ScaledObject referencing
-  # a missing CRD fails the whole release rather than degrading. Off locally;
-  # the production behaviour is still described in values.yaml.
   enabled: false
-
 replicas: 1
-
 resources:
-  requests: { cpu: 50m, memory: 128Mi }
-  limits:   { cpu: 500m, memory: 512Mi }
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+env: local
+localState:
+  enabled: true
+  existingClaim: medw-local-state
+config:
+  local_state_path: /data/platform.sqlite3
+  local_artifact_dir: /data/artifacts

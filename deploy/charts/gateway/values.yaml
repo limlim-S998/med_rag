@@ -5,16 +5,23 @@ replicas: 2
 
 image:
   repository: medwdevacr.azurecr.io/gateway
-  tag: PLACEHOLDER
+  digest: ""
+  sourceSha: unversioned
+  tag: scaffold
 
 serviceAccount:
   annotations:
-    azure.workload.identity/client-id: "00000000-0000-0000-0000-000000000004"
+    azure.workload.identity/client-id: ""
 
 config:
-  cosmos_endpoint: https://medrag325744d5cosmos.documents.azure.com:443/
+  blob_container: "raw"
+  auth_tenant_id: ""
+  auth_audience: ""
+  auth_issuer: ""
+  auth_jwks_url: ""
+  cosmos_endpoint: ""
   cosmos_database: medw
-  blob_account_url: https://medrag325744d5sa.blob.core.windows.net
+  blob_account_url: ""
   # Not provisioned. Azure SQL needs an AAD admin principal decision
   # (no AAD group exists on this subscription), so it is deliberately
   # empty rather than pointing at a server that does not exist.

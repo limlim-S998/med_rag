@@ -32,7 +32,7 @@ spec:
       # Faster than the 30s default. This series drives an autoscaler, and a
       # scrape interval longer than the scaling decision window means scaling
       # on data that is already stale - the exact objection to using Azure
-      # Monitor for this signal in the first place (ROADMAP C¾).
+      # Monitor for this signal; see README.md#operational-signals-and-recovery.
       interval: {{ .Values.serviceMonitor.interval | default "15s" }}
 {{- end }}
 {{- end -}}

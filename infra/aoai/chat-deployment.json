@@ -1,0 +1,7 @@
+{
+  "sku": {"name": "GlobalStandard", "capacity": 10},
+  "properties": {
+    "model": {"format": "OpenAI", "name": "gpt-4.1-mini", "version": "2025-04-14"},
+    "versionUpgradeOption": "NoAutoUpgrade"
+  }
+}

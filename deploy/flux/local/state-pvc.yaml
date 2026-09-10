@@ -1,0 +1,12 @@
+# Local single-node scaffold only; Azure uses Cosmos/SQL/Blob persistence.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: medw-local-state
+  namespace: medw
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 2Gi

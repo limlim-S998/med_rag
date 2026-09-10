@@ -6,9 +6,20 @@
 -- promised not to modify is a policy; one the service cannot modify is a
 -- property. The difference is the two lines that are absent below.
 
-CREATE USER [id-medw-generation] FROM EXTERNAL PROVIDER;
-CREATE USER [id-medw-ingestion]  FROM EXTERNAL PROVIDER;
-CREATE USER [id-medw-gateway]    FROM EXTERNAL PROVIDER;
+-- SQL Server local verification uses contained users without logins. Azure
+-- retains the workload-identity principals; no SQL password is introduced.
+IF CAST(SERVERPROPERTY('EngineEdition') AS INT) = 5
+BEGIN
+    EXEC('CREATE USER [id-medw-generation] FROM EXTERNAL PROVIDER');
+    EXEC('CREATE USER [id-medw-ingestion] FROM EXTERNAL PROVIDER');
+    EXEC('CREATE USER [id-medw-gateway] FROM EXTERNAL PROVIDER');
+END
+ELSE
+BEGIN
+    CREATE USER [id-medw-generation] WITHOUT LOGIN;
+    CREATE USER [id-medw-ingestion] WITHOUT LOGIN;
+    CREATE USER [id-medw-gateway] WITHOUT LOGIN;
+END;
 GO
 
 -- Generation: writes the audit trail, reads the E3 shell for structural rules.

@@ -8,6 +8,7 @@
 # contract rather than standing in for it.
 
 import uuid
+from copy import deepcopy
 
 
 class InMemoryAuditSink:
@@ -20,18 +21,18 @@ class InMemoryAuditSink:
     @property
     def generations(self) -> tuple[dict, ...]:
         # A tuple, so a caller cannot append to the trail through the getter.
-        return tuple(self._generations)
+        return tuple(deepcopy(self._generations))
 
     @property
     def index_events(self) -> tuple[dict, ...]:
-        return tuple(self._index)
+        return tuple(deepcopy(self._index))
 
     async def record_generation(self, event: dict) -> str:
         event_id = str(uuid.uuid4())
-        self._generations.append({"event_id": event_id, **event})
+        self._generations.append(deepcopy({"event_id": event_id, **event}))
         return event_id
 
     async def record_index(self, event: dict) -> str:
         event_id = str(uuid.uuid4())
-        self._index.append({"event_id": event_id, **event})
+        self._index.append(deepcopy({"event_id": event_id, **event}))
         return event_id

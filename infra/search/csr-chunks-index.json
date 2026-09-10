@@ -15,13 +15,39 @@
     "Qdrant. This index kept the half it is genuinely better at."
   ],
   "fields": [
-    { "name": "chunk_id", "type": "Edm.String", "key": true, "filterable": true, "searchable": false },
-
-    { "name": "study_id", "type": "Edm.String", "filterable": true, "facetable": true, "searchable": false },
-    { "name": "doc_id", "type": "Edm.String", "filterable": true, "searchable": false },
-    { "name": "doc_type", "type": "Edm.String", "filterable": true, "facetable": true, "searchable": false },
-    { "name": "kind", "type": "Edm.String", "filterable": true, "searchable": false },
-
+    {
+      "name": "chunk_id",
+      "type": "Edm.String",
+      "key": true,
+      "filterable": true,
+      "searchable": false
+    },
+    {
+      "name": "study_id",
+      "type": "Edm.String",
+      "filterable": true,
+      "facetable": true,
+      "searchable": false
+    },
+    {
+      "name": "doc_id",
+      "type": "Edm.String",
+      "filterable": true,
+      "searchable": false
+    },
+    {
+      "name": "doc_type",
+      "type": "Edm.String",
+      "filterable": true,
+      "facetable": true,
+      "searchable": false
+    },
+    {
+      "name": "kind",
+      "type": "Edm.String",
+      "filterable": true,
+      "searchable": false
+    },
     {
       "name": "text",
       "type": "Edm.String",
@@ -52,33 +78,92 @@
       "analyzer": "keyword_lower",
       "_note": "MedDRA PTs and UMLS-linked terms from Azure Language at ingest time. Matched literally - this is precisely what the embedding normalises away."
     },
-    { "name": "header_stack", "type": "Collection(Edm.String)", "searchable": true, "analyzer": "en.microsoft" },
-    { "name": "footnotes", "type": "Collection(Edm.String)", "searchable": true, "analyzer": "en.microsoft" },
-
-    { "name": "parser_version", "type": "Edm.String", "filterable": true, "searchable": false },
-    { "name": "indexed_at", "type": "Edm.DateTimeOffset", "filterable": true, "sortable": true }
+    {
+      "name": "header_stack",
+      "type": "Collection(Edm.String)",
+      "searchable": true,
+      "analyzer": "en.microsoft"
+    },
+    {
+      "name": "footnotes",
+      "type": "Collection(Edm.String)",
+      "searchable": true,
+      "analyzer": "en.microsoft"
+    },
+    {
+      "name": "parser_version",
+      "type": "Edm.String",
+      "filterable": true,
+      "searchable": false
+    },
+    {
+      "name": "indexed_at",
+      "type": "Edm.DateTimeOffset",
+      "filterable": true,
+      "sortable": true
+    },
+    {
+      "name": "source_revision",
+      "type": "Edm.String",
+      "filterable": true,
+      "searchable": false
+    },
+    {
+      "name": "source_location",
+      "type": "Edm.String",
+      "filterable": false,
+      "searchable": false
+    },
+    {
+      "name": "evidence_chunk_id",
+      "type": "Edm.String",
+      "filterable": true,
+      "searchable": false
+    },
+    {
+      "name": "index_generation",
+      "type": "Edm.String",
+      "filterable": true,
+      "searchable": false
+    },
+    {
+      "name": "chunk_json",
+      "type": "Edm.String",
+      "filterable": false,
+      "searchable": false
+    },
+    {
+      "name": "section_prefixes",
+      "type": "Collection(Edm.String)",
+      "filterable": true,
+      "searchable": false
+    }
   ],
-
   "analyzers": [
     {
       "name": "keyword_lower",
       "@odata.type": "#Microsoft.Azure.Search.CustomAnalyzer",
       "tokenizer": "keyword_v2",
-      "tokenFilters": ["lowercase"]
+      "tokenFilters": [
+        "lowercase"
+      ]
     }
   ],
-
   "scoringProfiles": [
     {
       "name": "identifier_boost",
       "_note": "A query that looks like a table number or a coded term should be answered by those fields, not by a passing mention in prose. RRF then only sees the rank, so the boost has to happen here or not at all.",
       "text": {
-        "weights": { "table_number": 8.0, "coded_terms": 5.0, "section_path": 3.0, "text": 1.0 }
+        "weights": {
+          "table_number": 8.0,
+          "coded_terms": 5.0,
+          "section_path": 3.0,
+          "text": 1.0
+        }
       }
     }
   ],
   "defaultScoringProfile": "identifier_boost",
-
   "similarity": {
     "@odata.type": "#Microsoft.Azure.Search.BM25Similarity",
     "b": 0.75,

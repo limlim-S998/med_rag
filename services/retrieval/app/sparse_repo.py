@@ -17,6 +17,7 @@
 
 from azure.search.documents.aio import SearchClient
 
+from medw_core.indexing import selected_generation
 from medw_core.ports import SearchResult
 from medw_core.schemas import RetrievalFilter
 
@@ -33,7 +34,7 @@ class SparseRepo:
 
     def _odata(self, flt: RetrievalFilter) -> str:
         # The Cognitive Search dialect of RetrievalFilter. Unlike Qdrant,
-        # study_id IS a filter here: one index holds every study (ADR 0006),
+        # study_id IS a filter here: one index holds every study,
         # so forgetting this clause would leak another sponsor's documents.
         # That asymmetry is the cost of the shared-index choice, and it is why
         # it lives in one function rather than at each call site.
@@ -44,13 +45,17 @@ class SparseRepo:
         if flt.section_prefix:
             # search.ismatch would tokenise; section_path uses the keyword
             # analyser and a prefix match is what the caller means.
-            clauses.append(f"startswith(section_path, {_quote(flt.section_prefix)})")
+            clauses.append(f"section_prefixes/any(p: p eq {_quote(flt.section_prefix)})")
         if flt.kind:
             clauses.append(f"kind eq {_quote(flt.kind)}")
+        if flt.index_generation is not None:
+            generation = selected_generation(flt)
+            clauses.append(f"index_generation eq {_quote(generation.sparse_generation)}")
         return " and ".join(clauses)
 
     async def search(self, query: str, flt: RetrievalFilter, *,
-                     limit: int) -> list[SearchResult]:
+                      limit: int) -> list[SearchResult]:
+        selected_generation(flt)
         results = await self.client.search(
             search_text=query,
             filter=self._odata(flt),
@@ -60,7 +65,7 @@ class SparseRepo:
         )
         out: list[SearchResult] = []
         async for r in results:
-            out.append((r["chunk_id"], r["@search.score"], dict(r)))
+            out.append((r["evidence_chunk_id"], r["@search.score"], dict(r)))
         return out
 
     async def index(self, chunks) -> int:

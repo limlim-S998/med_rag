@@ -1,0 +1,194 @@
+# Infrastructure settings only. Configure and verify before activating.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: gateway
+  namespace: medw
+spec:
+  values:
+    env: prod
+    config:
+      backend: azure
+      aoai_resource_id: ''
+      cosmos_endpoint: ''
+      cosmos_database: medw
+      blob_account_url: ''
+      sql_server: ''
+      sql_database: medw
+      retrieval_url: http://retrieval:8000
+      generation_url: http://generation:8000
+      ingestion_url: http://ingestion-worker:8000
+      blob_container: raw
+      auth_tenant_id: ''
+      auth_audience: ''
+      auth_issuer: ''
+      auth_jwks_url: ''
+    image:
+      repository: medwprodacr.azurecr.io/gateway
+    serviceAccount:
+      annotations:
+        azure.workload.identity/client-id: ''
+    ingress:
+      host: medw-prod.example.invalid
+    serviceMonitor:
+      enabled: true
+      interval: 15s
+    secretEnv:
+    - name: MEDW_APPINSIGHTS_CONNECTION_STRING
+      secretKeyRef:
+        name: medw-telemetry
+        key: connection-string
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: retrieval
+  namespace: medw
+spec:
+  values:
+    env: prod
+    config:
+      backend: azure
+      aoai_resource_id: ''
+      chat_deployment: gpt-4.1-mini-2025-04-14
+      embed_deployment: text-embedding-3-large-1
+      aoai_endpoint: ''
+      qdrant_url: http://qdrant:6333
+      reranker_url: http://reranker:8000
+      search_endpoint: ''
+      search_index: csr-chunks
+      cosmos_endpoint: ''
+      cosmos_database: medw
+      cosmos_state_container: platform-state
+    image:
+      repository: medwprodacr.azurecr.io/retrieval
+    serviceAccount:
+      annotations:
+        azure.workload.identity/client-id: ''
+    secretEnv:
+    - name: MEDW_QDRANT_API_KEY
+      secretKeyRef:
+        name: qdrant-auth
+        key: read-only-api-key
+    - name: MEDW_APPINSIGHTS_CONNECTION_STRING
+      secretKeyRef:
+        name: medw-telemetry
+        key: connection-string
+    serviceMonitor:
+      enabled: true
+      interval: 15s
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: generation
+  namespace: medw
+spec:
+  values:
+    env: prod
+    config:
+      backend: azure
+      aoai_resource_id: ''
+      chat_deployment: gpt-4.1-mini-2025-04-14
+      aoai_endpoint: ''
+      language_endpoint: ''
+      sql_server: ''
+      sql_database: medw
+      cosmos_endpoint: ''
+      cosmos_database: medw
+      cosmos_state_container: platform-state
+      blob_account_url: ''
+      blob_container: raw
+    image:
+      repository: medwprodacr.azurecr.io/generation
+    serviceAccount:
+      annotations:
+        azure.workload.identity/client-id: ''
+    serviceMonitor:
+      enabled: true
+      interval: 15s
+    secretEnv:
+    - name: MEDW_APPINSIGHTS_CONNECTION_STRING
+      secretKeyRef:
+        name: medw-telemetry
+        key: connection-string
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: ingestion-worker
+  namespace: medw
+spec:
+  values:
+    env: prod
+    config:
+      backend: azure
+      aoai_resource_id: ''
+      aoai_endpoint: ''
+      embed_deployment: text-embedding-3-large-1
+      docintel_endpoint: ''
+      language_endpoint: ''
+      search_endpoint: ''
+      search_index: csr-chunks
+      blob_account_url: ''
+      cosmos_endpoint: ''
+      cosmos_database: medw
+      qdrant_url: http://qdrant:6333
+      cosmos_state_container: platform-state
+      blob_container: raw
+      sql_server: ''
+      sql_database: medw
+    image:
+      repository: medwprodacr.azurecr.io/ingestion-worker
+    serviceAccount:
+      annotations:
+        azure.workload.identity/client-id: ''
+    secretEnv:
+    - name: MEDW_QDRANT_API_KEY
+      secretKeyRef:
+        name: qdrant-auth
+        key: api-key
+    - name: MEDW_APPINSIGHTS_CONNECTION_STRING
+      secretKeyRef:
+        name: medw-telemetry
+        key: connection-string
+    serviceMonitor:
+      enabled: true
+      interval: 15s
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: reranker
+  namespace: medw
+spec:
+  values:
+    env: prod
+    config:
+      backend: azure
+      aoai_resource_id: ''
+    image:
+      repository: medwprodacr.azurecr.io/reranker
+    serviceAccount:
+      annotations:
+        azure.workload.identity/client-id: ''
+    serviceMonitor:
+      enabled: true
+      interval: 15s
+    secretEnv:
+    - name: MEDW_APPINSIGHTS_CONNECTION_STRING
+      secretKeyRef:
+        name: medw-telemetry
+        key: connection-string
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: qdrant
+  namespace: medw
+spec:
+  suspend: true
+  values:
+    snapshots:
+      image:
+        repository: medwprodacr.azurecr.io/ingestion-worker

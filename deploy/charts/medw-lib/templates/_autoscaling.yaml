@@ -50,7 +50,13 @@ spec:
   maxReplicaCount: {{ .Values.autoscaling.maxReplicas }}
   # Scaling down fast is worse than scaling up slow here: a pod removed while
   # holding an open token stream drops a writer's half-drafted section.
-  cooldownPeriod: 300
+  pollingInterval: {{ .Values.autoscaling.pollingInterval | default 15 }}
+  cooldownPeriod: {{ .Values.autoscaling.cooldownPeriod | default 300 }}
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: {{ .Values.autoscaling.stabilizationWindowSeconds | default 300 }}
   triggers:
     - type: prometheus
       metadata:

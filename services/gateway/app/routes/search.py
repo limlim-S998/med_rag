@@ -6,9 +6,11 @@
 
 from fastapi import APIRouter
 
+from medw_core.service import domain_unavailable
+
 router = APIRouter(prefix="/studies", tags=["search"])
 
 
 @router.post("/{study_id}/search")
 async def search(study_id: str):
-    ...
+    domain_unavailable()

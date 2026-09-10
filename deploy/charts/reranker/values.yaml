@@ -9,13 +9,15 @@ image:
   # self-hosted model and a hosted one: no registry lookup, no deployment name -
   # the git SHA that built the image identifies the weights.
   repository: medwdevacr.azurecr.io/reranker
-  tag: PLACEHOLDER
+  digest: ""
+  sourceSha: unversioned
+  tag: scaffold
 
 serviceAccount:
   annotations:
     # It calls nothing in Azure. The identity exists for consistency of the
     # template, and it holds no role assignments at all.
-    azure.workload.identity/client-id: "00000000-0000-0000-0000-000000000003"
+    azure.workload.identity/client-id: ""
 
 config: {}
 

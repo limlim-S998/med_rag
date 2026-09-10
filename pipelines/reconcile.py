@@ -1,32 +1,26 @@
-# Do the two indexes still hold the same chunks?
+# Read back both stores against one selected immutable generation manifest.
 #
-# The same chunk is written to Qdrant and to Cognitive Search by two different
-# sinks, over two different network paths, with two different failure modes.
-# They drift. The dangerous part is HOW they drift: nothing errors. The sparse
-# half quietly stops returning something the dense half still finds, RRF fuses
-# a shorter list, and recall drops by an amount nobody notices because there
-# was never a number to compare against.
+# reconcile_generation is the current, executable entrypoint. It verifies
+# both counts and canonical payload hashes: equal chunk-ID sets alone cannot
+# detect two stores containing different text under the same IDs. It raises
+# on drift and never repairs or publishes an index. No scheduler is defined
+# here; any scheduled operation must call this entrypoint explicitly.
 #
-# This is only possible because the chunk ID is a pure function of
-# (study, doc, section path, ordinal, parser version). Both stores key on the
-# same ID, so reconciliation is a set difference rather than a content diff -
-# no embeddings compared, no text normalised, no heuristics.
-#
-# Runs nightly. Deliberately read-only: it reports, it does not repair. An
-# automatic repair would hide a systematic problem behind a nightly fix, and
-# the interesting question about drift is why it happened, not how to paper
-# over tonight's instance.
+# Drift/reconcile_study below preserve the earlier ID-only sketch for the
+# file walkthrough. That legacy path is disabled, raises NotImplementedError,
+# and is not evidence of a deployed nightly reconciliation job.
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
+from medw_core.indexing import verify_stores
 from medw_core.schemas import RetrievalFilter
 
 
 @dataclass(frozen=True)
 class Drift:
-    """What each store has that the other does not."""
+    """Legacy ID-set report; not used by current manifest-based reconciliation."""
 
     study_id: str
     dense_only: frozenset[str]    # in Qdrant, missing from Cognitive Search
@@ -76,11 +70,11 @@ class Drift:
 
 
 async def reconcile_study(vectors, sparse, study_id: str, *, page: int = 1000) -> Drift:
-    """Compare chunk IDs for one study across both indexes.
+    """Disabled legacy helper: its enumeration functions raise NotImplementedError.
 
-    Takes the ports rather than concrete clients, so this runs against the
-    in-memory implementations in a test exactly as it does against Qdrant and
-    Cognitive Search in the nightly job.
+    Use reconcile_generation with a manifest from IndexRegistry and the two
+    GenerationSink adapters. A study ID alone does not select a serving
+    generation, and ID equality alone does not establish content agreement.
     """
     dense_ids = await _all_dense_ids(vectors, study_id, page)
     sparse_ids = await _all_sparse_ids(sparse, study_id, page)
@@ -98,11 +92,20 @@ async def _all_dense_ids(vectors, study_id: str, page: int) -> set[str]:
     # and issuing a similarity search with a huge limit to enumerate a
     # collection is both slow and subtly wrong - HNSW is approximate, so a
     # search cannot promise it returned everything.
-    ...
+    raise NotImplementedError("use reconcile_generation with a selected manifest")
 
 
 async def _all_sparse_ids(sparse, study_id: str, page: int) -> set[str]:
     # Cognitive Search paginates; the filter is the same RetrievalFilter the
     # query path uses, so a study scoped for search is scoped identically here.
     _ = RetrievalFilter(study_id=study_id)
-    ...
+    raise NotImplementedError("use reconcile_generation with a selected manifest")
+
+
+async def reconcile_generation(generation, dense, sparse) -> None:
+    """Compare complete payload identity/counts to the published immutable manifest.
+
+    Raises on drift, so schedulers surface a failure instead of reporting a
+    successful ID-only comparison for two stores containing different text.
+    """
+    await verify_stores(generation, dense, sparse)

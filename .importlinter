@@ -14,8 +14,8 @@ include_external_packages = True
 # --- 1. the dependency direction ----------------------------------------
 # medw_core is the floor. It is installed into every service image, so an
 # import that points upward from it would drag a service's dependencies into
-# all four images - and quietly contradict ADR 0005, which is about narrowing
-# what any one pod can reach.
+# all five images, widening the dependency surface of every pod.
+# See README.md#major-decisions for the service-specific access boundary.
 [importlinter:contract:layers]
 name = medw_core sits below everything
 type = layers

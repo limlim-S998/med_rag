@@ -1,19 +1,16 @@
-# The DAG you run when something upstream of the index changed.
+# Backfill DAG boundary, held back with clinical source planning and evaluation.
+# Every task below fails explicitly until those callbacks are supplied. This
+# graph is not a functioning or scheduled clinical backfill pipeline.
 #
-# Two triggers, and they cost very differently:
+# The retained platform implementation is medw_core.indexing.publish_generation:
+# stage both stores, inspect their content, require evaluation, retain evidence,
+# then conditionally publish ONE shared manifest. Readers never cut over through
+# a Qdrant-only alias. The legacy task name flip_alias remains for continuity;
+# its future implementation must publish the validated shared manifest.
 #
-#   parser bump  - PARSER_VERSION changes, so every chunk ID changes. Re-run
-#                  OUR parsers over the layout JSON already cached in Blob.
-#                  No Document Intelligence spend, no re-embedding of prose
-#                  whose text did not change.
-#   embed bump   - the embedding deployment changed, so embed_version changes,
-#                  so the collection name changes. Build a NEW collection,
-#                  eval it against the golden set, flip the alias. Never
-#                  mutate in place: the two vector spaces are not comparable
-#                  and a half-migrated collection returns plausible garbage.
-#
-# The eval gate in the middle is the part worth pointing at. A backfill that
-# does not measure recall before cutting over is a deployment with no test.
+# Parser/source changes create new immutable chunk identities; embedding changes
+# create a new compatible generation. Reuse of cached extraction/embeddings is
+# a future ingestion policy, not a behavior proved by this held-back DAG.
 
 from datetime import UTC, datetime
 
@@ -25,39 +22,41 @@ from airflow.decorators import dag, task
     schedule=None,
     start_date=datetime(2025, 4, 1, tzinfo=UTC),   # Airflow compares against aware now()
     catchup=False,
-    max_active_runs=1,        # AOAI embedding quota is shared with live traffic
+    max_active_runs=1,        # Bound future backfill load on the embedding deployment.
     tags=["ingestion", "backfill"],
 )
 def backfill_reindex():
 
     @task
     def studies_needing_backfill() -> list[str]:
-        # SELECT DISTINCT study_id FROM audit.index_event
-        # WHERE parser_version <> :current OR embed_version <> :current
-        # The audit table answers this without scanning either index.
-        ...
+        # Compare active IndexRegistry manifests with the desired release.
+        # Historical audit events alone do not identify what is active now.
+        raise NotImplementedError("backfill source discovery is held back with ingestion")
 
     @task
     def rechunk_from_cached_layout(study_id: str) -> dict:
-        # Reads parsed/{study}/{doc}/{parser_version}/layout.json from Blob.
-        ...
+        # Resolve immutable source/parser artifact references from retained evidence.
+        raise NotImplementedError("clinical rechunking is held back")
 
     @task
     def build_shadow_collection(spec: dict) -> str:
-        ...
+        raise NotImplementedError("build staged manifests with publish_generation's sink contract")
 
     @task
-    def eval_gate(collection: str) -> bool:
-        # evals/run_retrieval_eval.py against the shadow collection. Fails the
-        # DAG if recall@3 regresses beyond tolerance - the alias never moves.
-        ...
+    def eval_gate(collection: str) -> str:
+        # The clinical evaluator must reject regressions before publication.
+        # No clinical retrieval-quality result is claimed by scaffold tests.
+        raise NotImplementedError("medical retrieval evaluation is held back; no publication")
 
     @task
     def flip_alias(collection: str) -> None:
-        ...
+        raise NotImplementedError("publish the evaluated manifest through IndexRegistry.activate")
 
     s = studies_needing_backfill()
-    flip_alias(build_shadow_collection(rechunk_from_cached_layout.expand(study_id=s)))
+    specs = rechunk_from_cached_layout.expand(study_id=s)
+    collections = build_shadow_collection.expand(spec=specs)
+    evaluated = eval_gate.expand(collection=collections)
+    flip_alias.expand(collection=evaluated)
 
 
 backfill_reindex()

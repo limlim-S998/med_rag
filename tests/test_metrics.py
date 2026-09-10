@@ -171,3 +171,126 @@ def test_scrapes_and_probes_do_not_count_as_load():
         assert recorded == [1, -1], "real traffic must still be counted"
     finally:
         m.inflight_requests = original
+
+
+def test_one_provider_exports_same_measurement_to_pull_and_push_readers():
+    from opentelemetry.sdk.metrics.export import MetricExporter, MetricExportResult
+
+    class CaptureExporter(MetricExporter):
+        def __init__(self):
+            super().__init__()
+            self.batches = []
+
+        def export(self, metrics_data, timeout_millis=10000, **kwargs):
+            self.batches.append(metrics_data)
+            return MetricExportResult.SUCCESS
+
+        def force_flush(self, timeout_millis=10000):
+            return True
+
+        def shutdown(self, timeout_millis=30000, **kwargs):
+            pass
+
+    exporter = CaptureExporter()
+    provider = m.build_provider("synthetic", metric_exporter=exporter)
+    try:
+        counter = provider.get_meter("proof").create_up_down_counter("medw.proof_inflight")
+        counter.add(7, {"app": "synthetic"})
+        body, _ = m.render_prometheus()
+        assert b'medw_proof_inflight{app="synthetic"' in body
+        provider.force_flush()
+        points = [point for batch in exporter.batches for rm in batch.resource_metrics
+                  for sm in rm.scope_metrics for metric in sm.metrics
+                  if metric.name == "medw.proof_inflight" for point in metric.data.data_points]
+        assert len(points) == 1 and points[0].value == 7
+        assert points[0].attributes == {"app": "synthetic"}
+    finally:
+        provider.shutdown()
+
+
+def test_configuration_is_once_per_process_not_once_per_lifespan():
+    import subprocess
+    import sys
+
+    subprocess.run([sys.executable, "-c", """
+from medw_core import metrics
+from opentelemetry import metrics as api
+first = metrics.configure(service_name='proof')
+assert metrics.configure(service_name='proof') is first
+assert api.get_meter_provider() is first
+metrics.inflight_requests.add(3, {'app': 'proof'})
+body, _ = metrics.render_prometheus()
+assert b'medw_inflight_requests{app="proof"' in body
+first.shutdown()
+"""], check=True)
+
+
+@pytest.mark.asyncio
+async def test_gauge_returns_to_zero_after_cancellation(monkeypatch):
+    import asyncio
+
+    recorded = []
+    started = asyncio.Event()
+
+    class Recorder:
+        def add(self, amount, attrs=None):
+            recorded.append(amount)
+
+    async def waiting(scope, receive, send):
+        started.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(m, "inflight_requests", Recorder())
+    task = asyncio.create_task(m.InFlightMiddleware(waiting, "proof")(
+        {"type": "http", "path": "/synthetic"}, None, None))
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert recorded == [1, -1]
+
+
+def test_real_azure_exporter_converts_same_measurement_without_network(monkeypatch):
+    from azure.monitor.opentelemetry.exporter import AzureMonitorMetricExporter
+    from azure.monitor.opentelemetry.exporter.export.metrics._exporter import ExportResult
+
+    monkeypatch.setenv("APPLICATIONINSIGHTS_STATSBEAT_DISABLED_ALL", "true")
+    monkeypatch.setenv("APPLICATIONINSIGHTS_SDKSTATS_DISABLED", "true")
+    exporter = AzureMonitorMetricExporter(
+        connection_string="InstrumentationKey=00000000-0000-0000-0000-000000000000",
+        disable_offline_storage=True,
+    )
+    captured = []
+    def transmit(envelopes):
+        captured.extend(envelopes)
+        return ExportResult.SUCCESS
+    monkeypatch.setattr(exporter, "_transmit", transmit)
+    provider = m.build_provider("azure-synthetic", metric_exporter=exporter)
+    try:
+        provider.get_meter("proof").create_up_down_counter("medw.azure_proof").add(
+            5, {"app": "azure-synthetic"})
+        body, _ = m.render_prometheus()
+        assert b'medw_azure_proof{app="azure-synthetic"' in body
+        provider.force_flush()
+        points = [point for envelope in captured for point in envelope.data.base_data.metrics]
+        assert len(points) == 1
+        assert points[0].name == "medw.azure_proof" and points[0].value == 5
+        assert captured[0].data.base_data.properties["app"] == "azure-synthetic"
+    finally:
+        provider.shutdown()
+
+
+def test_late_azure_configuration_is_rejected_instead_of_silently_lost():
+    import subprocess
+    import sys
+
+    subprocess.run([sys.executable, "-c", """
+from medw_core import metrics
+metrics.configure_prometheus()
+try:
+    metrics.configure('synthetic-connection', 'proof')
+except RuntimeError as error:
+    assert 'Azure reader' in str(error)
+else:
+    raise AssertionError('must reject the original two-provider initialization mistake')
+"""], check=True)

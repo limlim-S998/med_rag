@@ -1,84 +1,19 @@
-# The gateway. Auth, session, correlation ID minting, fan-out.
-#
-# It holds no domain logic on purpose. Everything it does is a cross-cutting
-# concern that would otherwise be duplicated in four services and drift:
-#
-#   - Validate the Entra ID token. Once, here. Internal hops trust the network.
-#   - Authorise the study. "May this oid see ABC-101" is a lookup in the
-#     relational store, not a JWT claim - study access changes daily and a
-#     token lives an hour.
-#   - Mint the correlation ID. One writer action = one ID = one App Insights
-#     trace across gateway -> retrieval -> reranker -> generation, and the same
-#     ID lands in the audit row.
-#   - Hold the session in Cosmos, so the writer's open study and recent
-#     retrieval context survive a pod restart.
-#
-# This is also the only service exposed through the ingress. Nothing else has
-# a public address.
-
-from contextlib import AsyncExitStack, asynccontextmanager
-
-import httpx
+"""Public boundary: authenticate, authorize and expose platform health."""
 from fastapi import Depends, FastAPI, Request, Response
 
-from medw_core import metrics, tracing
-from medw_core.auth import Principal, current_user
-from medw_core.composition import build, readiness
+from medw_core.auth import Principal, current_user, study_user
+from medw_core.composition import effective_settings
+from medw_core.service import add_platform_routes, instrument, lifespan_for, readiness_response
 from medw_core.settings import get_settings
 
 from .routes import documents, draft, search
 
-s = get_settings()
-ctx: dict = {}
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Session store comes from the composition root; the HTTP client does not.
-
-    `sessions` is a port with a Cosmos implementation and an in-memory one, so
-    it is wired centrally. The httpx client is not a seam - it is this
-    service's own connection pool to the internal services, and there is no
-    second implementation anyone would want.
-    """
-    tracing.configure_logging(s.log_level, "gateway")
-    async with AsyncExitStack() as stack:
-        ctx["services"] = await build(s, stack)
-        # One client, reused. A new AsyncClient per request leaks connections
-        # and loses keep-alive to the internal services, which is most of the
-        # win. 60s because generation streams and the gateway proxies it.
-        ctx["http"] = httpx.AsyncClient(timeout=60.0)
-        stack.push_async_callback(ctx["http"].aclose)
-        yield
-
-
-app = FastAPI(title="gateway", lifespan=lifespan)
-
-# Scrape endpoint and the in-flight gauge. Prometheus is what KEDA reads; the
-# same instruments also go to App Insights via metrics.configure(). One set of
-# instruments, two readers - see medw_core.metrics.
-metrics.configure_prometheus()
-app.add_middleware(metrics.InFlightMiddleware, service="gateway")
-
-
-@app.get("/metrics")
-async def prometheus_metrics() -> Response:
-    body, content_type = metrics.render_prometheus()
-    return Response(content=body, media_type=content_type)
-app.include_router(search.router)
-app.include_router(draft.router)
-app.include_router(documents.router)
-
-
-@app.middleware("http")
-async def correlate(request: Request, call_next):
-    # Minted here and nowhere else. Downstream services accept the header if
-    # present and generate one only when called directly (i.e. in dev).
-    cid = request.headers.get(tracing.HEADER) or tracing.new_id()
-    tracing.CORRELATION_ID.set(cid)
-    response = await call_next(request)
-    response.headers[tracing.HEADER] = cid
-    return response
+s = effective_settings(get_settings().model_copy(update={"service_name": "gateway"}))
+app = FastAPI(title="gateway", lifespan=lifespan_for("gateway", s))
+instrument(app, s, "gateway")
+add_platform_routes(app, s)
+for router in (search.router, draft.router, documents.router):
+    app.include_router(router, dependencies=[Depends(study_user)])
 
 
 @app.get("/healthz")
@@ -87,11 +22,8 @@ async def healthz() -> Response:
 
 
 @app.get("/readyz")
-async def readyz() -> Response:
-    # Cosmos holds the session; retrieval and generation are reached over HTTP.
-    ready, reason = readiness(ctx["services"], ("sessions",))
-    return Response(status_code=200 if ready else 503,
-                    headers={"x-readiness-reason": reason})
+async def readyz(request: Request) -> Response:
+    return await readiness_response(request)
 
 
 @app.get("/me")

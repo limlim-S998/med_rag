@@ -1,0 +1,24 @@
+{{- if .Values.monitoring.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: qdrant-recovery
+  labels:
+    {{- toYaml .Values.monitoring.labels | nindent 4 }}
+spec:
+  groups:
+    - name: medw-qdrant-recovery
+      rules:
+        - alert: QdrantBackupFailed
+          expr: kube_job_status_failed{namespace="{{ .Release.Namespace }}",job_name=~"qdrant-backup-.*"} > 0
+          for: 5m
+          labels: { severity: warning }
+          annotations:
+            summary: Qdrant backup job failed; inspect JSON job logs and write locks
+        - alert: QdrantBackupOverdue
+          expr: time() - (kube_cronjob_status_last_successful_time{namespace="{{ .Release.Namespace }}",cronjob="qdrant-backup"} or on(namespace,cronjob) kube_cronjob_created{namespace="{{ .Release.Namespace }}",cronjob="qdrant-backup"}) > 172800
+          for: 15m
+          labels: { severity: critical }
+          annotations:
+            summary: No successful Qdrant backup in 48 hours
+{{- end }}

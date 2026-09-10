@@ -14,7 +14,10 @@
     "free-text fields nobody filters on is most of the write cost back."
   ],
   "database": "medw",
-  "throughput": { "mode": "autoscale", "maxRUs": 4000 },
+  "throughput": {
+    "mode": "autoscale",
+    "maxRUs": 4000
+  },
   "containers": [
     {
       "name": "documents",
@@ -22,10 +25,20 @@
       "description": "One item per ingested source document: blob path, doc type + classifier confidence, parser version, page count, extraction status.",
       "ttlSeconds": null,
       "indexingPolicy": {
-        "includedPaths": ["/study_id/?", "/doc_type/?", "/status/?", "/ingested_at/?"],
-        "excludedPaths": ["/extraction/*", "/*"]
+        "includedPaths": [
+          "/study_id/?",
+          "/doc_type/?",
+          "/status/?",
+          "/ingested_at/?"
+        ],
+        "excludedPaths": [
+          "/extraction/*",
+          "/*"
+        ]
       },
-      "uniqueKeys": ["/doc_id"]
+      "uniqueKeys": [
+        "/doc_id"
+      ]
     },
     {
       "name": "jobs",
@@ -34,8 +47,15 @@
       "ttlSeconds": 2592000,
       "_ttl_note": "30 days. Job state is operational, not evidential - the durable record of what was indexed is audit.index_event in Azure SQL.",
       "indexingPolicy": {
-        "includedPaths": ["/study_id/?", "/state/?", "/updated_at/?"],
-        "excludedPaths": ["/error/*", "/*"]
+        "includedPaths": [
+          "/study_id/?",
+          "/state/?",
+          "/updated_at/?"
+        ],
+        "excludedPaths": [
+          "/error/*",
+          "/*"
+        ]
       }
     },
     {
@@ -45,8 +65,14 @@
       "ttlSeconds": 43200,
       "_ttl_note": "12 hours. Expiry is the database's job; a cleanup cron is a thing that silently stops running.",
       "indexingPolicy": {
-        "includedPaths": ["/user_id/?", "/session_id/?"],
-        "excludedPaths": ["/context/*", "/*"]
+        "includedPaths": [
+          "/user_id/?",
+          "/session_id/?"
+        ],
+        "excludedPaths": [
+          "/context/*",
+          "/*"
+        ]
       }
     },
     {
@@ -55,6 +81,21 @@
       "description": "The raw model output plus slots, skeleton and verification detail. High churn, schema varies by template. The distilled, joinable row is audit.generation_event in SQL; this is the fat payload behind it.",
       "ttlSeconds": 7776000,
       "_ttl_note": "90 days. The audit row in SQL is permanent; the full text of every rejected draft is not."
+    },
+    {
+      "name": "platform-state",
+      "partitionKey": "/study_id",
+      "ttlSeconds": null,
+      "description": "CAS job leases/checkpoints, immutable source and chunk evidence, and active/validated index manifests. No TTL: retiring serving indexes never deletes citation evidence.",
+      "indexingPolicy": {
+        "includedPaths": [
+          "/study_id/?",
+          "/kind/?"
+        ],
+        "excludedPaths": [
+          "/*"
+        ]
+      }
     }
   ]
 }

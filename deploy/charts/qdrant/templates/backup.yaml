@@ -1,0 +1,72 @@
+{{- if .Values.snapshots.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: qdrant-backup
+  annotations:
+    azure.workload.identity/client-id: {{ .Values.snapshots.clientId | quote }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: qdrant-backup-script
+data:
+  qdrant_backup.py: |
+{{ .Files.Get "files/qdrant_backup.py" | indent 4 }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: qdrant-backup
+spec:
+  schedule: {{ .Values.snapshots.schedule | quote }}
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 3600
+      template:
+        metadata:
+          labels:
+            app: qdrant-backup
+            azure.workload.identity/use: "true"
+        spec:
+          serviceAccountName: qdrant-backup
+          restartPolicy: Never
+          terminationGracePeriodSeconds: 60
+          containers:
+            - name: backup
+              {{- if .Values.snapshots.image.digest }}
+              image: "{{ .Values.snapshots.image.repository }}@{{ .Values.snapshots.image.digest }}"
+              {{- else }}
+              image: "{{ .Values.snapshots.image.repository }}:{{ .Values.snapshots.image.tag }}"
+              {{- end }}
+              command: ["python", "/backup/qdrant_backup.py", "backup", "--upload"]
+              env:
+                - name: QDRANT_NODES
+                  value: {{ range $i := until (int .Values.replicas) }}{{ if $i }},{{ end }}http://qdrant-{{ $i }}.qdrant-headless.{{ $.Release.Namespace }}.svc:6333{{ end }}
+                {{- if .Values.auth.enabled }}
+                - name: QDRANT_API_KEY
+                  valueFrom:
+                    secretKeyRef: { name: {{ .Values.auth.existingSecret }}, key: api-key }
+                {{- end }}
+                - { name: BACKUP_ACCOUNT_URL, value: {{ .Values.snapshots.accountUrl | quote }} }
+                - { name: BACKUP_CONTAINER, value: {{ .Values.snapshots.container | quote }} }
+                - { name: BACKUP_PREFIX, value: {{ .Values.snapshots.prefix | quote }} }
+                - { name: BACKUP_RETENTION_DAYS, value: {{ .Values.snapshots.retentionDays | quote }} }
+              volumeMounts:
+                - { name: script, mountPath: /backup, readOnly: true }
+                - { name: scratch, mountPath: /tmp }
+              resources:
+                requests: { cpu: 100m, memory: 256Mi }
+                limits: { cpu: "1", memory: 1Gi }
+          volumes:
+            - name: script
+              configMap: { name: qdrant-backup-script }
+            - name: scratch
+              emptyDir: {}
+{{- end }}

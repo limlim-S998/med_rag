@@ -24,7 +24,33 @@
 from collections.abc import AsyncIterator
 from typing import Protocol, runtime_checkable
 
-from medw_core.schemas import Chunk, ParsedTable, RetrievalFilter, TableType
+from medw_core.persistence import StateStore as StateStore  # noqa: PLC0414 - public port re-export
+from medw_core.schemas import (
+    Chunk,
+    Citation,
+    IndexGeneration,
+    ParsedTable,
+    RetrievalFilter,
+    SourceRevision,
+    TableType,
+)
+
+
+class IndexSelector(Protocol):
+    async def select(self, study_id: str, *, embed_version: str, embed_deployment: str,
+                     dimensions: int, embed_model_version: str = "",
+                     embed_model_name: str = "unknown") -> IndexGeneration: ...
+
+
+class EvidenceStore(Protocol):
+    async def ingest_source(self, study_id: str, doc_id: str, payload: bytes,
+                            filename: str) -> SourceRevision: ...
+    async def archive_chunk(self, chunk: Chunk) -> Citation: ...
+    async def resolve(self, citation: Citation) -> tuple[Chunk, SourceRevision, bytes]: ...
+    async def retain_for_event(self, event_id: str, citations: list[Citation]) -> None: ...
+    async def retain_generation(self, generation: IndexGeneration, chunks: list[Chunk]) -> None: ...
+    async def validate_selection(self, generation: IndexGeneration,
+                                  citations: list[Citation]) -> None: ...
 
 # (chunk_id, score, payload). A rank list, not a rich object: fusion only
 # needs the ranks, and payloads are merged by the caller.
@@ -174,13 +200,34 @@ class TableClassifier(Protocol):
 class JobStore(Protocol):
     """Ingestion state. Cosmos in the cloud, in-memory or SQLite locally."""
 
-    async def create(self, study_id: str, doc_id: str) -> dict: ...
+    async def create(self, study_id: str, doc_id: str, *,
+                     source_revision: str | None = None,
+                     idempotency_key: str | None = None) -> dict: ...
 
     async def advance(self, job: dict, state: str) -> dict: ...
 
     async def fail(self, job: dict, state: str, error: str) -> dict: ...
 
     async def get(self, study_id: str, job_id: str) -> dict | None: ...
+
+    async def claim(self, study_id: str, job_id: str, worker_id: str, *,
+                    lease_seconds: float = 60) -> dict: ...
+
+    async def renew(self, job: dict, *, lease_seconds: float = 60) -> dict: ...
+
+    async def checkpoint(self, job: dict, name: str, artifact_uri: str) -> dict: ...
+
+    async def recoverable(self, study_id: str) -> list[dict]: ...
+
+
+@runtime_checkable
+class HealthCheck(Protocol):
+    async def check(self) -> None: ...
+
+
+@runtime_checkable
+class StudyAccess(Protocol):
+    async def allowed(self, user_id: str, study_id: str) -> bool: ...
 
 
 @runtime_checkable

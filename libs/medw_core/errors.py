@@ -15,7 +15,7 @@
 #      A 429 from Azure OpenAI and a 503 from Qdrant are both "wait and try",
 #      and only the error knows that.
 
-from medw_core.tracing import CORRELATION_ID
+from medw_core.context import CORRELATION_ID
 
 
 class MedwError(Exception):

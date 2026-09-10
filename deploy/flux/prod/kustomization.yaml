@@ -1,19 +1,8 @@
-# Production. A separate resource group, a separate cluster, a separate Azure
-# OpenAI resource with its own quota, and a separate ACR - which is why the
-# per-service values override the image *repository* but never the image *tag*.
-#
-# Rollback is `git revert` on the commit that moved the tags; Flux reconciles
-# within its interval. `helm rollback` exists for the case where the cluster is
-# on fire and you would rather argue with git afterwards.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-namespace: medw
 resources:
-  - ../base
+- ../base
+- chart-source.yaml
 patches:
-  - target: { kind: HelmRelease }
-    patch: |
-      - op: add
-        path: /spec/values
-        value:
-          env: prod
+- path: environment-values.yaml
+- path: release-values.yaml

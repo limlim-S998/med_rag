@@ -1,11 +1,12 @@
 # The single place config enters the process.
-# Every field here becomes an env var in the pod, and every env var is set
-# from Helm values. That is the whole "three axes" story in one file:
-# image = git SHA, model = the deployment/version strings below, deployment =
-# the commit on the values file that set them.
+# MEDW_ environment variables supply values; Helm supplies deployed settings.
+# Source revision, image digest, model pins, prompt content and release/config
+# identity are distinct. See README.md#releases-and-versioning.
 
 from functools import lru_cache
+from typing import Literal
 
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,13 +18,20 @@ class Settings(BaseSettings):
     service_name: str = "unset"
 
     # --- which implementations get wired -----------------------------------
-    # The ONLY switch between the real stack and the local one. Read in exactly
-    # one place (medw_core.composition); anywhere else reading this would be a
-    # conditional in application code, which is what the ports exist to avoid.
+    # Composition chooses dependency implementations. Platform startup also
+    # uses the backend to validate identity and synthetic-mode prerequisites.
     #
     #   azure  real services, real credential, real cost
-    #   local  in-memory stand-ins, no network, no credential
-    backend: str = "azure"
+    #   local  persistent SQLite/artifact stores and synthetic AI adapters
+    backend: Literal["local", "azure"] = "azure"
+
+    # Local persistent stores use this file across process restarts. Tests can
+    # supply a temporary path; production never selects the local backend.
+    local_state_path: str = "/tmp/medw-platform.sqlite3"
+    local_artifact_dir: str = "/tmp/medw-artifacts"
+    synthetic_enabled: bool = False
+    readiness_timeout: float = Field(default=3.0, gt=0, le=30)
+    readiness_cache_seconds: float = Field(default=5.0, ge=0, le=60)
 
     # Recorded Document Intelligence layout responses, replayed by the local
     # LayoutExtractor. Point this at a directory of *.layout.json.
@@ -32,15 +40,21 @@ class Settings(BaseSettings):
     # --- Azure OpenAI ---------------------------------------------------
     # You call a *deployment name*, not a model name. The deployment is a
     # named instance of a model inside your AOAI resource. Pin the version
-    # suffix or Azure will roll it forward under you.
-    aoai_endpoint: str = "https://med-rag-test1.openai.azure.com/"
+    # metadata check validates the actual model version and NoAutoUpgrade;
+    # a name suffix alone does not pin an Azure deployment.
+    aoai_endpoint: str = ""
     aoai_api_version: str = "2024-10-21"
+    aoai_resource_id: str = ""
     chat_deployment: str = "gpt-4.1-mini-2025-04-14"
     embed_deployment: str = "text-embedding-3-large-1"
     embed_dim: int = 3072
+    chat_model_name: str = "gpt-4.1-mini"
+    chat_model_version: str = "2025-04-14"
+    embed_model_name: str = "text-embedding-3-large"
+    embed_model_version: str = "1"
 
-    # Bumped whenever the embedding deployment changes. Baked into the
-    # Qdrant collection name so old and new vectors can never be compared.
+    # Compatibility label carried by each generation, alongside actual model
+    # identity and dimensions. Readers reject a mismatched selected generation.
     embed_version: str = "v3l-001"
 
     # This pod's share of the deployment's tokens-per-minute quota. Per-pod,
@@ -48,24 +62,31 @@ class Settings(BaseSettings):
     # path to solve what replica-count arithmetic already solves. maxReplicas
     # in values.yaml times this number must stay under the provisioned quota.
     pod_tpm: int = 10_000
+    embed_pod_tpm: int = 10_000
 
     # --- Qdrant ---------------------------------------------------------
     qdrant_url: str = "http://localhost:6333"
+    # Injected from a Kubernetes Secret. Retrieval receives only the read key.
+    qdrant_api_key: str = Field(default="", repr=False)
+    qdrant_replication_factor: int = Field(default=1, ge=1)
+    qdrant_shard_number: int = Field(default=1, ge=1)
+    qdrant_write_consistency_factor: int = Field(default=1, ge=1)
     hnsw_m: int = 16
     hnsw_ef_construct: int = 128
     search_ef: int = 128
 
     # --- Azure Cognitive Search (BM25 half) -----------------------------
-    search_endpoint: str = "https://medrag325744d5search.search.windows.net"
+    search_endpoint: str = ""
     search_index: str = "csr-chunks"
 
     # --- Storage / state -------------------------------------------------
-    blob_account_url: str = "https://medrag325744d5sa.blob.core.windows.net"
+    blob_account_url: str = ""
     blob_container: str = "raw"
 
     # Cosmos: semi-structured, high-churn (documents, jobs, sessions).
-    cosmos_endpoint: str = "https://medrag325744d5cosmos.documents.azure.com:443/"
+    cosmos_endpoint: str = ""
     cosmos_database: str = "medw"
+    cosmos_state_container: str = "platform-state"
 
     # Azure SQL: relational + append-only audit. No password field, on purpose:
     # auth is an AAD token, see medw_core.sql.
@@ -76,9 +97,9 @@ class Settings(BaseSettings):
     # NOTE the random suffix. Azure generates a custom subdomain when one is
     # not requested, so this URL CANNOT be built from the resource name -
     # it has to be read back with `az cognitiveservices account show`.
-    docintel_endpoint: str = "https://medragdevdi-40aab.cognitiveservices.azure.com/"
+    docintel_endpoint: str = ""
     docintel_model: str = "prebuilt-layout"   # layout, not prebuilt-document
-    language_endpoint: str = "https://medrag325744d5lang-158de.cognitiveservices.azure.com/"
+    language_endpoint: str = ""
 
     # --- Models with weights ----------------------------------------------
     # Registry name + pinned version. Never "latest": a classifier that changes
@@ -97,22 +118,47 @@ class Settings(BaseSettings):
     fusion_top_n: int = 30      # what goes into the cross-encoder
     rerank_top_k: int = 8       # what comes out, into the generator
     reranker_url: str = "http://reranker:8000"
+    retrieval_url: str = "http://retrieval:8000"
+    generation_url: str = "http://generation:8000"
+    ingestion_url: str = "http://ingestion-worker:8000"
+
+    # Fixed by deployment configuration, never derived from an unverified JWT.
+    auth_tenant_id: str = ""
+    auth_audience: str = ""
+    auth_issuer: str = ""
+    auth_jwks_url: str = ""
+    auth_jwks_cache_seconds: float = Field(default=300, gt=0, le=3600)
 
     # --- Prompts ----------------------------------------------------------
     # Hash of the prompt directory. Logged on every generation so you can
     # answer "which prompt produced this paragraph" six months later.
     prompt_bundle_sha: str = "local-dev"
 
-    # The git SHA of the image this process is running. Set by Helm from
-    # .Values.image.tag, so a pod can report what it IS rather than what the
-    # values file currently says - which differ during a rollout, and a
-    # rollout is exactly when you need to tell them apart.
+    # Helm supplies source attribution separately from the selected digest.
+    # Azure readiness compares image_sha with the source baked into the image;
+    # deployment_revision hashes effective values, not a claimed Git revision.
     image_sha: str = "unknown"
+    build_source_sha: str = "unversioned"
+    image_digest: str = ""
+    release_bundle_sha: str = ""
+    deployment_revision: str = ""
+
+    @model_validator(mode="after")
+    def validate_modes(self):
+        if self.backend == "local" and self.env == "prod":
+            raise ValueError("the local backend cannot run in prod")
+        if self.synthetic_enabled and (self.backend != "local" or self.env not in {"local", "test"}):
+            raise ValueError("synthetic work requires backend=local and env=local or test")
+        if self.qdrant_write_consistency_factor > self.qdrant_replication_factor:
+            raise ValueError("Qdrant write consistency cannot exceed replication")
+        if self.auth_jwks_url and self.backend == "azure" and not self.auth_jwks_url.startswith("https://"):
+            raise ValueError("Azure JWKS URL must use HTTPS")
+        return self
 
     # In-cluster this is unset and DefaultAzureCredential uses workload
-    # identity. Locally it is unset too and you fall back to `az login`.
-    # There is deliberately no api_key field. Adding one is how keys end up
-    # in a values file.
+    # identity. Explicit host-side Azure development can use `az login`.
+    # Azure services use identity rather than account keys. Qdrant is the
+    # explicit key-based exception, injected from a Kubernetes Secret.
 
 
 @lru_cache

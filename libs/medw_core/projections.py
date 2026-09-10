@@ -3,8 +3,8 @@
 #
 # The same chunk exists in three places at once: a vector in Qdrant, its text
 # in Cognitive Search, and its structured ParsedTable spine in the Qdrant
-# payload. That duplication is deliberate (see ADR 0006) and the deterministic
-# chunk ID is what keeps the copies in step.
+# payload. Shared projections and generation payload verification keep these
+# copies consistent; matching IDs alone is insufficient (README.md#major-decisions).
 #
 # What was NOT keeping them in step: the Qdrant payload was assembled inline in
 # pipelines/sinks/qdrant_sink.py and the Search document inline in
@@ -21,8 +21,7 @@
 
 from typing import Any
 
-from medw_core.ids import PARSER_VERSION
-from medw_core.schemas import Chunk, DocType, ParsedTable
+from medw_core.schemas import Chunk, DocType, IndexGeneration, ParsedTable
 
 # --- the shared contract -------------------------------------------------
 #
@@ -31,7 +30,8 @@ from medw_core.schemas import Chunk, DocType, ParsedTable
 # without knowing which half a hit came from. `test_projections.py` asserts
 # this set is present and identical in each projection.
 SHARED_FIELDS = frozenset(
-    {"study_id", "doc_id", "doc_type", "section_path", "kind", "text", "parser_version"}
+    {"study_id", "doc_id", "doc_type", "section_path", "kind", "text", "parser_version",
+     "source_revision", "source_location", "section_prefixes"}
 )
 
 # What the retrieval service actually reads off a hit payload. Named here so
@@ -49,7 +49,10 @@ def _shared(chunk: Chunk) -> dict[str, Any]:
         "section_path": chunk.section_path,
         "kind": chunk.kind,
         "text": chunk.text,
-        "parser_version": PARSER_VERSION,
+        "parser_version": chunk.parser_version,
+        "source_revision": chunk.source_revision,
+        "source_location": chunk.source_location,
+        "section_prefixes": [chunk.section_path[:i] for i in range(1, len(chunk.section_path) + 1)],
     }
 
 
@@ -72,7 +75,7 @@ def to_qdrant_payload(chunk: Chunk, coded_terms: list[str] | None = None) -> dic
     return {
         **_shared(chunk),
         "ordinal": chunk.ordinal,
-        "coded_terms": coded_terms or [],
+        "coded_terms": chunk.coded_terms if coded_terms is None else coded_terms,
         "table": chunk.table.model_dump() if chunk.table else None,
     }
 
@@ -95,6 +98,10 @@ def from_qdrant_payload(point_id: str, payload: dict[str, Any]) -> Chunk:
         text=payload["text"],
         table=ParsedTable.model_validate(table) if table else None,
         ordinal=payload["ordinal"],
+        parser_version=payload["parser_version"],
+        source_revision=payload.get("source_revision", ""),
+        source_location=payload.get("source_location", ""),
+        coded_terms=payload.get("coded_terms", []),
     )
 
 
@@ -124,7 +131,7 @@ def to_search_document(chunk: Chunk, coded_terms: list[str] | None = None) -> di
         # Clinical terms from Azure Language, indexed as a keyword collection.
         # This is what the sparse half matches literally - a MedDRA preferred
         # term is exactly what the embedding normalises away.
-        "coded_terms": coded_terms or [],
+        "coded_terms": chunk.coded_terms if coded_terms is None else coded_terms,
     }
 
 
@@ -135,3 +142,12 @@ def to_search_action(chunk: Chunk, coded_terms: list[str] | None = None) -> dict
     a DAG re-run after a parser fix must converge rather than duplicate.
     """
     return {"@search.action": "mergeOrUpload", **to_search_document(chunk, coded_terms)}
+
+
+def to_generation_search_document(chunk: Chunk, generation: IndexGeneration) -> dict[str, Any]:
+    return {**to_search_document(chunk),
+            # Search's key must distinguish serving generations of the same evidence.
+            "chunk_id": f"{generation.sparse_generation}_{chunk.id}",
+            "evidence_chunk_id": chunk.id,
+            "index_generation": generation.sparse_generation,
+            "chunk_json": chunk.model_dump_json()}

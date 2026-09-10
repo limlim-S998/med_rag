@@ -5,7 +5,9 @@ replicas: 2
 
 image:
   repository: medwdevacr.azurecr.io/generation
-  tag: PLACEHOLDER
+  digest: ""
+  sourceSha: unversioned
+  tag: scaffold
 
 serviceAccount:
   annotations:
@@ -13,23 +15,27 @@ serviceAccount:
     # this one can also INSERT on the audit schema in Azure SQL. One identity
     # per service, scoped to what that service does - a shared identity means
     # every pod inherits the union of every permission.
-    azure.workload.identity/client-id: "00000000-0000-0000-0000-000000000002"
+    azure.workload.identity/client-id: ""
 
 config:
+  cosmos_state_container: "platform-state"
+  blob_account_url: ""
+  blob_container: "raw"
+  aoai_resource_id: ""
   # --- the model axis ---------------------------------------------------
   chat_deployment: gpt-4.1-mini-2025-04-14
   embed_version: v3l-001
   prompt_bundle_sha: 4f2a91c        # SHA of app/prompts/, into every audit row
   temperature: "0"                  # not creative writing. Pinned, not defaulted.
 
-  aoai_endpoint: https://med-rag-test1.openai.azure.com/
-  language_endpoint: https://medrag325744d5lang-158de.cognitiveservices.azure.com/
+  aoai_endpoint: ""
+  language_endpoint: ""
   # Not provisioned. Azure SQL needs an AAD admin principal decision
   # (no AAD group exists on this subscription), so it is deliberately
   # empty rather than pointing at a server that does not exist.
   sql_server: ""
   sql_database: medw
-  cosmos_endpoint: https://medrag325744d5cosmos.documents.azure.com:443/
+  cosmos_endpoint: ""
   cosmos_database: medw
 
 resources:

@@ -1,18 +1,16 @@
-{{/*
-StatefulSet, not Deployment, and the reason is the identity of the storage:
-each replica needs its own PVC that follows it across rescheduling, and a
-stable network name so peers can find each other. A Deployment gives you
-neither - pods are interchangeable, which is exactly what a shard is not.
-*/}}
+{{- if and (gt (int .Values.replicas) 1) (lt (int .Values.config.replication_factor) 2) }}
+{{- fail "multi-node Qdrant requires replication_factor >= 2" }}
+{{- end }}
+{{- if gt (int .Values.config.replication_factor) (int .Values.replicas) }}
+{{- fail "replication_factor cannot exceed replicas" }}
+{{- end }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: qdrant
 spec:
-  # Must be the HEADLESS service, not the ClusterIP one. This is what gives
-  # each pod its stable per-pod DNS name; pointing it at the load-balanced
-  # Service silently breaks peer discovery while everything still "runs".
   serviceName: qdrant-headless
+  podManagementPolicy: Parallel
   replicas: {{ .Values.replicas }}
   selector:
     matchLabels: { app: qdrant }
@@ -20,24 +18,74 @@ spec:
     metadata:
       labels: { app: qdrant }
     spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
       containers:
         - name: qdrant
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              {{- if gt (int .Values.replicas) 1 }}
+              uri="http://${POD_NAME}.qdrant-headless.${POD_NAMESPACE}.svc:6335"
+              if [ "$POD_NAME" = "qdrant-0" ]; then
+                exec ./qdrant --uri "$uri"
+              else
+                exec ./qdrant --uri "$uri" --bootstrap "http://qdrant-0.qdrant-headless.${POD_NAMESPACE}.svc:6335"
+              fi
+              {{- else }}
+              exec ./qdrant
+              {{- end }}
           ports:
             - { containerPort: 6333, name: http }
             - { containerPort: 6334, name: grpc }
             - { containerPort: 6335, name: p2p }
           env:
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            - name: POD_NAMESPACE
+              valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+            - name: QDRANT__CLUSTER__ENABLED
+              value: {{ gt (int .Values.replicas) 1 | quote }}
+            - name: QDRANT__STORAGE__COLLECTION__REPLICATION_FACTOR
+              value: {{ .Values.config.replication_factor | quote }}
+            - name: QDRANT__STORAGE__COLLECTION__WRITE_CONSISTENCY_FACTOR
+              value: {{ .Values.config.write_consistency_factor | quote }}
             - name: QDRANT__STORAGE__ON_DISK_PAYLOAD
               value: {{ .Values.config.on_disk_payload | quote }}
+            {{- if .Values.auth.enabled }}
+            - name: QDRANT__SERVICE__API_KEY
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.auth.existingSecret }}, key: api-key }
+            - name: QDRANT__SERVICE__READ_ONLY_API_KEY
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.auth.existingSecret }}, key: read-only-api-key }
+            {{- end }}
           readinessProbe:
             httpGet: { path: /readyz, port: 6333 }
           livenessProbe:
             httpGet: { path: /livez, port: 6333 }
+          startupProbe:
+            httpGet: { path: /livez, port: 6333 }
+            failureThreshold: 60
+            periodSeconds: 5
           volumeMounts:
             - { name: storage, mountPath: /qdrant/storage }
+            - { name: snapshots, mountPath: /qdrant/snapshots }
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: snapshots
+          emptyDir: {}
+      {{- if gt (int .Values.replicas) 1 }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector: { matchLabels: { app: qdrant } }
+                topologyKey: kubernetes.io/hostname
+      {{- end }}
   volumeClaimTemplates:
     - metadata: { name: storage }
       spec:

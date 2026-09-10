@@ -1,153 +1,95 @@
-# The retrieval service.
-#
-# Everything is async because every hop is I/O: embed call, Qdrant, Cognitive
-# Search, reranker. There is no CPU work here worth a thread pool. The dense
-# and sparse halves run concurrently - they are independent, so serialising
-# them just adds their latencies together for no reason.
-
+"""Retrieval orchestration: select one published generation for both stores."""
 import asyncio
-import dataclasses
-from contextlib import AsyncExitStack, asynccontextmanager
 
 import httpx
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 
-from medw_core import metrics, tracing
-from medw_core.composition import build
+from medw_core import tracing
+from medw_core.composition import effective_settings
+from medw_core.persistence import Conflict
 from medw_core.projections import SECTION_FIELD, TEXT_FIELD
-from medw_core.schemas import Hit, RetrievalRequest, RetrievalResponse
+from medw_core.schemas import Citation, Hit, RetrievalRequest, RetrievalResponse
+from medw_core.service import (
+    add_platform_routes,
+    domain_unavailable,
+    instrument,
+    lifespan_for,
+    readiness_response,
+)
 from medw_core.settings import get_settings
 
 from .fusion import rrf
 from .qdrant_repo import QdrantRepo
 from .sparse_repo import SparseRepo
 
-s = get_settings()
-ctx: dict = {}
+s = effective_settings(get_settings().model_copy(update={"service_name": "retrieval"}))
+app = FastAPI(title="retrieval", lifespan=lifespan_for(
+    "retrieval", s, vector_factory=QdrantRepo, sparse_factory=SparseRepo))
+instrument(app, s, "retrieval")
+add_platform_routes(app, s)
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Wiring comes from the composition root, not from here.
-
-    This used to build a credential, an AOAI client and two repos inline into
-    an untyped dict — the same block, slightly different, in four services. Now
-    the shared dependencies come from medw_core.composition and this function
-    only attaches the two adapters that belong to *this* service.
-
-    The store adapters are attached with dataclasses.replace rather than built
-    in the composition root, because they live in this package and medw_core
-    must never import service code (tests/test_architecture.py enforces it).
-    """
-    tracing.configure_logging(s.log_level, "retrieval")
-    async with AsyncExitStack() as stack:
-        if s.backend == "azure":
-            # Built here and passed in, so this process has ONE credential.
-            # Letting build() make its own would give two token caches
-            # refreshing independently against the same tenant.
-            from medw_core import azure
-            cred = azure.credential()
-            await stack.enter_async_context(cred)
-            services = await build(s, stack, credential=cred)
-            services = dataclasses.replace(
-                services,
-                vectors=QdrantRepo(s),
-                sparse=SparseRepo(azure.search_client(s, cred)),
-            )
-        else:
-            services = await build(s, stack)
-            # Qdrant is the real thing locally too; only the sparse half is
-            # substituted, and build() has already wired the in-memory one.
-            services = dataclasses.replace(services, vectors=QdrantRepo(s))
-
-        ctx["services"] = services
-        ctx["http"] = httpx.AsyncClient(timeout=10.0)
-        stack.push_async_callback(ctx["http"].aclose)
-        yield
-
-
-app = FastAPI(title="retrieval", lifespan=lifespan)
-
-# Scrape endpoint and the in-flight gauge. Prometheus is what KEDA reads; the
-# same instruments also go to App Insights via metrics.configure(). One set of
-# instruments, two readers - see medw_core.metrics.
-metrics.configure_prometheus()
-app.add_middleware(metrics.InFlightMiddleware, service="retrieval")
-
-
-@app.get("/metrics")
-async def prometheus_metrics() -> Response:
-    body, content_type = metrics.render_prometheus()
-    return Response(content=body, media_type=content_type)
-
-
-@app.middleware("http")
-async def correlate(request: Request, call_next):
-    cid = request.headers.get(tracing.HEADER) or tracing.new_id()
-    tracing.CORRELATION_ID.set(cid)
-    response = await call_next(request)
-    response.headers[tracing.HEADER] = cid
-    return response
-
-
-# Liveness = is the process alive. Readiness = can it serve.
-# Conflating them means a slow Qdrant restarts your pods in a crash loop
-# instead of taking them out of rotation until it recovers.
 @app.get("/healthz")
 async def healthz() -> Response:
     return Response(status_code=200)
 
 
 @app.get("/readyz")
-async def readyz() -> Response:
-    try:
-        await ctx["services"].require("vectors").client.get_collections()
-        await ctx["http"].get(f"{s.reranker_url}/healthz")
-        return Response(status_code=200)
-    except Exception:
-        return Response(status_code=503)
+async def readyz(request: Request) -> Response:
+    return await readiness_response(request)
 
 
-@app.post("/search", response_model=RetrievalResponse)
-async def search(req: RetrievalRequest) -> RetrievalResponse:
-    # One filter object, built once, handed to both halves. Previously each
-    # half was passed its own hand-assembled arguments, and the sparse call
-    # was missing section_prefix - so a section-scoped query fused scoped
-    # dense hits with unscoped sparse ones and silently ranked the wrong rows.
-    # Building it here means the two halves cannot be given different things.
-    flt = req.to_filter()
-
-    svc = ctx["services"]
-    # Through the port. This handler no longer knows whether it is talking to
-    # Azure OpenAI or a hash function, which is the entire point.
-    vector = (await svc.require("embedder").embed([req.query]))[0]
-
+async def retrieve_candidates(svc, req: RetrievalRequest):
+    embedder = svc.require("embedder")
+    generation = await svc.require("index_registry").select(
+        req.study_id, embed_version=embedder.embed_version,
+        embed_deployment=s.embed_deployment, dimensions=embedder.dimensions,
+        embed_model_version=s.embed_model_version,
+        embed_model_name=s.embed_model_name,
+    )
+    flt = req.to_filter().model_copy(update={"index_generation": generation})
+    vector = (await embedder.embed([req.query]))[0]
     dense, sparse = await asyncio.gather(
         svc.require("vectors").search(vector, flt, limit=s.fusion_top_n),
         svc.require("sparse").search(req.query, flt, limit=s.fusion_top_n),
     )
+    return generation, dense, sparse
 
-    # Results from the two halves are merged into one dict and then read
-    # without knowing which store a given hit came from. That only works
-    # because both projections spell the shared fields identically - which is
-    # now enforced in medw_core.projections rather than assumed. Reading the
-    # field names from there means this service cannot drift from the sinks.
+
+@app.post("/search", response_model=RetrievalResponse)
+async def search(req: RetrievalRequest, request: Request) -> RetrievalResponse:
+    svc = request.app.state.services
+    if svc is None:
+        raise HTTPException(503, "retrieval dependencies unavailable")
+    try:
+        generation, dense, sparse = await retrieve_candidates(svc, req)
+    except (LookupError, ValueError, Conflict) as exc:
+        raise HTTPException(409, "no compatible published index generation") from exc
     payloads = {cid: p for cid, _, p in dense} | {cid: p for cid, _, p in sparse}
     fused = rrf([[c for c, _, _ in dense], [c for c, _, _ in sparse]], k=s.rrf_k)
+    if fused is None:
+        domain_unavailable()
     candidates = [(cid, payloads[cid][TEXT_FIELD]) for cid, _ in fused[:s.fusion_top_n]]
-
-    r = await ctx["http"].post(
-        f"{s.reranker_url}/rerank",
-        json={"query": req.query, "candidates": [
-            {"id": c, "text": t} for c, t in candidates], "top_k": req.top_k},
-        headers={tracing.HEADER: tracing.CORRELATION_ID.get()},
-    )
-    ranked = r.json()["results"]
-
+    try:
+        response = await request.app.state.http.post(
+            f"{s.reranker_url}/rerank",
+            json={"query": req.query, "candidates": [
+                {"id": cid, "text": text} for cid, text in candidates], "top_k": req.top_k},
+        )
+        response.raise_for_status()
+        ranked = response.json()["results"]
+    except (httpx.HTTPError, ValueError, KeyError) as exc:
+        raise HTTPException(503, "reranker unavailable") from exc
     return RetrievalResponse(
-        hits=[Hit(chunk_id=x["id"], score=x["score"],
-                  text=payloads[x["id"]][TEXT_FIELD],
-                  section_path=payloads[x["id"]][SECTION_FIELD], source="reranked")
-              for x in ranked],
-        trace_id=tracing.CORRELATION_ID.get(),
+        hits=[Hit(
+            chunk_id=row["id"], score=row["score"], text=payloads[row["id"]][TEXT_FIELD],
+            section_path=payloads[row["id"]][SECTION_FIELD], source="reranked",
+            citation=Citation(
+                study_id=req.study_id, chunk_id=row["id"],
+                source_revision=payloads[row["id"]]["source_revision"],
+                parser_version=payloads[row["id"]]["parser_version"],
+                source_location=payloads[row["id"]]["source_location"],
+            ),
+        ) for row in ranked],
+        trace_id=tracing.CORRELATION_ID.get(), index_generation=generation,
     )

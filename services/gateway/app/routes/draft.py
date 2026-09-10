@@ -10,15 +10,17 @@
 
 from fastapi import APIRouter
 
+from medw_core.service import domain_unavailable
+
 router = APIRouter(prefix="/studies", tags=["draft"])
 
 
 @router.post("/{study_id}/sections/{section_path}/draft")
 async def draft_section(study_id: str, section_path: str):
     # StreamingResponse over the generation service's stream.
-    ...
+    domain_unavailable()
 
 
 @router.post("/{study_id}/sections/{section_path}/accept")
 async def accept_section(study_id: str, section_path: str):
-    ...
+    domain_unavailable()

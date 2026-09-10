@@ -12,7 +12,7 @@
 
 from qdrant_client import AsyncQdrantClient, models
 
-from medw_core.ids import collection_name
+from medw_core.indexing import selected_generation
 from medw_core.ports import SearchResult
 from medw_core.schemas import RetrievalFilter
 from medw_core.settings import Settings
@@ -28,27 +28,10 @@ class QdrantRepo:
 
     def __init__(self, s: Settings):
         self.s = s
-        self.client = AsyncQdrantClient(url=s.qdrant_url)
+        self.client = AsyncQdrantClient(url=s.qdrant_url, api_key=s.qdrant_api_key or None)
 
     async def ensure_collection(self, study_id: str) -> str:
-        name = collection_name(study_id, self.s.embed_version)
-        if not await self.client.collection_exists(name):
-            await self.client.create_collection(
-                collection_name=name,
-                vectors_config=models.VectorParams(
-                    size=self.s.embed_dim, distance=models.Distance.COSINE
-                ),
-                hnsw_config=models.HnswConfigDiff(
-                    m=self.s.hnsw_m, ef_construct=self.s.hnsw_ef_construct
-                ),
-            )
-            for field in ("study_id", "doc_type", "section_path", "kind"):
-                await self.client.create_payload_index(
-                    collection_name=name,
-                    field_name=field,
-                    field_schema=models.PayloadSchemaType.KEYWORD,
-                )
-        return name
+        raise RuntimeError("retrieval is read-only; use QdrantGenerationSink for collection creation")
 
     def _conditions(self, flt: RetrievalFilter) -> list[models.Condition]:
         # The Qdrant dialect of RetrievalFilter. Every field the filter grows
@@ -64,7 +47,7 @@ class QdrantRepo:
                 key="doc_type", match=models.MatchAny(any=doc_types)))
         if flt.section_prefix:
             must.append(models.FieldCondition(
-                key="section_path", match=models.MatchText(text=flt.section_prefix)))
+                key="section_prefixes", match=models.MatchValue(value=flt.section_prefix)))
         if flt.kind:
             must.append(models.FieldCondition(
                 key="kind", match=models.MatchValue(value=flt.kind)))
@@ -73,8 +56,11 @@ class QdrantRepo:
     async def search(self, vector: list[float], flt: RetrievalFilter, *,
                      limit: int) -> list[SearchResult]:
         must = self._conditions(flt)
+        generation = selected_generation(flt)
+        if len(vector) != generation.dimensions:
+            raise ValueError("query vector dimensions differ from the selected index")
         res = await self.client.query_points(
-            collection_name=collection_name(flt.study_id, self.s.embed_version),
+            collection_name=generation.dense_collection,
             query=vector,
             limit=limit,
             query_filter=models.Filter(must=must) if must else None,

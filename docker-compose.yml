@@ -1,118 +1,57 @@
-# Local dev.
-#
-# Default `docker compose up` brings the retrieval path only - Qdrant, the
-# reranker, retrieval. Everything else is behind a profile, because a stack
-# that takes four minutes and 12GB to start is a stack people stop starting.
-#
-#   make up          qdrant + reranker + retrieval
-#   make up-full     + gateway, generation, ingestion, and the store emulators
-#   make up-legacy   + chroma, kept only so the migration story is runnable
-#
-# What genuinely cannot run locally: Azure OpenAI, Document Intelligence,
-# Azure Language and Cognitive Search. There are no emulators. You either
-# point at a dev resource with `az login`, or you run the fakes in
-# tests/fakes.py, which is what CI does.
+# Credential-free platform stack; no clinical inference or parsing.
+# Default: Qdrant, reranker, retrieval. --profile full adds all five services.
+# SQLite state and immutable artifacts survive container restarts in a volume.
+x-local: &local
+  MEDW_ENV: local
+  MEDW_BACKEND: local
+  MEDW_SYNTHETIC_ENABLED: "true"
+  MEDW_LOCAL_STATE_PATH: /data/platform.sqlite3
+  MEDW_LOCAL_ARTIFACT_DIR: /data/artifacts
+  MEDW_QDRANT_URL: http://qdrant:6333
+  MEDW_RERANKER_URL: http://reranker:8000
+  MEDW_RETRIEVAL_URL: http://retrieval:8000
+  MEDW_GENERATION_URL: http://generation:8000
+  MEDW_INGESTION_URL: http://ingestion-worker:8000
+
 services:
   qdrant:
     image: qdrant/qdrant:v1.12.1
-    ports: ["6333:6333"]
+    ports: ["127.0.0.1:${MEDW_QDRANT_PORT:-6333}:6333"]
     volumes: ["qdrant_data:/qdrant/storage"]
-
   reranker:
-    build: { context: ., dockerfile: services/reranker/Dockerfile }
-    ports: ["8002:8000"]
-
+    build: {context: ., dockerfile: services/reranker/Dockerfile}
+    environment: *local
+    ports: ["127.0.0.1:${MEDW_RERANKER_PORT:-8002}:8000"]
   retrieval:
-    build: { context: ., dockerfile: services/retrieval/Dockerfile }
-    ports: ["8001:8000"]
-    environment:
-      MEDW_QDRANT_URL: http://qdrant:6333
-      MEDW_RERANKER_URL: http://reranker:8000
-      MEDW_AOAI_ENDPOINT: ${MEDW_AOAI_ENDPOINT}
-      MEDW_SEARCH_ENDPOINT: ${MEDW_SEARCH_ENDPOINT}
-    volumes:
-      - ~/.azure:/root/.azure:ro   # your `az login` cache, so DefaultAzureCredential works
+    build: {context: ., dockerfile: services/retrieval/Dockerfile}
+    environment: *local
+    volumes: ["platform_state:/data"]
+    ports: ["127.0.0.1:${MEDW_RETRIEVAL_PORT:-8001}:8000"]
     depends_on: [qdrant, reranker]
-
-  # --- the rest of the service layer ------------------------------------
   gateway:
     profiles: [full]
-    build: { context: ., dockerfile: services/gateway/Dockerfile }
-    ports: ["8000:8000"]
-    environment:
-      MEDW_COSMOS_ENDPOINT: https://cosmos:8081
-      MEDW_BLOB_ACCOUNT_URL: http://azurite:10000/devstoreaccount1
-      MEDW_RETRIEVAL_URL: http://retrieval:8000
-      MEDW_GENERATION_URL: http://generation:8000
-    volumes: ["~/.azure:/root/.azure:ro"]
-    depends_on: [retrieval, generation, cosmos]
-
+    build: {context: ., dockerfile: services/gateway/Dockerfile}
+    environment: *local
+    volumes: ["platform_state:/data"]
+    ports: ["127.0.0.1:${MEDW_GATEWAY_PORT:-8000}:8000"]
+    depends_on: [retrieval, generation, ingestion-worker]
   generation:
     profiles: [full]
-    build: { context: ., dockerfile: services/generation/Dockerfile }
-    ports: ["8003:8000"]
-    environment:
-      MEDW_AOAI_ENDPOINT: ${MEDW_AOAI_ENDPOINT}
-      MEDW_SQL_SERVER: sqledge
-      MEDW_SQL_DATABASE: medw
-    volumes: ["~/.azure:/root/.azure:ro"]
-    depends_on: [sqledge]
-
+    build: {context: ., dockerfile: services/generation/Dockerfile}
+    environment: *local
+    volumes: ["platform_state:/data"]
+    ports: ["127.0.0.1:${MEDW_GENERATION_PORT:-8003}:8000"]
   ingestion-worker:
     profiles: [full]
-    build: { context: ., dockerfile: services/ingestion_worker/Dockerfile }
-    ports: ["8004:8000"]
-    environment:
-      MEDW_QDRANT_URL: http://qdrant:6333
-      MEDW_BLOB_ACCOUNT_URL: http://azurite:10000/devstoreaccount1
-      MEDW_COSMOS_ENDPOINT: https://cosmos:8081
-      MEDW_AOAI_ENDPOINT: ${MEDW_AOAI_ENDPOINT}
-      MEDW_DOCINTEL_ENDPOINT: ${MEDW_DOCINTEL_ENDPOINT}
-    volumes: ["~/.azure:/root/.azure:ro"]
-    depends_on: [qdrant, azurite, cosmos]
-
-  # --- store emulators ---------------------------------------------------
-  # These three have real local emulators. The AI services do not, which is
-  # the actual dividing line in what you can develop offline.
-  azurite:
-    profiles: [full]
-    image: mcr.microsoft.com/azure-storage/azurite
-    ports: ["10000:10000"]
-    volumes: ["azurite_data:/data"]
-
-  cosmos:
-    profiles: [full]
-    image: mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:latest
-    ports: ["8081:8081", "10251-10254:10251-10254"]
-    environment:
-      AZURE_COSMOS_EMULATOR_PARTITION_COUNT: 3
-    # It is slow to start and it uses a self-signed cert you have to trust.
-    # Worth it: partition-key behaviour is the thing you want to get wrong
-    # locally rather than in a load test.
-
-  sqledge:
-    profiles: [full]
-    image: mcr.microsoft.com/azure-sql-edge:latest
-    ports: ["1433:1433"]
-    environment:
-      ACCEPT_EULA: "Y"
-      MSSQL_SA_PASSWORD: ${LOCAL_SQL_PASSWORD}
-    volumes: ["sql_data:/var/opt/mssql"]
-    # Local only, and the one place a SQL password exists. In every deployed
-    # environment auth is an AAD token - Azure SQL Edge does not support that,
-    # which is exactly the kind of gap worth knowing about rather than
-    # discovering when the first cloud deploy fails.
-
-  # --- the one that got replaced -----------------------------------------
+    build: {context: ., dockerfile: services/ingestion_worker/Dockerfile}
+    environment: *local
+    volumes: ["platform_state:/data"]
+    ports: ["127.0.0.1:${MEDW_INGESTION_PORT:-8004}:8000"]
   chroma:
     profiles: [legacy]
     image: chromadb/chroma:0.5.5
-    ports: ["8005:8000"]
-    # The prototype vector store, replaced by Qdrant once we needed payload
-    # pre-filtering, per-study collections and in-cluster hosting. Kept here
-    # because "we swapped it" is a claim, and a runnable comparison is not.
+    ports: ["127.0.0.1:8005:8000"]
 
 volumes:
   qdrant_data:
-  azurite_data:
-  sql_data:
+  platform_state:

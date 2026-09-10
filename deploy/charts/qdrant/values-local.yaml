@@ -1,17 +1,21 @@
-# Qdrant locally. The one workload that is a StatefulSet, so it is also the
-# one where the storage class actually matters.
-replicas: 1                 # no HA locally; a 3-replica PDB would block drains
-
+replicas: 1
 persistence:
-  # managed-csi-premium is Azure. minikube ships `standard` via its default
-  # storage provisioner. A PVC naming a class that does not exist stays
-  # Pending forever with no error on the StatefulSet itself - the failure is
-  # only visible on the PVC, which is a genuinely confusing first experience.
   storageClass: standard
   size: 2Gi
-
-podDisruptionBudget: null   # minAvailable 2 with one replica blocks every drain
-
+podDisruptionBudget: null
 resources:
-  requests: { cpu: 100m, memory: 512Mi }
-  limits:   { cpu: "1",  memory: 2Gi }
+  requests:
+    cpu: 100m
+    memory: 512Mi
+  limits:
+    cpu: '1'
+    memory: 2Gi
+config:
+  replication_factor: 1
+  write_consistency_factor: 1
+auth:
+  enabled: false
+snapshots:
+  enabled: false
+monitoring:
+  enabled: false

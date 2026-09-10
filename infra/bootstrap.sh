@@ -18,9 +18,10 @@ ENVN=${MEDW_ENV:-dev}
 RG=rg-medw-$ENVN
 PREFIX=medw$ENVN
 
-# FREE=1 provisions the cheapest shape of everything that has a free tier.
-# Default, because the expensive shapes bill from the moment they exist and
-# nothing here needs them.
+# FREE selects the requested trial/demo SKUs where available. This script
+# also creates a three-node AKS cluster and other commissioned resources.
+# Infrastructure costs, tier eligibility, quotas and residency must be
+# reviewed separately; FREE=1 is not a promise of a zero-cost environment.
 FREE=${FREE:-1}
 
 az login
@@ -42,39 +43,34 @@ az cognitiveservices account create \
   --custom-domain ${PREFIX}aoai
 
 # Check what you can ACTUALLY deploy before writing a deployment name down.
-# The model catalogue and your quota are different things: gpt-4o appears in
-# `list-models` for this region and has a Standard quota limit of 0, so the
-# create call fails with a quota error rather than a not-found one.
+# The model catalogue and your subscription's deployment quota are separate.
+# An available model can still fail deployment because the requested quota
+# or SKU is unavailable.
 #
 #   az cognitiveservices account list-models -n ${PREFIX}aoai -g $RG -o table
 #   az cognitiveservices usage list -l $LOC --query "[?limit>\`0\`]" -o table
 #
-# --sku-capacity is a RATE LIMIT, not a reservation. You pay per token either
-# way, so a low capacity costs nothing and caps how fast anything can burn
-# credit. 10 = 10k tokens/minute, ample for one writer.
+# Capacity units are model/SKU specific. Review the checked-in deployment
+# request against available quota and the commissioned workload.
 
-az cognitiveservices account deployment create \
-  -n ${PREFIX}aoai -g $RG \
-  --deployment-name gpt-4.1-mini-2025-04-14 \
-  --model-name gpt-4.1-mini --model-version 2025-04-14 --model-format OpenAI \
-  --sku-name GlobalStandard --sku-capacity 10
-
-az cognitiveservices account deployment create \
-  -n ${PREFIX}aoai -g $RG \
-  --deployment-name text-embedding-3-large-1 \
-  --model-name text-embedding-3-large --model-version 1 --model-format OpenAI \
-  --sku-name Standard --sku-capacity 10
+AOAI_ID=$(az cognitiveservices account show -n "${PREFIX}aoai" -g "$RG" --query id -o tsv)
+# The installed CLI has no version-upgrade flag. Use the documented ARM
+# deployment property, with model version and policy in the SAME creation PUT.
+az rest --method put \
+  --url "https://management.azure.com${AOAI_ID}/deployments/gpt-4.1-mini-2025-04-14?api-version=2024-10-01" \
+  --body @infra/aoai/chat-deployment.json
+az rest --method put \
+  --url "https://management.azure.com${AOAI_ID}/deployments/text-embedding-3-large-1?api-version=2024-10-01" \
+  --body @infra/aoai/embed-deployment.json
 
 # Two things in those calls are load-bearing.
 #
-# The deployment name carries the version. Name it "gpt-4.1-mini" and Azure
-# will roll the underlying version forward and your outputs will change with
-# no commit anywhere in your repo.
+# A name is only a label. The actual model revision and NoAutoUpgrade policy
+# above are independently checked by runtime model-identity readiness.
 #
 # The SKU is Standard for embeddings and GlobalStandard for chat, and that is
-# not a pricing preference - it is where inference physically happens. See
-# docs/adr/0007. On this subscription there is no Standard chat quota at all,
-# so the residency-safe tier was simply not available.
+# relevant to where inference can happen. Review residency against the
+# deployment type before commissioning; see README.md#azure-commissioning.
 
 # --- storage ------------------------------------------------------------
 # Three containers, three lifecycles. See libs/medw_core/blob.py.
@@ -84,8 +80,8 @@ for c in raw parsed snapshots; do
 done
 
 # --- search -------------------------------------------------------------
-# Free tier: small, permanent, one per subscription. `standard` bills from
-# the moment it exists and nothing here needs it.
+# Select the requested demo or Standard SKU; validate tier limits and
+# availability for the intended workload before commissioning.
 az search service create -n ${PREFIX}search -g $RG -l $LOC \
   --sku $([ "$FREE" = 1 ] && echo free || echo standard)
 # The index is a JSON definition, not a CLI flag - analyzers, scoring profile
@@ -93,13 +89,12 @@ az search service create -n ${PREFIX}search -g $RG -l $LOC \
 az rest --method put \
   --uri "https://${PREFIX}search.search.windows.net/indexes/csr-chunks?api-version=2024-07-01" \
   --resource https://search.azure.com \
-  --body @infra/search/csr-chunks-index.json
+  --body "$(python3 infra/search_payload.py infra/search/csr-chunks-index.json)"
 
 # --- state: Cosmos ------------------------------------------------------
-# Serverless in dev (you pay per request and it idles at zero); autoscale
-# throughput in prod. The partition key is fixed at creation - it is the one
-# choice here that costs a migration to undo.
-# Free tier gives 1000 RU/s + 25GB permanently, one per subscription.
+# FREE requests a free-tier account; otherwise this script requests
+# serverless. The partition key is fixed at creation, so changing it requires
+# a migration. Review account eligibility and capacity before commissioning.
 az cosmosdb create -n ${PREFIX}cosmos -g $RG --locations regionName=$LOC \
   $([ "$FREE" = 1 ] && echo --enable-free-tier true || echo --capabilities EnableServerless)
 az cosmosdb sql database create -a ${PREFIX}cosmos -g $RG -n medw
@@ -112,6 +107,10 @@ az cosmosdb sql container create -a ${PREFIX}cosmos -g $RG -d medw \
   -n sessions   --partition-key-path /user_id  --ttl 43200
 az cosmosdb sql container create -a ${PREFIX}cosmos -g $RG -d medw \
   -n generations --partition-key-path /study_id --ttl 7776000
+az cosmosdb sql container create -a ${PREFIX}cosmos -g $RG -d medw \
+  -n platform-state --partition-key-path /study_id
+# No TTL: jobs/checkpoints, source/citation evidence and index manifests are
+# durable. Serving-index cleanup never deletes their evidence.
 
 # --- state: Azure SQL ---------------------------------------------------
 # No SQL admin password anywhere. AAD-only auth, an AAD group as the server
@@ -121,7 +120,12 @@ az sql server create -n ${PREFIX}sql -g $RG -l $LOC \
   --enable-ad-only-auth --external-admin-principal-type Group \
   --external-admin-name "sg-medw-sql-admins" \
   --external-admin-sid "$AAD_SQL_ADMIN_GROUP_OBJECT_ID"
-# Free serverless offer auto-pauses when idle. S1 bills continuously.
+# Keep SQL on TCP 1433, matching the application NetworkPolicy. Azure-origin
+# clients otherwise use Redirect under the Default policy, requiring extra
+# destination ports. Proxy trades some throughput/latency for fixed-port egress.
+az sql server conn-policy update -s ${PREFIX}sql -g $RG --connection-type Proxy
+# Select the requested serverless offer or S1; verify offer eligibility and
+# availability before commissioning.
 az sql db create -n medw -s ${PREFIX}sql -g $RG \
   $([ "$FREE" = 1 ] \
     && echo '--edition GeneralPurpose --compute-model Serverless --family Gen5 --capacity 1 --use-free-limit --free-limit-exhaustion-behavior AutoPause' \
@@ -130,9 +134,8 @@ az sql server firewall-rule create -n allow-azure -s ${PREFIX}sql -g $RG \
   --start-ip-address 0.0.0.0 --end-ip-address 0.0.0.0   # "Azure services", not the world
 
 # --- document parsing + clinical NER ------------------------------------
-# F0 is the free tier for both: a monthly page/record cap, no standing cost.
-# One F0 account per kind per subscription. Plenty for a synthetic study;
-# S0/S bill per page and per record from the first call.
+# Select F0 for the demo request or S0 otherwise. Validate each service's
+# SKU limits and regional availability before commissioning.
 AI_SKU=$([ "$FREE" = 1 ] && echo F0 || echo S0)
 az cognitiveservices account create -n ${PREFIX}di -g $RG -l $LOC \
   --kind FormRecognizer --sku $AI_SKU     # Document Intelligence, old CLI name
@@ -166,12 +169,17 @@ az monitor app-insights component create -a ${PREFIX}ai -g $RG -l $LOC \
 # credential sense - it is an ingestion key with write-only telemetry scope.
 
 # --- container registry + cluster ---------------------------------------
-# Basic is the cheapest ACR tier and the only standing charge in this file.
-# It is small, but it is per-month whether or not you push anything - so it
-# is the first thing to delete between sessions.
+# AKS uses Azure CNI Overlay with Cilium so the chart's Kubernetes
+# NetworkPolicies are enforced. Review these ranges against the node subnet,
+# connected networks and each other before commissioning.
+POD_CIDR=${MEDW_POD_CIDR:-192.168.0.0/16}
+SERVICE_CIDR=${MEDW_SERVICE_CIDR:-10.0.0.0/16}
+DNS_SERVICE_IP=${MEDW_DNS_SERVICE_IP:-10.0.0.10}
 az acr create -n ${PREFIX}acr -g $RG --sku Basic
 az aks create -n ${PREFIX}aks -g $RG \
   --node-count 3 --node-vm-size Standard_D4s_v5 \
+  --network-plugin azure --network-plugin-mode overlay --network-dataplane cilium \
+  --pod-cidr "$POD_CIDR" --service-cidr "$SERVICE_CIDR" --dns-service-ip "$DNS_SERVICE_IP" \
   --attach-acr ${PREFIX}acr \
   --enable-oidc-issuer --enable-workload-identity \
   --enable-managed-identity --generate-ssh-keys
@@ -189,73 +197,80 @@ az aks get-credentials -n ${PREFIX}aks -g $RG    # writes ~/.kube/config
 # Then DefaultAzureCredential inside the pod finds the projected token file,
 # swaps it for an AAD token, and every SDK client just works.
 
-IDENT=id-medw-retrieval
-az identity create -n $IDENT -g $RG
-CLIENT_ID=$(az identity show -n $IDENT -g $RG --query clientId -o tsv)
-PRINCIPAL_ID=$(az identity show -n $IDENT -g $RG --query principalId -o tsv)
-ISSUER=$(az aks show -n ${PREFIX}aks -g $RG --query oidcIssuerProfile.issuerUrl -o tsv)
+ISSUER=$(az aks show -n "${PREFIX}aks" -g "$RG" --query oidcIssuerProfile.issuerUrl -o tsv)
+COSMOS_ID=$(az cosmosdb show -n "${PREFIX}cosmos" -g "$RG" --query id -o tsv)
+STORAGE_ID=$(az storage account show -n "${PREFIX}sa" -g "$RG" --query id -o tsv)
+SEARCH_ID=$(az search service show -n "${PREFIX}search" -g "$RG" --query id -o tsv)
+COSMOS_READER="$COSMOS_ID/sqlRoleDefinitions/00000000-0000-0000-0000-000000000001"
+COSMOS_WRITER="$COSMOS_ID/sqlRoleDefinitions/00000000-0000-0000-0000-000000000002"
+EVIDENCE_APPENDER=$(az cosmosdb sql role definition create -a "${PREFIX}cosmos" -g "$RG" \
+  --body @infra/cosmos/evidence-appender.json --query id -o tsv)
+PLATFORM_WRITER=$(az cosmosdb sql role definition create -a "${PREFIX}cosmos" -g "$RG" \
+  --body @infra/cosmos/platform-writer.json --query id -o tsv)
 
-az role assignment create --assignee $PRINCIPAL_ID \
-  --role "Cognitive Services OpenAI User" \
-  --scope $(az cognitiveservices account show -n ${PREFIX}aoai -g $RG --query id -o tsv)
+grant_resource() {
+  az role assignment create --assignee-object-id "$PRINCIPAL_ID" \
+    --assignee-principal-type ServicePrincipal --role "$1" --scope "$2"
+}
 
-az role assignment create --assignee $PRINCIPAL_ID \
-  --role "Storage Blob Data Reader" \
-  --scope $(az storage account show -n ${PREFIX}sa -g $RG --query id -o tsv)
+grant_cosmos() {
+  az cosmosdb sql role assignment create -a "${PREFIX}cosmos" -g "$RG" \
+    --principal-id "$PRINCIPAL_ID" --role-definition-id "$1" \
+    --scope "$COSMOS_ID/dbs/medw/colls/$2"
+}
 
-az role assignment create --assignee $PRINCIPAL_ID \
-  --role "Search Index Data Reader" \
-  --scope $(az search service show -n ${PREFIX}search -g $RG --query id -o tsv)
-
-az identity federated-credential create \
-  --name fc-retrieval --identity-name $IDENT -g $RG \
-  --issuer "$ISSUER" \
-  --subject system:serviceaccount:medw:retrieval \
-  --audience api://AzureADTokenExchange
-
-# --- data plane is NOT the control plane --------------------------------
-# Owner on the subscription does not let you call a model. It is a control
-# plane role: create, configure, delete. Calling an inference endpoint needs
-# a data action, and only these roles carry it. This applies to YOU at a
-# terminal exactly as much as it applies to a pod. See docs/adr/0008.
-MY_OID=$(az ad signed-in-user show --query id -o tsv)
-az role assignment create --assignee $MY_OID \
-  --role "Cognitive Services OpenAI User" \
-  --scope $(az cognitiveservices account show -n ${PREFIX}aoai -g $RG --query id -o tsv)
-# Propagation is uneven and per-action: chat answered immediately while
-# embeddings 401'd for ~2.5 minutes off the SAME assignment. Anything that
-# provisions then immediately calls needs a retry loop.
-
-echo "serviceAccount.annotations: azure.workload.identity/client-id: $CLIENT_ID"
-# ^ that value goes into values-dev.yaml. It is a client ID, not a secret.
-
-# --- one identity per service, not one for the cluster ------------------
-# Repeat the four steps above per service. It is more lines, and it means a
-# compromised retrieval pod cannot write to Blob, cannot touch Cosmos and
-# cannot insert into the audit trail. A shared identity gives every pod the
-# union of every permission, and the union is always the widest one.
-#
-#   id-medw-retrieval  AOAI User, Blob Data Reader, Search Index Data Reader
-#   id-medw-generation AOAI User, + INSERT on audit via a contained SQL user
-#   id-medw-ingestion  AOAI User, Blob Data CONTRIBUTOR, Search Index Data
-#                      Contributor, Cognitive Services User (DI + Language),
-#                      Cosmos data contributor
-#   id-medw-gateway    Blob Delegator (to mint user-delegation SAS), Cosmos
-#                      data contributor
-#   id-medw-reranker   nothing. It calls no Azure service.
-
-# --- the Cosmos gotcha --------------------------------------------------
-# Cosmos data-plane access is NOT `az role assignment create`. The control
-# plane (create/delete containers) uses ordinary Azure RBAC; reading and
-# writing items uses a separate role family with its own command. Assigning
-# "Cosmos DB Account Contributor" and expecting to read documents is a
-# half-day of confusion that everyone has once.
-COSMOS_ID=$(az cosmosdb show -n ${PREFIX}cosmos -g $RG --query id -o tsv)
-az cosmosdb sql role assignment create -a ${PREFIX}cosmos -g $RG \
-  --role-definition-id "$COSMOS_ID/sqlRoleDefinitions/00000000-0000-0000-0000-000000000002" \
-  --principal-id $PRINCIPAL_ID --scope "/"     # built-in Data Contributor
+# Exact runtime access map. Generation only creates retention markers; it
+# cannot replace/delete source evidence or the active index pointer. The
+# writer's CAS updates require replace, but it still gets no state delete.
+for SERVICE in gateway retrieval generation ingestion-worker reranker qdrant-backup; do
+  ID_SUFFIX=$SERVICE
+  if [ "$SERVICE" = ingestion-worker ]; then ID_SUFFIX=ingestion; fi
+  IDENT="id-medw-$ID_SUFFIX"
+  az identity create -n "$IDENT" -g "$RG"
+  CLIENT_ID=$(az identity show -n "$IDENT" -g "$RG" --query clientId -o tsv)
+  PRINCIPAL_ID=$(az identity show -n "$IDENT" -g "$RG" --query principalId -o tsv)
+  az identity federated-credential create --name "fc-$SERVICE" --identity-name "$IDENT" -g "$RG" \
+    --issuer "$ISSUER" --subject "system:serviceaccount:medw:$SERVICE" \
+    --audience api://AzureADTokenExchange
+  case "$SERVICE" in
+    retrieval)
+      grant_resource "Cognitive Services OpenAI User" "$AOAI_ID"
+      grant_resource "Reader" "$AOAI_ID"
+      grant_resource "Search Index Data Reader" "$SEARCH_ID"
+      grant_cosmos "$COSMOS_READER" platform-state
+      ;;
+    generation)
+      grant_resource "Cognitive Services OpenAI User" "$AOAI_ID"
+      grant_resource "Reader" "$AOAI_ID"
+      grant_resource "Storage Blob Data Reader" "$STORAGE_ID/blobServices/default/containers/raw"
+      grant_cosmos "$EVIDENCE_APPENDER" platform-state
+      ;;
+    ingestion-worker)
+      grant_resource "Cognitive Services OpenAI User" "$AOAI_ID"
+      grant_resource "Reader" "$AOAI_ID"
+      grant_resource "Search Index Data Contributor" "$SEARCH_ID"
+      grant_resource "Storage Blob Data Contributor" "$STORAGE_ID/blobServices/default/containers/raw"
+      grant_resource "Storage Blob Data Contributor" "$STORAGE_ID/blobServices/default/containers/parsed"
+      grant_cosmos "$PLATFORM_WRITER" platform-state
+      grant_cosmos "$COSMOS_WRITER" documents
+      ;;
+    gateway)
+      grant_cosmos "$COSMOS_WRITER" sessions
+      grant_cosmos "$COSMOS_READER" documents
+      ;;
+    qdrant-backup)
+      grant_resource "Storage Blob Data Contributor" "$STORAGE_ID/blobServices/default/containers/snapshots"
+      ;;
+    reranker) : ;;  # No Azure role assignments.
+  esac
+  printf '%s workload identity clientId: %s\n' "$SERVICE" "$CLIENT_ID"
+done
+# SQL permissions are applied separately by the tracked migration runner.
+# DI/Language/classifier-registry and gateway SAS permissions remain absent
+# until their held-back implementations are commissioned. RBAC propagation
+# and managed-identity access must be verified separately in the target cloud.
 
 # --- demo environment (Container Apps, scales to zero) ------------------
-# Retained after the move to AKS for one property AKS does not have: an idle
-# demo costs nothing. See deploy/container-apps/demo.yaml.
+# Optional demo hosting scaffold; review its resource costs and limits
+# separately. See deploy/container-apps/demo.yaml.
 az containerapp env create -n medw-demo-env -g $RG -l $LOC

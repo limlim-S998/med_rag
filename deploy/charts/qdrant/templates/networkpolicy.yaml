@@ -1,0 +1,54 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: qdrant
+spec:
+  podSelector: { matchLabels: { app: qdrant } }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - { key: app, operator: In, values: [retrieval, ingestion-worker, qdrant-backup, qdrant] }
+      ports:
+        - { protocol: TCP, port: 6333 }
+        - { protocol: TCP, port: 6334 }
+    - from:
+        - podSelector: { matchLabels: { app: qdrant } }
+      ports:
+        - { protocol: TCP, port: 6335 }
+  egress:
+    - to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - podSelector: { matchLabels: { app: qdrant } }
+      ports:
+        - { protocol: TCP, port: 6333 }
+        - { protocol: TCP, port: 6334 }
+        - { protocol: TCP, port: 6335 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: qdrant-backup
+spec:
+  podSelector: { matchLabels: { app: qdrant-backup } }
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } }
+      ports: [{ protocol: UDP, port: 53 }, { protocol: TCP, port: 53 }]
+    - to:
+        - podSelector: { matchLabels: { app: qdrant } }
+      ports: [{ protocol: TCP, port: 6333 }]
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16]
+      ports: [{ protocol: TCP, port: 443 }]
+{{- end }}

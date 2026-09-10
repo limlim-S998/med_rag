@@ -11,14 +11,14 @@ dev:           ## create .venv and install everything needed for host-side work
 up:            ## local stack: qdrant + reranker + retrieval
 	docker compose up --build
 
-up-full:       ## + gateway, generation, ingestion, and the store emulators
+up-full:       ## + gateway, generation and ingestion using durable local adapters
 	docker compose --profile full up --build
 
 up-legacy:     ## + chroma, so the "we replaced it" story is runnable
 	docker compose --profile full --profile legacy up --build
 
 down:
-	docker compose down -v
+	docker compose --profile full --profile legacy down
 
 test:
 	pytest tests services -q
@@ -32,20 +32,21 @@ types:
 lint:
 	ruff check .
 
-charts:        ## render + lint every chart, the way CI does
-	@for c in deploy/charts/*/; do \
+charts:        ## fail if any chart or Flux environment cannot render
+	@set -eu; for c in deploy/charts/*/; do \
 	  n=$$(basename $$c); [ "$$n" = "medw-lib" ] && continue; \
-	  helm dependency update $$c >/dev/null && helm lint $$c >/dev/null \
-	    && helm template $$n $$c >/dev/null && echo "  ok   $$n" || echo "  FAIL $$n"; \
+	  helm dependency build $$c >/dev/null; helm lint $$c >/dev/null; \
+	  helm template $$n $$c >/dev/null; echo "  ok   $$n"; \
 	done
-	@for e in dev staging prod; do \
-	  kubectl kustomize deploy/flux/$$e >/dev/null && echo "  ok   flux/$$e" || echo "  FAIL flux/$$e"; \
+	@set -eu; for e in base dev staging prod local; do \
+	  kubectl kustomize deploy/flux/$$e >/dev/null; echo "  ok   flux/$$e"; \
 	done
 
-release:       ## what the pipeline does: set every image tag to HEAD. DRY=1 to preview.
-	python scripts/bump_image_tag.py --all --tag $$(git rev-parse HEAD) $(if $(DRY),--dry-run,)
+release:       ## BUNDLE=path ENV=dev; selects exact artifacts, never builds or pushes
+	@test -n "$(BUNDLE)" -a -n "$(ENV)" || (echo "BUNDLE and ENV required"; exit 2)
+	python scripts/release.py select "$(BUNDLE)" --environment "$(ENV)"
 
-check: lint arch types test charts   ## everything CI runs, in the same order
+check: lint arch types test charts   ## host checks; image startup checks run separately
 
 fmt:
 	ruff check --fix . && ruff format .
@@ -53,10 +54,8 @@ fmt:
 eval:          ## recall@k against the golden set
 	python evals/run_retrieval_eval.py
 
-migrate:       ## apply db/sql in order. Additive-only in anything but dev.
-	sqlcmd -G -S $(MEDW_SQL_SERVER) -d $(MEDW_SQL_DATABASE) -i db/sql/0001_core.sql
-	sqlcmd -G -S $(MEDW_SQL_SERVER) -d $(MEDW_SQL_DATABASE) -i db/sql/0002_audit.sql
-	sqlcmd -G -S $(MEDW_SQL_SERVER) -d $(MEDW_SQL_DATABASE) -i db/sql/0003_grants.sql
+migrate:       ## migration identity in MEDW_SQL_CONNECTION_STRING
+	python scripts/migrate.py
 
 search-index:  ## push the Cognitive Search index definition
 	az rest --method put \

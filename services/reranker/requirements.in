@@ -1,0 +1,16 @@
+# The real cross-encoder remains intentionally held back. Its image no longer
+# downloads unused weights. Restore inference dependencies with pinned weights
+# when implementing that domain component.
+fastapi
+uvicorn[standard]
+pydantic-settings
+opentelemetry-exporter-prometheus
+azure-monitor-opentelemetry
+
+# Shared medw-core runtime requirements (installed from source with --no-deps).
+pydantic>=2
+pydantic-settings>=2
+azure-identity
+aiohttp
+
+httpx

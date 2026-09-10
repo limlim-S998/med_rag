@@ -1,63 +1,110 @@
-# The shape every service pipeline shares, parameterised.
-#
-# retrieval.yml is written out longhand as the readable example; the other
-# services consume this template and supply three parameters. The duplication
-# in retrieval.yml is deliberate - a pipeline you have to jump through two
-# files to read is a pipeline nobody reads.
-#
-# The invariant, in both forms: BUILD then COMMIT. The pipeline never deploys.
-# Flux deploys, by reconciling to the commit this makes.
-
+# One complete release contains all five services from the same clean source.
+# Registry credentials and migration identity are Azure DevOps service settings.
 parameters:
-  - name: service        # gateway | generation | reranker | ingestion-worker
+  - name: registryConnection
     type: string
-  - name: chartPath
+    default: acr-medw
+  - name: registryHost
     type: string
-  - name: runMigrations  # only generation's pipeline touches the SQL schema
-    type: boolean
-    default: false
+    default: medwdevacr.azurecr.io
+  - name: releaseBranch
+    type: string
+    default: main
+
+  - name: modelValidationConnection
+    type: string
+    default: medw-model-metadata-readonly
 
 stages:
   - stage: build
     jobs:
-      - job: test_and_push
+      - job: all_images
         pool: { vmImage: ubuntu-latest }
         steps:
+          - checkout: self
+            persistCredentials: true
+            fetchDepth: 0
+          - task: UsePythonVersion@0
+            inputs: { versionSpec: '3.11' }
+          - task: HelmInstaller@1
+            inputs: { helmVersionToInstall: '3.16.4' }
+          - task: KubectlInstaller@0
+            inputs: { kubectlVersion: '1.32.2' }
           - script: |
-              pip install -e libs/medw_core -r services/${{ parameters.service }}/requirements.txt
-              ruff check . && mypy services/${{ parameters.service }}
-              pytest services/${{ parameters.service }}/tests -q
-            displayName: lint + type + test
-
+              set -euo pipefail
+              python -m pip install -r requirements-dev.txt
+              make lint arch types test charts
+            displayName: Install tools and check existing repository suites
           - task: Docker@2
             inputs:
-              containerRegistry: acr-medw
-              repository: ${{ parameters.service }}
-              command: buildAndPush
-              Dockerfile: services/${{ parameters.service }}/Dockerfile
-              buildContext: .
-              tags: $(Build.SourceVersion)
+              command: login
+              containerRegistry: ${{ parameters.registryConnection }}
+          - script: |
+              set -euo pipefail
+              python scripts/build_images.py --registry '${{ parameters.registryHost }}' --push --output /tmp/images.json
+              python scripts/release.py create --images /tmp/images.json --behavior deploy/release-behavior.json --output /tmp/bundle.json
+              python scripts/verify_release.py /tmp/bundle.json --registry '${{ parameters.registryHost }}' --environment dev
+            displayName: Build, smoke, publish and record exact digests
+          - publish: /tmp/bundle.json
+            artifact: release
 
-  - ${{ if parameters.runMigrations }}:
-    - stage: migrate
-      dependsOn: build
-      jobs:
-        - job: sql_migrations
-          steps:
-            # Runs BEFORE the image rolls, under a service connection identity
-            # that exists only for this stage - no runtime principal has DDL.
-            # Additive-only in prod: the audit table is never altered in place.
-            - script: sqlcmd -G -S $(sqlServer) -d medw -i db/sql/*.sql
-              displayName: apply schema
-
-  - stage: promote_to_dev
+  - stage: validate_models
     dependsOn: build
     jobs:
-      - job: bump_values
+      - job: metadata
+        pool: { vmImage: ubuntu-latest }
         steps:
+          - checkout: self
+          - download: current
+            artifact: release
+          - task: AzureCLI@2
+            inputs:
+              azureSubscription: ${{ parameters.modelValidationConnection }}
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -euo pipefail
+                python -m pip install pyyaml==6.0.2
+                PYTHONPATH=libs python scripts/check_model_deployments.py '$(Pipeline.Workspace)/release/bundle.json' --environment dev
+
+  - stage: migrate
+    dependsOn: validate_models
+    jobs:
+      - job: sql_migrations
+        pool: { vmImage: ubuntu-latest }
+        steps:
+          - checkout: self
+          - download: current
+            artifact: release
+          - task: Docker@2
+            inputs:
+              command: login
+              containerRegistry: ${{ parameters.registryConnection }}
+          # Deployment-only identity. Configure the secret variable in the
+          # protected pipeline environment; runtime identities do not get DDL.
           - script: |
-              python scripts/bump_image_tag.py \
-                --service ${{ parameters.service }} --tag $(Build.SourceVersion)
-              git commit -am "chore(dev): ${{ parameters.service }} -> $(Build.SourceVersion)"
-              git push
-            displayName: commit image tag for Flux
+              set -euo pipefail
+              python scripts/run_migrations_image.py --bundle '$(Pipeline.Workspace)/release/bundle.json' --registry '${{ parameters.registryHost }}'
+            env:
+              MEDW_SQL_CONNECTION_STRING: $(migrationConnectionString)
+            displayName: Apply tracked SQL migrations; errors fail this stage
+
+  - stage: promote_to_dev
+    dependsOn: migrate
+    condition: succeeded()
+    jobs:
+      - job: commit_release
+        pool: { vmImage: ubuntu-latest }
+        steps:
+          - checkout: self
+            persistCredentials: true
+            fetchDepth: 0
+          - download: current
+            artifact: release
+          - script: |
+              set -euo pipefail
+              python -m pip install pyyaml==6.0.2
+              python scripts/commit_release.py '$(Pipeline.Workspace)/release/bundle.json' --environment dev --branch '${{ parameters.releaseBranch }}' --push
+            env:
+              PYTHONPATH: libs
+            displayName: Commit selected bundle with retry after successful migrations

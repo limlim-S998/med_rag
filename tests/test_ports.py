@@ -85,7 +85,7 @@ def test_dense_translator_honours_every_filter_field(flt):
     # study_id is absent on purpose: one collection per study means the
     # scoping is structural, not a filter that could be forgotten.
     assert "study_id" not in keys
-    assert keys == {"doc_type", "section_path", "kind"}
+    assert keys == {"doc_type", "section_prefixes", "kind"}
 
 
 def test_odata_escapes_quotes():

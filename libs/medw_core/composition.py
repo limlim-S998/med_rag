@@ -1,53 +1,24 @@
-# The composition root. One place where implementations are chosen.
-#
-# Before this, each service built its dependencies inline in `lifespan()` into
-# an untyped `ctx: dict` — four copies of the same wiring, 40 assignments, and
-# no single answer to "what is this service actually talking to". Adding a
-# local backend would have meant an `if` in four files, which is how a seam
-# stops being a seam.
-#
-# The rule: **application code never constructs a dependency.** It receives one
-# through a port. Only this module knows a concrete type exists, and only this
-# module reads MEDW_BACKEND. If you find yourself importing `azure` or
-# `qdrant_client` in a request handler, the boundary has already gone.
-#
-# Two backends:
-#
-#   azure  the real thing. Azure OpenAI, Cognitive Search, Cosmos, Azure SQL.
-#   local  in-memory and on-disk stand-ins. No network, no credential, no cost.
-#          Every port has one, which is the only reason the ports can be
-#          trusted to be abstractions rather than the Azure SDK renamed.
-#
-# Qdrant is deliberately absent from that split: it is the real thing in both,
-# because it runs in a container locally. A fake would be strictly worse than
-# the genuine article.
+"""Choose service-scoped dependencies once, at startup.
+
+Qdrant and Search adapters remain service-owned factories so the shared
+library never imports a service. Backend selection happens here.
+"""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from typing import Literal
 
 from medw_core import ports
+from medw_core.health import HealthMonitor, unavailable_check
 from medw_core.settings import Settings
-
-Backend = Literal["azure", "local"]
 
 
 @dataclass(frozen=True)
 class Services:
-    """Everything a service might need, already wired.
-
-    Frozen: a service cannot swap a dependency at runtime. If it could, the
-    composition root would no longer be the answer to "what is this talking
-    to" — it would just be the answer at startup.
-
-    Every field is a Protocol, never a concrete class. That is what stops a
-    handler reaching past the port for `._client` and quietly coupling itself
-    to the SDK.
-    """
-
-    backend: Backend
+    backend: Literal["azure", "local"]
     embedder: ports.Embedder | None = None
     vectors: ports.VectorIndex | None = None
     sparse: ports.SparseIndex | None = None
@@ -60,148 +31,217 @@ class Services:
     sessions: ports.SessionStore | None = None
     documents: ports.DocumentStore | None = None
     audit: ports.AuditSink | None = None
+    state: ports.StateStore | None = None
+    index_registry: ports.IndexSelector | None = None
+    evidence: ports.EvidenceStore | None = None
+    authorization: ports.StudyAccess | None = None
+    health: ports.HealthCheck | None = None
 
     def require(self, name: str):
-        """Fetch a dependency, failing loudly if this service was not given it.
-
-        Services are wired with only what they need — retrieval gets no audit
-        sink, the reranker gets nothing at all. Reaching for an absent
-        dependency should say so plainly at the call site rather than raise
-        AttributeError on None three frames down.
-        """
         value = getattr(self, name, None)
         if value is None:
-            raise RuntimeError(
-                f"{name!r} was not wired for this service under backend "
-                f"{self.backend!r}. Add it in medw_core.composition, not here."
-            )
+            raise RuntimeError(f"{name!r} was not wired under {self.backend}")
         return value
 
 
-async def build(s: Settings, stack: AsyncExitStack, *, credential=None) -> Services:
-    """Construct the dependency graph for `s.backend`.
+DEPENDENCIES = {
+    "gateway": {"sessions", "documents", "authorization"},
+    "retrieval": {"embedder", "sparse", "vectors", "state", "index_registry"},
+    "generation": {"chat", "audit", "evidence", "state"},
+    "ingestion-worker": {"embedder", "jobs", "documents", "audit", "state",
+                         "index_registry", "evidence"},
+    "reranker": {"reranker"},
+}
 
-    Takes an AsyncExitStack rather than owning cleanup: the caller's lifespan
-    already has a scope, and two competing shutdown paths is how a credential
-    gets closed while a request is still using it.
 
-    `credential` exists because some services build their own store adapters
-    (retrieval needs a SearchClient, the gateway a CosmosClient) and those need
-    the same credential this function would otherwise create privately. Passing
-    it in means one credential per process instead of two - and two is not
-    merely wasteful, it is two token caches refreshing independently.
-    """
+def effective_settings(s: Settings) -> Settings:
+    """Synthetic model identities cannot be confused with Azure vector spaces."""
     if s.backend == "local":
-        return _build_local(s)
-    return await _build_azure(s, stack, credential)
+        return s.model_copy(update={
+            "chat_deployment": "local-scripted", "chat_model_name": "synthetic",
+            "chat_model_version": "1", "embed_deployment": "local-hash-000",
+            "embed_version": "local-hash-000", "embed_model_name": "synthetic-hash",
+            "embed_model_version": "1", "table_classifier_version": "held-back",
+        })
+    return s
 
 
-def _build_local(s: Settings) -> Services:
-    # Imported here, not at module scope: the local package must never be a
-    # runtime dependency of a production image.
-    from medw_core.local.audit import InMemoryAuditSink
-    from medw_core.local.chat import ScriptedChatClient
-    from medw_core.local.embedder import HashEmbedder
-    from medw_core.local.jobs import InMemoryJobStore
-    from medw_core.local.stores import (
-        DictionaryEntityExtractor,
-        FixtureLayoutExtractor,
-        InMemoryDocumentStore,
-        InMemorySessionStore,
-        InMemorySparseIndex,
-    )
+async def build(s: Settings, stack: AsyncExitStack, *, credential=None,
+                service: str | None = None, vector_factory: Callable | None = None,
+                sparse_factory: Callable | None = None) -> Services:
+    from medw_core.durable_jobs import DurableJobStore
+    from medw_core.indexing import IndexRegistry
 
-    return Services(
-        backend="local",
-        embedder=HashEmbedder(dimensions=s.embed_dim),
-        sparse=InMemorySparseIndex(),
-        chat=ScriptedChatClient(),
-        layout=FixtureLayoutExtractor(s.fixture_dir),
-        entities=DictionaryEntityExtractor(),
-        jobs=InMemoryJobStore(),
-        sessions=InMemorySessionStore(),
-        documents=InMemoryDocumentStore(),
-        audit=InMemoryAuditSink(),
-        # vectors stays None: Qdrant is real in both backends, and a service
-        # that needs it gets it from its own adapter. See the note at the top.
-    )
+    s = effective_settings(s)
+    name = service or s.service_name
+    required = DEPENDENCIES.get(name, set().union(*DEPENDENCIES.values()) | {"layout", "entities"})
+    health = HealthMonitor(timeout=s.readiness_timeout, cache_seconds=s.readiness_cache_seconds)
+    result: dict = {"backend": s.backend, "health": health}
+    state: ports.StateStore | None = None
 
+    if s.backend == "local":
+        from medw_core.local.chat import ScriptedChatClient
+        from medw_core.local.embedder import HashEmbedder
+        from medw_core.local.indexes import DurableSparseIndex
+        from medw_core.local.platform import (
+            LocalStudyAccess,
+            PersistentDocumentStore,
+            PersistentSessionStore,
+        )
+        from medw_core.local.reranker import SyntheticReranker
+        from medw_core.local.stores import (
+            DictionaryEntityExtractor,
+            FixtureLayoutExtractor,
+        )
+        from medw_core.persistence import SQLiteStateStore
+        from medw_core.sources import EvidenceStore, LocalArtifacts
 
-async def _build_azure(s: Settings, stack: AsyncExitStack, credential=None) -> Services:
-    from medw_core import azure
-    from medw_core.adapters import AzureOpenAIChatClient, AzureOpenAIEmbedder
-    from medw_core.cosmos import DocumentRepo, SessionRepo, containers
-    from medw_core.rate_limit import TokenBucket
+        if required & {"state", "jobs", "sessions", "documents", "authorization", "evidence"}:
+            local_state = SQLiteStateStore(s.local_state_path)
+            state = local_state
+            stack.push_async_callback(local_state.close)
+            health.add("local-state", local_state.check)
+            result["state"] = state
+        factories: dict[str, Callable[[], object]] = {
+            "embedder": lambda: HashEmbedder(dimensions=s.embed_dim),
+            "chat": ScriptedChatClient,
+            "reranker": SyntheticReranker,
+            "layout": lambda: FixtureLayoutExtractor(s.fixture_dir),
+            "entities": DictionaryEntityExtractor,
+        }
+        for field, factory in factories.items():
+            if field in required:
+                result[field] = factory()
+        if state is not None:
+            if "sparse" in required:
+                result["sparse"] = DurableSparseIndex(state)
+            if "sessions" in required:
+                result["sessions"] = PersistentSessionStore(state)
+            if "documents" in required:
+                result["documents"] = PersistentDocumentStore(state)
+            if "authorization" in required:
+                result["authorization"] = LocalStudyAccess(state)
+        if "audit" in required:
+            from medw_core.local.durable_audit import SQLiteAuditSink
+            audit = SQLiteAuditSink(s.local_state_path)
+            result["audit"] = audit
+            stack.push_async_callback(audit.close)
+            health.add("audit", audit.check)
+        if "evidence" in required:
+            assert state is not None
+            result["evidence"] = EvidenceStore(state, LocalArtifacts(s.local_artifact_dir))
+    else:
+        if name == "reranker":
+            health.add("reranker-model", unavailable_check("model implementation held back"))
+            return Services(**result)
+        from medw_core import azure
+        from medw_core.adapters import AzureOpenAIChatClient, AzureOpenAIEmbedder
+        from medw_core.rate_limit import TokenBucket
 
-    cred = credential
-    if cred is None:
-        cred = azure.credential()
-        await stack.enter_async_context(cred)
+        cred = credential or azure.credential()
+        if credential is None:
+            await stack.enter_async_context(cred)
+        if required & {"embedder", "chat"}:
+            import httpx
 
-    # Only the clients themselves are built here. The adapters that wrap them
-    # (QdrantRepo, SparseRepo) live with their services, because they are
-    # infrastructure detail rather than shared vocabulary — and because a
-    # service that does not do retrieval has no business importing them.
-    aoai = azure.openai_client(s, cred)
-    stack.push_async_callback(aoai.close)
+            from medw_core.model_identity import ModelIdentityCheck
+            client = azure.openai_client(s, cred)
+            stack.push_async_callback(client.close)
+            # Chat and embeddings are different Azure deployments and quotas.
+            if "embedder" in required:
+                result["embedder"] = AzureOpenAIEmbedder(client, s, TokenBucket(s.embed_pod_tpm))
+            if "chat" in required:
+                result["chat"] = AzureOpenAIChatClient(client, s, TokenBucket(s.pod_tpm))
 
-    # One bucket shared by both AOAI adapters in this process: the quota is
-    # per-deployment, so two independent limiters would each think they had
-    # the whole allowance and together exceed it.
-    bucket = TokenBucket(s.pod_tpm)
+            async def check_openai():
+                await client.models.list()
+            health.add("azure-openai", check_openai)
+            metadata_http = await stack.enter_async_context(httpx.AsyncClient(
+                timeout=s.readiness_timeout))
+            expected = []
+            if "embedder" in required:
+                expected.append((s.embed_deployment, s.embed_model_name, s.embed_model_version))
+            if "chat" in required:
+                expected.append((s.chat_deployment, s.chat_model_name, s.chat_model_version))
+            health.add("model-identity", ModelIdentityCheck(
+                cred, metadata_http, s.aoai_resource_id, expected).check)
+        if required & {"sessions", "documents", "state", "jobs", "index_registry"}:
+            from medw_core.cosmos import DocumentRepo, SessionRepo, containers
+            from medw_core.cosmos_state import CosmosStateStore
+            cosmos = azure.cosmos_client(s, cred)
+            stack.push_async_callback(cosmos.close)
+            boxes = containers(cosmos, s)
+            if "sessions" in required:
+                result["sessions"] = SessionRepo(boxes["sessions"])
+                health.add("sessions", boxes["sessions"].read)
+            if "documents" in required:
+                result["documents"] = DocumentRepo(boxes["documents"])
+                health.add("documents", boxes["documents"].read)
+            if required & {"state", "jobs", "index_registry"}:
+                state_container = cosmos.get_database_client(s.cosmos_database).get_container_client(
+                    s.cosmos_state_container)
+                cosmos_state = CosmosStateStore(state_container)
+                state = cosmos_state
+                result["state"] = state
+                health.add("platform-state", cosmos_state.check)
+        if required & {"audit", "authorization"}:
+            from medw_core.sql import SqlAuditSink, SqlStudyAccess, engine
+            database = engine(s, credential=cred)
+            stack.push_async_callback(database.dispose)
+            if "audit" in required:
+                result["audit"] = SqlAuditSink(database)
+            if "authorization" in required:
+                result["authorization"] = SqlStudyAccess(database)
 
-    # Cosmos-backed stores. These live in medw_core (unlike QdrantRepo and
-    # SparseRepo) because two services need them: the gateway holds sessions,
-    # the ingestion worker holds document metadata.
-    cosmos = azure.cosmos_client(s, cred)
-    stack.push_async_callback(cosmos.close)
-    c = containers(cosmos, s)
+            async def check_sql():
+                from sqlalchemy import text
+                async with database.connect() as connection:
+                    await connection.execute(text("SELECT 1"))
+            health.add("sql", check_sql)
+        if "evidence" in required:
+            from medw_core.blob_artifacts import BlobArtifacts
+            from medw_core.sources import EvidenceStore
+            blobs = azure.blob_client(s, cred)
+            stack.push_async_callback(blobs.close)
+            blob_container = blobs.get_container_client(s.blob_container)
+            assert state is not None
+            result["evidence"] = EvidenceStore(state, BlobArtifacts(blob_container))
+            health.add("source-artifacts", blob_container.get_container_properties)
+        if "sparse" in required and sparse_factory is not None:
+            search = azure.search_client(s, cred)
+            stack.push_async_callback(search.close)
+            result["sparse"] = sparse_factory(search)
+            health.add("sparse-index", search.get_document_count)
+        if "reranker" in required:
+            health.add("reranker-model", unavailable_check("model implementation held back"))
 
-    return Services(
-        backend="azure",
-        embedder=AzureOpenAIEmbedder(aoai, s, bucket),
-        chat=AzureOpenAIChatClient(aoai, s, bucket),
-        sessions=SessionRepo(c["sessions"]),
-        documents=DocumentRepo(c["documents"]),
-        # Store-specific adapters (QdrantRepo, SparseRepo) are attached by the
-        # owning service with dataclasses.replace - they live in that service's
-        # package, and medw_core must not import service code.
-    )
-
-
-# Why `Services` rather than passing a container into every function: the
-# container is constructed once at startup and read many times, so the
-# alternative — threading eight arguments through every call — buys purity at
-# the cost of a signature change every time a dependency is added. The frozen
-# dataclass keeps the graph explicit and greppable without that churn.
+    if state is not None:
+        if "jobs" in required:
+            result["jobs"] = DurableJobStore(state)
+        if "index_registry" in required:
+            result["index_registry"] = IndexRegistry(state)
+    if result.get("audit") is not None and result.get("evidence") is not None:
+        result["audit"].evidence = result["evidence"]
+    if "vectors" in required and vector_factory is not None:
+        vectors = vector_factory(s)
+        result["vectors"] = vectors
+        stack.push_async_callback(vectors.client.close)
+        health.add("vector-index", vectors.client.get_collections)
+    # Service factories may be attached later by an owning service. A missing
+    # required dependency is never treated as proof of readiness.
+    if name in DEPENDENCIES:
+        for field in required - result.keys():
+            if field == "reranker" and s.backend == "azure":
+                continue
+            health.add(field, unavailable_check(f"{field} was not wired"))
+    return Services(**result)
 
 
 def readiness(services: Services, required: tuple[str, ...]) -> tuple[bool, str]:
-    """Is this service able to serve, given what it was wired with?
-
-    Shared because the alternative is the same logic written three times and
-    drifting - which is how the gateway and ingestion worker ended up returning
-    200 from an unimplemented probe in the first place.
-
-    The honest split:
-
-      local   dependencies are in-process objects. If the composition root
-              wired them, they are available - there is nothing else to check
-              and claiming otherwise would be theatre.
-      azure   wiring proves a client was CONSTRUCTED, not that anything is
-              reachable. Constructing an AsyncAzureOpenAI does no I/O. So
-              wired-but-unverified is reported as NOT ready, because a probe
-              that answers 200 on "I have an object" is the lying probe again,
-              just better disguised.
-
-    That asymmetry is deliberate and is why this returns a reason string: a
-    503 whose reason is "reachability checks not implemented for the azure
-    backend" is a very different operational signal from one that says a
-    dependency is down.
-    """
+    """Legacy structural check; live service probes await services.health.check."""
     missing = [name for name in required if getattr(services, name, None) is None]
     if missing:
-        return False, f"not wired: {', '.join(missing)}"
+        return False, "not wired: " + ", ".join(missing)
     if services.backend == "local":
-        return True, "local backend: dependencies are in-process"
-    return False, "azure backend: dependency reachability checks not implemented"
+        return True, "local backend: structurally wired"
+    return False, "reachability is not established by wiring; await the health check"

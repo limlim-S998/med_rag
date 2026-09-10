@@ -5,10 +5,8 @@
 # both must use the same deployment or the vectors are not comparable. A
 # per-service copy is how that invariant gets broken.
 #
-# The store-specific adapters (QdrantRepo, SparseRepo) deliberately do NOT
-# live here. They belong to the retrieval service, because a service that does
-# no retrieval has no business carrying the Qdrant SDK — the same argument as
-# ADR 0005, one layer down in the dependency graph.
+# Store-specific readers live in retrieval and writers in pipelines. Shared
+# dependency contracts avoid store SDK imports (README.md#architecture).
 
 from collections.abc import AsyncIterator
 
@@ -20,18 +18,16 @@ from medw_core.settings import Settings
 class AzureOpenAIEmbedder:
     """Satisfies medw_core.ports.Embedder.
 
-    `embed_version` is NOT derived from the deployment name. It is set
-    explicitly in settings and baked into the Qdrant collection name, because
-    two different deployments of the same model still produce comparable
-    vectors while a model change does not — so the version has to be a
-    deliberate statement, not something inferred from a string.
+    `embed_version` is an explicit compatibility label. Index manifests carry
+    it alongside deployment, model version and dimensions; retrieval validates
+    that complete identity before searching a selected generation.
     """
 
     def __init__(self, client, s: Settings, bucket: TokenBucket | None = None):
         self._client = client
         self._s = s
-        # AOAI quota is per-deployment tokens-per-minute and is shared with the
-        # generation path, so the limiter belongs on the client that spends it.
+        # The embedding deployment's quota is separate from chat quota.
+        # Each pod receives its own configured share through this bucket.
         self._bucket = bucket
 
     @property

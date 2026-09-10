@@ -1,47 +1,45 @@
-# Qdrant, self-hosted in the cluster.
-#
-# Why in-cluster rather than Qdrant Cloud: EU data residency was a hard client
-# requirement and the vectors are derived from client documents, so the store
-# had to sit inside the same subscription and network boundary as everything
-# else. In-cluster is also what makes per-study collection teardown a one-liner
-# we own rather than a support ticket.
 name: qdrant
 replicas: 3
-
 image:
   repository: qdrant/qdrant
-  tag: v1.12.1          # pinned. A vector store that upgrades itself is a
-                        # vector store that changes recall without a commit.
-
+  tag: v1.12.1
+  digest: sha256:d774e7bb65744454984c6021637a0da89271f30df15e48601a9fafc926d26b1f
 persistence:
-  # PVC per replica, from the StatefulSet's volumeClaimTemplate. Premium SSD,
-  # because HNSW graph traversal is random-access and standard disk latency
-  # shows up directly in p99 search time.
   storageClass: managed-csi-premium
   size: 100Gi
-
 config:
-  # Defaults for new collections; the per-collection values that matter
-  # (m, ef_construct) are set at creation time by qdrant_repo.ensure_collection,
-  # because they belong with the code that knows the embedding dimension.
   hnsw_m: 16
   hnsw_ef_construct: 128
-  # Vectors on disk with mmap above this threshold. 3072-dim float32 is 12KB a
-  # point before quantisation; a large study does not fit comfortably in RAM
-  # and paying for a node pool that makes it fit is worse than mmap.
   on_disk_payload: true
-
+  replication_factor: 2
+  write_consistency_factor: 2
 snapshots:
-  # A PVC is not a backup. A nightly snapshot to Blob is - and it is also the
-  # fast path for rebuilding a replica, which beats re-embedding a corpus.
   enabled: true
-  schedule: "0 2 * * *"
-  destination: https://medwdevsa.blob.core.windows.net/snapshots
-
+  schedule: 0 2 * * *
+  retentionDays: 30
+  accountUrl: https://medwdevsa.blob.core.windows.net
+  container: snapshots
+  prefix: qdrant
+  clientId: ''
+  image:
+    repository: medwacr.azurecr.io/ingestion-worker
+    tag: local
+    digest: ''
 resources:
-  requests: { cpu: "2", memory: 8Gi }
-  limits:   { cpu: "4", memory: 16Gi }
-
+  requests:
+    cpu: '2'
+    memory: 8Gi
+  limits:
+    cpu: '4'
+    memory: 16Gi
 podDisruptionBudget:
-  # A rolling node upgrade must not take two of three replicas at once.
   minAvailable: 2
+auth:
+  enabled: true
+  existingSecret: qdrant-auth
+networkPolicy:
+  enabled: true
+monitoring:
+  # Requires Prometheus Operator CRDs and kube-state-metrics.
+  enabled: true
+  labels: {}

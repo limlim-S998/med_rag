@@ -1,17 +1,8 @@
-# Dev. The base plus the dev value files, and this is where the image tags the
-# pipeline commits actually land.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-namespace: medw
 resources:
-  - ../base
+- ../base
+- chart-source.yaml
 patches:
-  # valuesFrom/values on a HelmRelease is how per-environment config arrives.
-  # Pointing each release at its chart's values.yaml keeps ONE copy of the
-  # defaults - duplicating them here is how dev and the chart drift apart.
-  - target: { kind: HelmRelease }
-    patch: |
-      - op: add
-        path: /spec/values
-        value:
-          env: dev
+- path: environment-values.yaml
+- path: release-values.yaml

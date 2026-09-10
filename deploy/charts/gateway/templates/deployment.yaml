@@ -19,3 +19,7 @@
 ---
 {{ . }}
 {{- end }}
+{{- with (include "medw-lib.networkpolicy" .) }}
+---
+{{ . }}
+{{- end }}

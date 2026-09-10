@@ -1,0 +1,11 @@
+{
+  "Id": "abf5ccda-9154-5f82-97df-20504b300753",
+  "RoleName": "medw-evidence-appender",
+  "Type": "CustomRole",
+  "AssignableScopes": ["/dbs/medw/colls/platform-state"],
+  "Permissions": [{"DataActions": [
+    "Microsoft.DocumentDB/databaseAccounts/readMetadata",
+    "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers/items/read",
+    "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers/items/create"
+  ]}]
+}

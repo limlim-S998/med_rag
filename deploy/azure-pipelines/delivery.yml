@@ -1,0 +1,7 @@
+# Register this single automatic pipeline; it builds every service as one release.
+trigger:
+  branches: { include: [main] }
+  paths:
+    include: [services, libs, db/sql, scripts, deploy/release-behavior.json]
+extends:
+  template: _build-template.yml

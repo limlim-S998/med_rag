@@ -48,6 +48,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: v1.32.2
 
       - name: charts lint and render
         run: |
@@ -58,7 +63,7 @@ jobs:
             # definitions other charts include.
             [ "$name" = "medw-lib" ] && continue
             echo "::group::$name"
-            helm dependency update "$chart"
+            helm dependency build "$chart"
             helm lint "$chart"
             helm template "$name" "$chart" > "/tmp/$name.yaml"
             echo "::endgroup::"
@@ -72,14 +77,14 @@ jobs:
       - name: validate manifests
         run: |
           curl -sSL -o /tmp/kubeconform.tar.gz \
-            https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz
+            https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
           tar -xzf /tmp/kubeconform.tar.gz -C /tmp
           /tmp/kubeconform -strict -ignore-missing-schemas -summary /tmp/*.yaml
 
       - name: flux overlays build
         run: |
           set -euo pipefail
-          for env in dev staging prod; do
+          for env in base dev staging prod local; do
             echo "::group::$env"
             kubectl kustomize "deploy/flux/$env"
             echo "::endgroup::"
@@ -93,10 +98,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [gateway, retrieval, generation, ingestion_worker]
-        # reranker is excluded on purpose: it bakes CPU torch and the
-        # cross-encoder weights into the image, which is ~2GB and several
-        # minutes. It is built on a schedule rather than on every PR.
+        service: [gateway, retrieval, generation, ingestion_worker, reranker]
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -106,5 +108,14 @@ jobs:
           context: .
           file: services/${{ matrix.service }}/Dockerfile
           push: false
+          load: true
+          tags: medw-${{ matrix.service }}:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Container startup and probe contract
+        run: python scripts/smoke_image.py --image medw-${{ matrix.service }}:ci --service '${{ matrix.service }}'
+
+      - name: Held-back real reranker remains unready
+        if: matrix.service == 'reranker'
+        run: python scripts/smoke_image.py --image medw-reranker:ci --service reranker --backend azure

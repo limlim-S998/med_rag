@@ -1,0 +1,14 @@
+{
+  "chat_model_name": "gpt-4.1-mini",
+  "chat_model_version": "2025-04-14",
+  "embed_model_name": "text-embedding-3-large",
+  "embed_model_version": "1",
+  "embed_version": "v3l-001",
+  "temperature": "0",
+  "rrf_k": "60",
+  "fusion_top_n": "30",
+  "rerank_top_k": "8",
+  "search_ef": "128",
+  "table_classifier_version": "held-back",
+  "embed_dim": 3072
+}

@@ -5,28 +5,34 @@ replicas: 1
 
 image:
   repository: medwdevacr.azurecr.io/retrieval
-  tag: PLACEHOLDER          # the pipeline commits a real git SHA here
+  digest: ""
+  sourceSha: unversioned
+  tag: scaffold          # the pipeline commits a real git SHA here
 
 serviceAccount:
   annotations:
-    azure.workload.identity/client-id: "00000000-0000-0000-0000-000000000000"
+    azure.workload.identity/client-id: ""
 
 # --- the MODEL version axis lives here ----------------------------------
 # Image = git SHA (above). Deployment = the commit that changed this file.
 # Model = these four lines. Three orthogonal axes, all in git, which is why
 # git and not the registry is the source of truth for what is running.
 config:
+  cosmos_endpoint: ""
+  cosmos_database: "medw"
+  cosmos_state_container: "platform-state"
+  aoai_resource_id: ""
   chat_deployment: gpt-4.1-mini-2025-04-14
   embed_deployment: text-embedding-3-large-1
   embed_version: v3l-001
   prompt_bundle_sha: 4f2a91c
 
-  aoai_endpoint: https://med-rag-test1.openai.azure.com/
+  aoai_endpoint: ""
   qdrant_url: http://qdrant:6333
   reranker_url: http://reranker:8000
   # The sparse half. One shared index for all studies, filtered by study_id -
-  # the opposite partitioning to Qdrant, for the cost reason in ADR 0006.
-  search_endpoint: https://medrag325744d5search.search.windows.net
+  # Qdrant collections instead belong to one study/generation (README.md).
+  search_endpoint: ""
   search_index: csr-chunks
   rrf_k: "60"
   fusion_top_n: "30"

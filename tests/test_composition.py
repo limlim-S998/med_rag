@@ -258,4 +258,4 @@ def test_readiness_never_claims_ready_on_the_azure_backend_from_wiring_alone():
     svc = Services(backend="azure", jobs=object(), sessions=object())  # type: ignore[arg-type]
     ready, reason = readiness(svc, ("jobs", "sessions"))
     assert not ready
-    assert "not implemented" in reason
+    assert "reachability is not established by wiring" in reason

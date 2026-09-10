@@ -1,15 +1,9 @@
-# Application Insights, beyond latency and error rate.
-#
-# Latency and errors tell you the service is up. They do not tell you the
-# system got worse, and an LLM system gets worse silently - a prompt bundle
-# lands, or Azure rolls a model version, and the outputs shift with no error
-# anywhere. So the signals that actually matter here are ML signals, and every
-# one of them is dimensioned by the three version axes (image SHA, model
-# deployment + version, prompt bundle SHA). A metric you cannot slice by
-# version cannot tell you what changed.
-#
-# The last two are the early warning. A rise in numeric-fidelity failures or
-# JSON validation retries means something moved underneath you.
+# One provider supplies operational metrics and future analytical instruments.
+# The in-flight signal is measured by middleware and exported to Prometheus
+# for KEDA. Medical-quality instruments await the held-back domain handlers;
+# declaring them does not establish measured recall or numerical fidelity.
+# Release metadata belongs in telemetry resources/audit; operational labels
+# exclude study, user and request identifiers. See README.md for the evidence.
 
 from opentelemetry import metrics
 
@@ -25,7 +19,7 @@ meter = metrics.get_meter("medwriter")
 # it scales up after the burst and down before the next one.
 #
 # That difference is the whole argument for exporting to Prometheus as well as
-# to Azure Monitor. See docs/adr and ROADMAP C-and-three-quarters.
+# to Azure Monitor. See README.md#operational-signals-and-recovery.
 #
 # An UpDownCounter, not a Counter: it goes down when a request finishes. The
 # Prometheus exporter renders it as a gauge, which is what `sum(...)` in the
@@ -67,35 +61,59 @@ json_validation_retries = meter.create_counter(
     description="structured-output parse failures that needed the retry-with-error loop")
 
 
-def configure(connection_string: str, service_name: str) -> None:
-    # configure_azure_monitor auto-instruments FastAPI, httpx and the Azure
-    # SDKs, so the correlation ID from tracing.py stitches the whole hop chain
-    # into one end-to-end trace without per-call plumbing.
-    from azure.monitor.opentelemetry import configure_azure_monitor
+def build_provider(service_name: str, connection_string: str = "", *,
+                   metric_exporter=None, resource_attributes: dict | None = None):
+    """Construct both readers together; the Azure SDK must not set a second provider.
 
-    configure_azure_monitor(connection_string=connection_string, service_name=service_name)
-
-
-def configure_prometheus() -> None:
-    """Add a Prometheus reader to the SAME meter provider.
-
-    Not a second set of instruments. OpenTelemetry supports multiple readers on
-    one provider, so every instrument defined above is available to both
-    destinations - App Insights for analysis, /metrics for scraping - without
-    anything being defined twice. Two definitions is how the two views drift.
-
-    Safe to call alongside configure(): the Azure exporter and this one are
-    independent readers.
+    ``metric_exporter`` is an injectable export boundary for a local contract
+    test. Production uses the real Azure exporter when a connection is supplied.
+    Resource attributes hold release identity, never request/study identifiers.
     """
     from opentelemetry.exporter.prometheus import PrometheusMetricReader
     from opentelemetry.sdk.metrics import MeterProvider
+    from opentelemetry.sdk.metrics.export import MetricReader, PeriodicExportingMetricReader
+    from opentelemetry.sdk.resources import Resource
 
-    # No need to re-create the instruments. get_meter() before a provider is
-    # installed returns a proxy that forwards to whatever is set later, so the
-    # module-level instruments above are live once this runs. Verified rather
-    # than assumed: an instrument that silently recorded nothing would produce
-    # exactly the empty-query failure this metric exists to avoid.
-    metrics.set_meter_provider(MeterProvider(metric_readers=[PrometheusMetricReader()]))
+    readers: list[MetricReader] = [PrometheusMetricReader()]
+    if metric_exporter is None and connection_string:
+        from azure.monitor.opentelemetry.exporter import AzureMonitorMetricExporter
+
+        metric_exporter = AzureMonitorMetricExporter(connection_string=connection_string)
+    if metric_exporter is not None:
+        readers.append(PeriodicExportingMetricReader(metric_exporter))
+    return MeterProvider(
+        metric_readers=readers,
+        resource=Resource.create({**(resource_attributes or {}), "service.name": service_name}),
+    )
+
+
+_provider = None
+_connection_string = ""
+
+
+def configure(connection_string: str = "", service_name: str = "medwriter", *,
+              resource_attributes: dict | None = None):
+    """Initialize once per process, before serving requests, with all readers.
+
+    Lifespan tests may enter the same application repeatedly. They reuse the
+    process provider; module imports must not initialize a Prometheus-only one
+    before the Azure connection string is known. OpenTelemetry shuts it down at
+    process exit, flushing the periodic export reader.
+    """
+    global _provider, _connection_string
+    if _provider is not None and connection_string and connection_string != _connection_string:
+        raise RuntimeError("metrics was initialized before the Azure reader was configured")
+    if _provider is None:
+        _provider = build_provider(service_name, connection_string,
+                                   resource_attributes=resource_attributes)
+        metrics.set_meter_provider(_provider)
+        _connection_string = connection_string
+    return _provider
+
+
+def configure_prometheus() -> None:
+    """Compatibility for Prometheus-only tools; services call configure instead."""
+    configure()
 
 
 def render_prometheus() -> tuple[bytes, str]:

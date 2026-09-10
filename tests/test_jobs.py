@@ -79,6 +79,7 @@ async def test_store_rejects_an_illegal_advance():
     surfaces in the environment you cannot debug."""
     store = InMemoryJobStore()
     job = await store.create("ABC-101", "doc-1")
+    job = await store.claim("ABC-101", job["id"], "test-worker")
     with pytest.raises(IllegalTransition):
         await store.advance(job, JobState.indexing)
 
@@ -86,6 +87,7 @@ async def test_store_rejects_an_illegal_advance():
 async def test_store_walks_the_whole_pipeline():
     store = InMemoryJobStore()
     job = await store.create("ABC-101", "doc-1")
+    job = await store.claim("ABC-101", job["id"], "test-worker")
     for state in PIPELINE[1:]:
         job = await store.advance(job, state)
     assert job["state"] == JobState.done
@@ -98,6 +100,7 @@ async def test_failure_records_which_stage_died():
     that."""
     store = InMemoryJobStore()
     job = await store.create("ABC-101", "doc-1")
+    job = await store.claim("ABC-101", job["id"], "test-worker")
     job = await store.advance(job, JobState.extracting)
     job = await store.fail(job, JobState.extracting, "DI timed out")
     assert job["state"] == JobState.failed

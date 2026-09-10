@@ -28,16 +28,14 @@ class Provenance:
     stop being an answer to "what produced this" and become an answer to "what
     was configured when someone last looked".
 
-    Every field is something that, if it changed, would change the output:
+    Source SHA, image digest, release/config identity, prompt content and
+    expected model identity are distinct. A deployment-name suffix alone
+    does not establish its model version. Environment and service identify
+    where the process runs, not its behavior version.
 
-      image_sha         the code
-      chat_deployment   the model, including its date suffix
-      embed_version     the vector space the retrieved context came from
-      prompt_bundle_sha the instructions
-      classifier_ver    which template the numeric spine used
-
-    `env` and `service` are not version axes - they are the *where*, and they
-    are here because an audit row without them cannot be traced to a cluster.
+    This is process provenance. Generation audit events take retrieval
+    identity from the selected IndexGeneration, rather than inferring it
+    from the generation pod's settings. Medical handlers remain held back.
     """
 
     env: str
@@ -47,6 +45,13 @@ class Provenance:
     embed_version: str
     prompt_bundle_sha: str
     classifier_version: str
+    image_digest: str = "unknown"
+    release_bundle_sha: str = "unknown"
+    chat_model_name: str = "unknown"
+    chat_model_version: str = "unknown"
+    embed_model_name: str = "unknown"
+    embed_model_version: str = "unknown"
+    deployment_revision: str = "unknown"
 
     @classmethod
     def from_settings(cls, s: Settings) -> Provenance:
@@ -58,6 +63,13 @@ class Provenance:
             embed_version=s.embed_version,
             prompt_bundle_sha=s.prompt_bundle_sha,
             classifier_version=s.table_classifier_version,
+            image_digest=s.image_digest,
+            release_bundle_sha=s.release_bundle_sha,
+            chat_model_name=s.chat_model_name,
+            chat_model_version=s.chat_model_version,
+            embed_model_name=s.embed_model_name,
+            embed_model_version=s.embed_model_version,
+            deployment_revision=s.deployment_revision,
         )
 
     def as_dict(self) -> dict[str, str]:
@@ -82,7 +94,7 @@ class Provenance:
         }
 
 
-# Adding a fourth axis is one field here, one line in from_settings, and a
+# Adding another axis needs a field here, its from_settings mapping, and a
 # decision about whether it belongs in as_metric_dimensions. That decision -
 # is this worth a new time series on every value - is the one thing that
 # should not be automatic.

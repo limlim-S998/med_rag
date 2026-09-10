@@ -1,191 +1,81 @@
-# Local cluster overlay for Flux.
-#
-# dev / staging / prod describe Azure: managed-csi-premium volumes, ACR images,
-# workload-identity client IDs. None of those exist on minikube, so a local
-# Flux run needs its own overlay rather than a weakened dev - the defaults must
-# keep describing the target environment.
-#
-# Values are inlined rather than referencing values-local.yaml because
-# helm-controller renders from the git source and cannot read a path on your
-# laptop; it only knows what is committed. That constraint IS the GitOps point:
-# if it is not in git, the cluster cannot have it.
-#
-# Corollary discovered the hard way: once Flux owns these releases, a manual
-# `helm upgrade` is REJECTED with a field-manager conflict against
-# helm-controller. The cluster is git-owned. To change it, change git.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-namespace: medw
 resources:
-  - ../base
+- ../base
+- state-pvc.yaml
 patches:
-  - target: { kind: HelmRelease, name: gateway }
-    patch: |
-      - op: add
-        path: /spec/values
-        value:
-          image:
-            repository: medw-gateway
-            tag: dev-1788845240
-            pullPolicy: Never
-          serviceAccount:
-            annotations: {}
-          autoscaling:
-            enabled: true
-            metric: inflight_requests
-            target: 2
-            minReplicas: 1
-            maxReplicas: 4
-            prometheusAddress: http://kps-kube-prometheus-stack-prometheus.monitoring:9090
-          serviceMonitor:
-            enabled: true
-            interval: 5s
-          replicas: 1
-          resources:
-            requests:
-              cpu: 50m
-              memory: 128Mi
-            limits:
-              cpu: 500m
-              memory: 512Mi
-          ingress:
-            enabled: true
-            className: nginx
-            host: medw.local
-            tls: false
-            annotations:
-              nginx.ingress.kubernetes.io/proxy-buffering: 'off'
-              nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
-          config:
-            backend: local
-  - target: { kind: HelmRelease, name: retrieval }
-    patch: |
-      - op: add
-        path: /spec/values
-        value:
-          image:
-            repository: medw-retrieval
-            tag: dev-1788845240
-            pullPolicy: Never
-          serviceAccount:
-            annotations: {}
-          autoscaling:
-            enabled: true
-            metric: inflight_requests
-            target: 2
-            minReplicas: 1
-            maxReplicas: 4
-            prometheusAddress: http://kps-kube-prometheus-stack-prometheus.monitoring:9090
-          serviceMonitor:
-            enabled: true
-            interval: 5s
-          replicas: 1
-          resources:
-            requests:
-              cpu: 50m
-              memory: 128Mi
-            limits:
-              cpu: 500m
-              memory: 512Mi
-          config:
-            backend: local
-  - target: { kind: HelmRelease, name: generation }
-    patch: |
-      - op: add
-        path: /spec/values
-        value:
-          image:
-            repository: medw-generation
-            tag: dev-1788845240
-            pullPolicy: Never
-          serviceAccount:
-            annotations: {}
-          autoscaling:
-            enabled: true
-            metric: inflight_requests
-            target: 2
-            minReplicas: 1
-            maxReplicas: 4
-            prometheusAddress: http://kps-kube-prometheus-stack-prometheus.monitoring:9090
-          serviceMonitor:
-            enabled: true
-            interval: 5s
-          replicas: 1
-          resources:
-            requests:
-              cpu: 50m
-              memory: 128Mi
-            limits:
-              cpu: 500m
-              memory: 512Mi
-          config:
-            backend: local
-  - target: { kind: HelmRelease, name: ingestion-worker }
-    patch: |
-      - op: add
-        path: /spec/values
-        value:
-          image:
-            repository: medw-ingestion-worker
-            tag: dev-1788845240
-            pullPolicy: Never
-          serviceAccount:
-            annotations: {}
-          autoscaling:
-            enabled: true
-            metric: inflight_requests
-            target: 2
-            minReplicas: 1
-            maxReplicas: 4
-            prometheusAddress: http://kps-kube-prometheus-stack-prometheus.monitoring:9090
-          serviceMonitor:
-            enabled: true
-            interval: 5s
-          replicas: 1
-          resources:
-            requests:
-              cpu: 50m
-              memory: 128Mi
-            limits:
-              cpu: 500m
-              memory: 512Mi
-          config:
-            backend: local
-  - target: { kind: HelmRelease, name: qdrant }
-    patch: |
-      - op: add
-        path: /spec/values
-        value:
-          replicas: 1
-          persistence:
-            storageClass: standard
-            size: 2Gi
-          podDisruptionBudget: null
-          resources:
-            requests:
-              cpu: 100m
-              memory: 512Mi
-            limits:
-              cpu: '1'
-              memory: 2Gi
-  - target: { kind: HelmRelease, name: reranker }
-    patch: |
-      - op: add
-        path: /spec/values
-        value:
-          image:
-            repository: medw-reranker
-            tag: dev
-            pullPolicy: Never
-          serviceAccount:
-            annotations: {}
-          autoscaling:
-            enabled: false
-          replicas: 1
-          resources:
-            requests:
-              cpu: 50m
-              memory: 128Mi
-            limits:
-              cpu: 500m
-              memory: 512Mi
+- target:
+    kind: HelmRelease
+    name: gateway
+  patch: "- op: add\n  path: /spec/values\n  value:\n    image:\n      repository:\
+    \ medw-gateway\n      tag: dev-1788845240\n      pullPolicy: Never\n    serviceAccount:\n\
+    \      annotations: {}\n    autoscaling:\n      enabled: true\n      metric: inflight_requests\n\
+    \      target: 2\n      minReplicas: 1\n      maxReplicas: 4\n      prometheusAddress:\
+    \ http://kps-kube-prometheus-stack-prometheus.monitoring:9090\n    serviceMonitor:\n\
+    \      enabled: true\n      interval: 5s\n    replicas: 1\n    resources:\n  \
+    \    requests:\n        cpu: 50m\n        memory: 128Mi\n      limits:\n     \
+    \   cpu: 500m\n        memory: 512Mi\n    ingress:\n      enabled: true\n    \
+    \  className: nginx\n      host: medw.local\n      tls: false\n      annotations:\n\
+    \        nginx.ingress.kubernetes.io/proxy-buffering: 'off'\n        nginx.ingress.kubernetes.io/proxy-read-timeout:\
+    \ '300'\n    config:\n      backend: local\n      local_state_path: /data/platform.sqlite3\n\
+    \      local_artifact_dir: /data/artifacts\n    env: local\n    localState:\n\
+    \      enabled: true\n      existingClaim: medw-local-state\n"
+- target:
+    kind: HelmRelease
+    name: retrieval
+  patch: "- op: add\n  path: /spec/values\n  value:\n    image:\n      repository:\
+    \ medw-retrieval\n      tag: dev-1788845240\n      pullPolicy: Never\n    serviceAccount:\n\
+    \      annotations: {}\n    autoscaling:\n      enabled: true\n      metric: inflight_requests\n\
+    \      target: 2\n      minReplicas: 1\n      maxReplicas: 4\n      prometheusAddress:\
+    \ http://kps-kube-prometheus-stack-prometheus.monitoring:9090\n    serviceMonitor:\n\
+    \      enabled: true\n      interval: 5s\n    replicas: 1\n    resources:\n  \
+    \    requests:\n        cpu: 50m\n        memory: 128Mi\n      limits:\n     \
+    \   cpu: 500m\n        memory: 512Mi\n    config:\n      backend: local\n    \
+    \  local_state_path: /data/platform.sqlite3\n      local_artifact_dir: /data/artifacts\n\
+    \    env: local\n    localState:\n      enabled: true\n      existingClaim: medw-local-state\n"
+- target:
+    kind: HelmRelease
+    name: generation
+  patch: "- op: add\n  path: /spec/values\n  value:\n    image:\n      repository:\
+    \ medw-generation\n      tag: dev-1788845240\n      pullPolicy: Never\n    serviceAccount:\n\
+    \      annotations: {}\n    autoscaling:\n      enabled: true\n      metric: inflight_requests\n\
+    \      target: 2\n      minReplicas: 1\n      maxReplicas: 4\n      prometheusAddress:\
+    \ http://kps-kube-prometheus-stack-prometheus.monitoring:9090\n    serviceMonitor:\n\
+    \      enabled: true\n      interval: 5s\n    replicas: 1\n    resources:\n  \
+    \    requests:\n        cpu: 50m\n        memory: 128Mi\n      limits:\n     \
+    \   cpu: 500m\n        memory: 512Mi\n    config:\n      backend: local\n    \
+    \  local_state_path: /data/platform.sqlite3\n      local_artifact_dir: /data/artifacts\n\
+    \    env: local\n    localState:\n      enabled: true\n      existingClaim: medw-local-state\n"
+- target:
+    kind: HelmRelease
+    name: ingestion-worker
+  patch: "- op: add\n  path: /spec/values\n  value:\n    image:\n      repository:\
+    \ medw-ingestion-worker\n      tag: dev-1788845240\n      pullPolicy: Never\n\
+    \    serviceAccount:\n      annotations: {}\n    autoscaling:\n      enabled:\
+    \ true\n      metric: inflight_requests\n      target: 2\n      minReplicas: 1\n\
+    \      maxReplicas: 4\n      prometheusAddress: http://kps-kube-prometheus-stack-prometheus.monitoring:9090\n\
+    \    serviceMonitor:\n      enabled: true\n      interval: 5s\n    replicas: 1\n\
+    \    resources:\n      requests:\n        cpu: 50m\n        memory: 128Mi\n  \
+    \    limits:\n        cpu: 500m\n        memory: 512Mi\n    config:\n      backend:\
+    \ local\n      local_state_path: /data/platform.sqlite3\n      local_artifact_dir:\
+    \ /data/artifacts\n    env: local\n    localState:\n      enabled: true\n    \
+    \  existingClaim: medw-local-state\n"
+- target:
+    kind: HelmRelease
+    name: qdrant
+  patch: "- op: add\n  path: /spec/values\n  value:\n    replicas: 1\n    monitoring:\n\
+    \      enabled: false\n    snapshots:\n      enabled: false\n    persistence:\n\
+    \      storageClass: standard\n      size: 2Gi\n    podDisruptionBudget: null\n\
+    \    resources:\n      requests:\n        cpu: 100m\n        memory: 512Mi\n \
+    \     limits:\n        cpu: '1'\n        memory: 2Gi\n"
+- target:
+    kind: HelmRelease
+    name: reranker
+  patch: "- op: add\n  path: /spec/values\n  value:\n    image:\n      repository:\
+    \ medw-reranker\n      tag: dev\n      pullPolicy: Never\n    serviceAccount:\n\
+    \      annotations: {}\n    autoscaling:\n      enabled: false\n    replicas:\
+    \ 1\n    resources:\n      requests:\n        cpu: 50m\n        memory: 128Mi\n\
+    \      limits:\n        cpu: 500m\n        memory: 512Mi\n    env: local\n   \
+    \ localState:\n      enabled: true\n      existingClaim: medw-local-state\n  \
+    \  config:\n      local_state_path: /data/platform.sqlite3\n      local_artifact_dir:\
+    \ /data/artifacts\n"

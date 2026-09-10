@@ -1,6 +1,6 @@
 # Azure Cosmos DB - the semi-structured, high-churn half of the state.
 #
-# The split that gets asked about (see docs/adr/0004): Cosmos holds things
+# The storage split (README.md#major-decisions): Cosmos holds things
 # whose shape changes and whose write rate is high - document metadata,
 # ingestion job state, writer sessions. Azure SQL holds things that want joins
 # and constraints - the audit trail, the study/document registry, the
@@ -19,6 +19,7 @@
 from typing import Any
 
 from azure.cosmos.aio import ContainerProxy, CosmosClient
+from azure.cosmos.exceptions import CosmosResourceNotFoundError
 
 from medw_core.settings import Settings
 
@@ -71,7 +72,14 @@ class SessionRepo:
         self.c = container
 
     async def get(self, user_id: str, session_id: str) -> dict[str, Any] | None:
-        ...
+        try:
+            return dict(await self.c.read_item(item=session_id, partition_key=user_id))
+        except CosmosResourceNotFoundError:
+            return None
 
     async def put(self, session: dict[str, Any]) -> None:
-        ...
+        item = dict(session)
+        item["id"] = item["session_id"]
+        if not item.get("user_id") or not item["id"]:
+            raise ValueError("session_id and user_id are required")
+        await self.c.upsert_item(item)

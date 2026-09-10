@@ -5,7 +5,44 @@
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+
+class SourceRevision(BaseModel):
+    """A logical document may have many immutable, content-addressed revisions."""
+
+    model_config = ConfigDict(frozen=True)
+    study_id: str
+    doc_id: str
+    revision_id: str
+    content_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    artifact_uri: str
+    filename: str
+
+    @model_validator(mode="after")
+    def content_identity(self):
+        from medw_core.ids import source_revision_id
+        if self.revision_id != source_revision_id(self.study_id, self.doc_id, self.content_sha256):
+            raise ValueError("source revision identity does not match its study/document/content")
+        return self
+
+
+class IndexGeneration(BaseModel):
+    """Selected once at request entry; both search halves consume this value."""
+
+    model_config = ConfigDict(frozen=True)
+    generation_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,64}$")
+    study_id: str
+    dense_collection: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,128}$")
+    sparse_generation: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,64}$")
+    parser_version: str
+    embed_version: str
+    embed_deployment: str
+    embed_model_version: str
+    embed_model_name: str = "unknown"
+    dimensions: int = Field(gt=0)
+    payload_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    chunk_count: int = Field(ge=0)
 
 
 class DocType(StrEnum):
@@ -52,6 +89,20 @@ class Chunk(BaseModel):
     text: str                         # self-describing: header stack prepended
     table: ParsedTable | None = None  # populated for kind == table_rows
     ordinal: int
+    # Empty values exist only for old test fixtures; publication rejects them.
+    source_revision: str = ""
+    parser_version: str = "p7"
+    source_location: str = ""
+    coded_terms: list[str] = Field(default_factory=list)
+
+
+class Citation(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    study_id: str
+    chunk_id: str
+    source_revision: str
+    parser_version: str
+    source_location: str
 
 
 class RetrievalFilter(BaseModel):
@@ -77,6 +128,7 @@ class RetrievalFilter(BaseModel):
     doc_types: list[DocType] | None = None
     section_prefix: str | None = None
     kind: Literal["prose", "table_rows"] | None = None
+    index_generation: IndexGeneration | None = None
 
     def doc_type_values(self) -> list[str] | None:
         # Translators want the wire values, not the enum members.
@@ -89,6 +141,7 @@ class Hit(BaseModel):
     text: str
     section_path: str
     source: Literal["dense", "sparse", "fused", "reranked"]
+    citation: Citation | None = None
 
 
 class RetrievalRequest(BaseModel):
@@ -113,3 +166,4 @@ class RetrievalRequest(BaseModel):
 class RetrievalResponse(BaseModel):
     hits: list[Hit]
     trace_id: str
+    index_generation: IndexGeneration | None = None

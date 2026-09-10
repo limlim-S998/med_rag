@@ -1,0 +1,62 @@
+{{- define "medw-lib.networkpolicy" -}}
+{{- if dig "enabled" true (.Values.networkPolicy | default dict) }}
+{{- $upstream := dict "gateway" (list "ingress-nginx") "retrieval" (list "gateway") "generation" (list "gateway") "ingestion-worker" (list "gateway") "reranker" (list "retrieval") }}
+{{- $downstream := dict "gateway" (list "retrieval" "generation" "ingestion-worker") "retrieval" (list "reranker") }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Values.name }}
+spec:
+  podSelector: { matchLabels: { app: {{ .Values.name }} } }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    {{- if eq .Values.name "gateway" }}
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: ingress-nginx }
+      ports: [{ protocol: TCP, port: 8000 }]
+    {{- else }}
+    - from:
+        - podSelector:
+            matchExpressions:
+              - { key: app, operator: In, values: {{ index $upstream .Values.name | toJson }} }
+      ports: [{ protocol: TCP, port: 8000 }]
+    {{- end }}
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: monitoring }
+      ports: [{ protocol: TCP, port: 8000 }]
+  egress:
+    - to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } }
+      ports: [{ protocol: UDP, port: 53 }, { protocol: TCP, port: 53 }]
+    {{- if hasKey $downstream .Values.name }}
+    - to:
+        - podSelector:
+            matchExpressions:
+              - { key: app, operator: In, values: {{ index $downstream .Values.name | toJson }} }
+      ports: [{ protocol: TCP, port: 8000 }]
+    {{- end }}
+    {{- if or (eq .Values.name "retrieval") (eq .Values.name "ingestion-worker") }}
+    - to:
+        - podSelector: { matchLabels: { app: qdrant } }
+      ports: [{ protocol: TCP, port: 6333 }, { protocol: TCP, port: 6334 }]
+    {{- end }}
+    # Azure PaaS endpoints. Private endpoints require explicit additionalEgress
+    # CIDRs below; public 443 does not permit arbitrary namespace lateral access.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16]
+      ports:
+        - { protocol: TCP, port: 443 }
+        {{- if has .Values.name (list "gateway" "retrieval" "generation" "ingestion-worker") }}
+        - { protocol: TCP, port: 1433 }
+        {{- end }}
+    {{- with .Values.networkPolicy }}
+    {{- with .additionalEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- end }}
+{{- end }}
+{{- end -}}

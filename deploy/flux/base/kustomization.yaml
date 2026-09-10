@@ -1,12 +1,11 @@
-# The HelmReleases, environment-agnostic. Every overlay layers on top of this
-# and patches only what genuinely differs per environment.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - source.yaml
-  - gateway.yaml
-  - retrieval.yaml
-  - generation.yaml
-  - reranker.yaml
-  - ingestion-worker.yaml
-  - qdrant.yaml
+- namespace.yaml
+- source.yaml
+- gateway.yaml
+- retrieval.yaml
+- generation.yaml
+- reranker.yaml
+- ingestion-worker.yaml
+- qdrant.yaml
