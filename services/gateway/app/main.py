@@ -10,8 +10,13 @@ from .routes import documents, draft, search
 
 s = effective_settings(get_settings().model_copy(update={"service_name": "gateway"}))
 app = FastAPI(title="gateway", lifespan=lifespan_for("gateway", s))
-instrument(app, s, "gateway")
+
+# Instrument the FastAPI app with monitoring and tracing
+instrument(app, s, "gateway")   
+
 add_platform_routes(app, s)
+
+# Include application routers with study_user dependency
 for router in (search.router, draft.router, documents.router):
     app.include_router(router, dependencies=[Depends(study_user)])
 

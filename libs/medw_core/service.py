@@ -21,6 +21,7 @@ from medw_core.settings import Settings
 
 def lifespan_for(name: str, settings: Settings, *, vector_factory=None, sparse_factory=None,
                  prompts: Path | None = None):
+    
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         actual_prompt = prompt_hash(prompts) if prompts is not None else settings.prompt_bundle_sha
@@ -40,6 +41,7 @@ def lifespan_for(name: str, settings: Settings, *, vector_factory=None, sparse_f
                           resource_attributes=resource)
         app.state.provenance = Provenance.from_settings(runtime_settings)
         app.state.settings = settings
+
         async with AsyncExitStack() as stack:
             http = await stack.enter_async_context(httpx.AsyncClient(
                 timeout=httpx.Timeout(60, connect=settings.readiness_timeout),
@@ -63,6 +65,7 @@ def lifespan_for(name: str, settings: Settings, *, vector_factory=None, sparse_f
             except Exception:
                 logging.getLogger(__name__).exception("service dependency initialization failed")
                 monitor.add("configuration", unavailable_check("dependency initialization failed"))
+                
             if name == "gateway":
                 from medw_core.auth import TokenValidator
                 app.state.token_validator = TokenValidator(settings, http)

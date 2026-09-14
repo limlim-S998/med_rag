@@ -11,7 +11,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="MEDW_", env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="MEDW_", env_file=".env", extra="ignore"
+    )
 
     env: str = "dev"
     log_level: str = "INFO"
@@ -90,7 +92,7 @@ class Settings(BaseSettings):
 
     # Azure SQL: relational + append-only audit. No password field, on purpose:
     # auth is an AAD token, see medw_core.sql.
-    sql_server: str = ""   # not provisioned yet
+    sql_server: str = ""  # not provisioned yet
     sql_database: str = "medw"
 
     # --- Document parsing / clinical NER ----------------------------------
@@ -98,7 +100,7 @@ class Settings(BaseSettings):
     # not requested, so this URL CANNOT be built from the resource name -
     # it has to be read back with `az cognitiveservices account show`.
     docintel_endpoint: str = ""
-    docintel_model: str = "prebuilt-layout"   # layout, not prebuilt-document
+    docintel_model: str = "prebuilt-layout"  # layout, not prebuilt-document
     language_endpoint: str = ""
 
     # --- Models with weights ----------------------------------------------
@@ -107,16 +109,16 @@ class Settings(BaseSettings):
     # prose, with no commit anywhere.
     table_classifier_name: str = "table-type-classifier"
     table_classifier_version: str = "7"
-    table_classifier_min_proba: float = 0.65   # below this, generic template
+    table_classifier_min_proba: float = 0.65  # below this, generic template
     azureml_workspace: str = "medw-dev-ws"
 
     # --- Telemetry ---------------------------------------------------------
-    appinsights_connection_string: str = ""    # empty = console logging only
+    appinsights_connection_string: str = ""  # empty = console logging only
 
     # --- Retrieval knobs --------------------------------------------------
     rrf_k: int = 60
-    fusion_top_n: int = 30      # what goes into the cross-encoder
-    rerank_top_k: int = 8       # what comes out, into the generator
+    fusion_top_n: int = 30  # what goes into the cross-encoder
+    rerank_top_k: int = 8  # what comes out, into the generator
     reranker_url: str = "http://reranker:8000"
     retrieval_url: str = "http://retrieval:8000"
     generation_url: str = "http://generation:8000"
@@ -147,11 +149,19 @@ class Settings(BaseSettings):
     def validate_modes(self):
         if self.backend == "local" and self.env == "prod":
             raise ValueError("the local backend cannot run in prod")
-        if self.synthetic_enabled and (self.backend != "local" or self.env not in {"local", "test"}):
-            raise ValueError("synthetic work requires backend=local and env=local or test")
+        if self.synthetic_enabled and (
+            self.backend != "local" or self.env not in {"local", "test"}
+        ):
+            raise ValueError(
+                "synthetic work requires backend=local and env=local or test"
+            )
         if self.qdrant_write_consistency_factor > self.qdrant_replication_factor:
             raise ValueError("Qdrant write consistency cannot exceed replication")
-        if self.auth_jwks_url and self.backend == "azure" and not self.auth_jwks_url.startswith("https://"):
+        if (
+            self.auth_jwks_url
+            and self.backend == "azure"
+            and not self.auth_jwks_url.startswith("https://")
+        ):
             raise ValueError("Azure JWKS URL must use HTTPS")
         return self
 
