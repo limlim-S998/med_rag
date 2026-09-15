@@ -15,9 +15,6 @@ spec:
       blob_account_url: ''
       sql_server: ''
       sql_database: medw
-      retrieval_url: http://retrieval:8000
-      generation_url: http://generation:8000
-      ingestion_url: http://ingestion-worker:8000
       blob_container: raw
       auth_tenant_id: ''
       auth_audience: ''

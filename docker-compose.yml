@@ -9,9 +9,6 @@ x-local: &local
   MEDW_LOCAL_ARTIFACT_DIR: /data/artifacts
   MEDW_QDRANT_URL: http://qdrant:6333
   MEDW_RERANKER_URL: http://reranker:8000
-  MEDW_RETRIEVAL_URL: http://retrieval:8000
-  MEDW_GENERATION_URL: http://generation:8000
-  MEDW_INGESTION_URL: http://ingestion-worker:8000
 
 services:
   qdrant:
@@ -34,7 +31,6 @@ services:
     environment: *local
     volumes: ["platform_state:/data"]
     ports: ["127.0.0.1:${MEDW_GATEWAY_PORT:-8000}:8000"]
-    depends_on: [retrieval, generation, ingestion-worker]
   generation:
     profiles: [full]
     build: {context: ., dockerfile: services/generation/Dockerfile}

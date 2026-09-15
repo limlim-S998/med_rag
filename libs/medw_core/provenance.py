@@ -76,6 +76,19 @@ class Provenance:
         """For the audit INSERT."""
         return asdict(self)
 
+    def as_telemetry_resource(self) -> dict[str, str]:
+        """Process identity for OpenTelemetry providers, not per-request dimensions."""
+        return {
+            "deployment.environment.name": self.env,
+            "service.version": self.image_sha,
+            "medw.image_digest": self.image_digest,
+            "medw.release_bundle_sha": self.release_bundle_sha,
+            "medw.prompt_bundle_sha": self.prompt_bundle_sha,
+            "medw.deployment_revision": self.deployment_revision,
+            "medw.chat_model_version": self.chat_model_version,
+            "medw.embed_model_version": self.embed_model_version,
+        }
+
     def as_metric_dimensions(self) -> dict[str, str]:
         """For metric attributes and log records.
 

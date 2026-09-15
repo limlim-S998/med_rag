@@ -13,7 +13,7 @@ from typing import Literal
 
 from medw_core import ports
 from medw_core.health import HealthMonitor, unavailable_check
-from medw_core.settings import Settings
+from medw_core.settings import Settings, require_setting
 
 
 @dataclass(frozen=True)
@@ -169,6 +169,7 @@ async def build(
                 "reranker-model", unavailable_check("model implementation held back")
             )
             return Services(**result)
+
         from medw_core import azure
         from medw_core.adapters import AzureOpenAIChatClient, AzureOpenAIEmbedder
         from medw_core.rate_limit import TokenBucket
@@ -181,6 +182,7 @@ async def build(
 
             from medw_core.model_identity import ModelIdentityCheck
 
+            resource_id = require_setting(s.aoai_resource_id, "MEDW_AOAI_RESOURCE_ID")
             client = azure.openai_client(s, cred)
             stack.push_async_callback(client.close)
             # Chat and embeddings are different Azure deployments and quotas.
@@ -212,7 +214,7 @@ async def build(
             health.add(
                 "model-identity",
                 ModelIdentityCheck(
-                    cred, metadata_http, s.aoai_resource_id, expected
+                    cred, metadata_http, resource_id, expected
                 ).check,
             )
         if required & {"sessions", "documents", "state", "jobs", "index_registry"}:
@@ -229,9 +231,9 @@ async def build(
                 result["documents"] = DocumentRepo(boxes["documents"])
                 health.add("documents", boxes["documents"].read)
             if required & {"state", "jobs", "index_registry"}:
-                state_container = cosmos.get_database_client(
-                    s.cosmos_database
-                ).get_container_client(s.cosmos_state_container)
+                container_name = require_setting(s.cosmos_state_container, "MEDW_COSMOS_STATE_CONTAINER")
+                database_name = require_setting(s.cosmos_database, "MEDW_COSMOS_DATABASE")
+                state_container = cosmos.get_database_client(database_name).get_container_client(container_name)
                 cosmos_state = CosmosStateStore(state_container)
                 state = cosmos_state
                 result["state"] = state
@@ -259,7 +261,8 @@ async def build(
 
             blobs = azure.blob_client(s, cred)
             stack.push_async_callback(blobs.close)
-            blob_container = blobs.get_container_client(s.blob_container)
+            container_name = require_setting(s.blob_container, "MEDW_BLOB_CONTAINER")
+            blob_container = blobs.get_container_client(container_name)
             assert state is not None
             result["evidence"] = EvidenceStore(state, BlobArtifacts(blob_container))
             health.add("source-artifacts", blob_container.get_container_properties)

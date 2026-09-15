@@ -4,8 +4,8 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from medw_core.composition import effective_settings
 from medw_core.service import (
     add_platform_routes,
+    attach_request_instrumentation,
     domain_unavailable,
-    instrument,
     lifespan_for,
     readiness_response,
 )
@@ -13,7 +13,7 @@ from medw_core.settings import get_settings
 
 s = effective_settings(get_settings().model_copy(update={"service_name": "ingestion-worker"}))
 app = FastAPI(title="ingestion-worker", lifespan=lifespan_for("ingestion-worker", s))
-instrument(app, s, "ingestion-worker")
+attach_request_instrumentation(app, "ingestion-worker")
 add_platform_routes(app, s)
 
 
@@ -33,8 +33,10 @@ async def ingest(study_id: str, doc_id: str, blob_path: str):
     domain_unavailable()
 
 
-@app.get("/jobs/{study_id}/{job_id}")
+@app.get("/studies/{study_id}/jobs/{job_id}")
 async def job_status(study_id: str, job_id: str, request: Request):
+    # NGINX performs the gateway access subrequest before forwarding here.
+    # The chart restricts writer traffic to that controller.
     services = request.app.state.services
     if services is None:
         raise HTTPException(503, "job store unavailable")

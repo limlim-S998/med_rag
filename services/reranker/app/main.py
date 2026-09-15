@@ -3,12 +3,17 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from medw_core.composition import effective_settings
-from medw_core.service import add_platform_routes, instrument, lifespan_for, readiness_response
+from medw_core.service import (
+    add_platform_routes,
+    attach_request_instrumentation,
+    lifespan_for,
+    readiness_response,
+)
 from medw_core.settings import get_settings
 
 s = effective_settings(get_settings().model_copy(update={"service_name": "reranker"}))
 app = FastAPI(title="reranker", lifespan=lifespan_for("reranker", s))
-instrument(app, s, "reranker")
+attach_request_instrumentation(app, "reranker")
 add_platform_routes(app, s)
 
 

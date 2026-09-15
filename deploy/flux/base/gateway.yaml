@@ -5,6 +5,9 @@ metadata:
   namespace: medw
 spec:
   interval: 5m
+  dependsOn:
+    - name: nginx-ingress
+      namespace: nginx-ingress
   chart:
     spec:
       reconcileStrategy: Revision

@@ -1,4 +1,4 @@
-# The gateway. The only service with a public address.
+# Writer operations and access decisions. This chart owns NGINX's route table.
 name: gateway
 env: dev
 replicas: 2
@@ -27,22 +27,19 @@ config:
   # empty rather than pointing at a server that does not exist.
   sql_server: ""
   sql_database: medw
-  # Internal service DNS. These are the Service objects from medw-lib.
-  retrieval_url: http://retrieval:8000
-  generation_url: http://generation:8000
-  ingestion_url: http://ingestion-worker:8000
 
 ingress:
   enabled: true
   host: medw-dev.example.com
-  className: nginx
+  className: medw-nginx
   tls: true
-  annotations:
-    # Streaming. Buffering a token stream at the proxy defeats the point of
-    # streaming it - the writer waits for the whole section anyway, and you
-    # have added a hop. This is a real thing to get wrong once.
-    nginx.ingress.kubernetes.io/proxy-buffering: "off"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+  # Idle time between upstream reads, not the total stream duration.
+  readTimeout: 300s
+  # Both selectors must match. Keep aligned with deploy/nginx-ingress.yaml.
+  controller:
+    namespace: nginx-ingress
+    podLabels:
+      app.kubernetes.io/name: nginx-ingress
 
 resources:
   requests: { cpu: 100m, memory: 256Mi }
@@ -51,6 +48,6 @@ resources:
 autoscaling:
   enabled: true
   metric: inflight_requests
-  target: 40          # it proxies and streams; it does almost no work itself
+  target: 40          # writer operations plus small access-decision requests
   minReplicas: 2
   maxReplicas: 6

@@ -37,10 +37,14 @@ charts:        ## fail if any chart or Flux environment cannot render
 	  n=$$(basename $$c); [ "$$n" = "medw-lib" ] && continue; \
 	  helm dependency build $$c >/dev/null; helm lint $$c >/dev/null; \
 	  helm template $$n $$c >/dev/null; echo "  ok   $$n"; \
+	  if [ -f "$${c}values-local.yaml" ]; then \
+	    helm template $$n $$c -f "$${c}values-local.yaml" >/dev/null; \
+	  fi; \
 	done
 	@set -eu; for e in base dev staging prod local; do \
 	  kubectl kustomize deploy/flux/$$e >/dev/null; echo "  ok   flux/$$e"; \
 	done
+	@python scripts/check_ingress.py
 
 release:       ## BUNDLE=path ENV=dev; selects exact artifacts, never builds or pushes
 	@test -n "$(BUNDLE)" -a -n "$(ENV)" || (echo "BUNDLE and ENV required"; exit 2)

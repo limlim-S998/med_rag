@@ -19,5 +19,6 @@ localState:
   enabled: true
   existingClaim: medw-local-state
 config:
+  backend: local
   local_state_path: /data/platform.sqlite3
   local_artifact_dir: /data/artifacts

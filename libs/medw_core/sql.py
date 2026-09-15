@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from medw_core.audit_events import AUDIT_COLUMNS, normalize_generation
 from medw_core.schemas import IndexGeneration
-from medw_core.settings import Settings
+from medw_core.settings import Settings, require_setting
 
 SQL_SCOPE = "https://database.windows.net/.default"
 SQL_COPT_SS_ACCESS_TOKEN = 1256
@@ -21,8 +21,8 @@ async def access_token_struct(cred) -> bytes:
 
 
 def engine(s: Settings, token: bytes | None = None, *, credential=None) -> AsyncEngine:
-    if not s.sql_server:
-        raise RuntimeError("MEDW_SQL_SERVER is not set; the audit sink is unavailable")
+    server = require_setting(s.sql_server, "MEDW_SQL_SERVER")
+    database = require_setting(s.sql_database, "MEDW_SQL_DATABASE")
     if credential is None and token is None:
         raise ValueError("SQL needs a credential")
 
@@ -30,7 +30,7 @@ def engine(s: Settings, token: bytes | None = None, *, credential=None) -> Async
         import aioodbc
         fresh = await access_token_struct(credential) if credential is not None else token
         dsn = ("DRIVER={ODBC Driver 18 for SQL Server};"
-               f"SERVER={s.sql_server};DATABASE={s.sql_database};Encrypt=yes;")
+               f"SERVER={server};DATABASE={database};Encrypt=yes;")
         return await aioodbc.connect(dsn=dsn, attrs_before={SQL_COPT_SS_ACCESS_TOKEN: fresh},
                                      autocommit=False)
 

@@ -36,6 +36,21 @@ and prompt hashes identify those tested artifacts. They are not regenerated
 claims about later builds. No live Azure deployment or shared Git push was
 performed by the completion or documentation passes.
 
+The current supervisor-review changes passed `make check` on 15 September 2026
+using host Python 3.12.13: 240 tests, six import contracts, Ruff/mypy, six
+application/data charts, five Flux configurations and the pinned F5 NGINX
+controller render. These changes simplify settings, clarify telemetry startup
+and move job/search/draft forwarding into the maintained NGINX controller.
+All five updated images built and passed startup checks as `nginx-switch-20260915`.
+
+The updated Compose exercise passed startup, persistent-state restart, isolated
+retrieval failure and recovery checks. A disposable Kubernetes 1.35.1 cluster
+with the actual F5 controller and Calico passed direct routing, JWT/study access,
+spoofed-header rejection, streaming, certificate/SNI/redirect, network-policy
+and backend/auth outage checks. These use generated keys and synthetic data;
+real DNS, cloud load-balancer behavior and Azure access remain operator checks.
+Earlier recovery/Flux/KEDA evidence was not rerun or relabelled.
+
 ## Local development
 
 Requires Python 3.11 or newer, Docker, Helm and kubectl. The clean-install proof
@@ -61,7 +76,7 @@ Chroma for the retained legacy-store setup.
 
 | Service | Host port | Platform behavior |
 |---|---|---|
-| Gateway | 8000 | JWT/study access, document metadata and job-status boundary |
+| Gateway | 8000 | JWT/study access decisions, document metadata and acceptance shell |
 | Retrieval | 8001 | Shared dense/sparse generation selection; fusion held back |
 | Reranker | 8002 | Explicit deterministic local double |
 | Generation | 8003 | Lifecycle, provenance and audit dependencies; drafting held back |
@@ -70,15 +85,22 @@ Chroma for the retained legacy-store setup.
 Every service exposes `/healthz`, `/readyz`, `/version` and `/metrics`.
 Liveness reports whether the process is alive; bounded, cached readiness
 checks report dependency availability. The assembled local stack becomes ready;
-isolated gateway/retrieval correctly remain unready without their upstreams.
+gateway readiness depends on its own stores and identity provider; retrieval
+readiness also depends on its reranker. A backend outage does not withdraw the
+gateway. Synthetic mode skips identity-provider readiness, but never JWT checks.
 The real reranker is live but unready until its implementation and weights exist.
 
 `/_synthetic/work?seconds=5` streams bounded test work only when explicitly
 enabled with the local backend in a local/test environment. It makes no model
-call. Writer routes still require verified JWTs and explicit study membership;
+call. The Kubernetes public routes require verified JWTs and explicit study membership;
 unknown users/studies fail closed. Unimplemented medical handlers return 501
 rather than successful empty responses. `make seed` and `make eval` remain
 held-back entrypoints, not working medical ingestion/evaluation commands.
+
+Compose exposes application ports on localhost for diagnostics; it does not run
+the Kubernetes NGINX controller. Direct backend ports bypass the edge access
+check. Use the disposable ingress proof below to test the public API boundary.
+Do not publish those diagnostic ports externally.
 
 ## Architecture
 
@@ -86,15 +108,18 @@ Five FastAPI services share [medw_core](libs/medw_core/).
 [ports.py](libs/medw_core/ports.py) defines dependency interfaces;
 [schemas.py](libs/medw_core/schemas.py) defines shared data;
 [composition.py](libs/medw_core/composition.py) selects service-specific adapters;
-[service.py](libs/medw_core/service.py) owns lifecycle, probes and HTTP telemetry.
+[service.py](libs/medw_core/service.py) owns lifecycle, probes and request middleware;
+[telemetry.py](libs/medw_core/telemetry.py) configures process logging/exporters.
 Import contracts prevent domain interfaces from depending on vendor SDK types.
 
 ```mermaid
 flowchart TB
-    W[Writer] -->|JWT and study membership| GW[Gateway]
-    GW --> RT[Retrieval]
-    GW --> GEN[Generation]
-    GW --> IW[Ingestion worker]
+    W[Writer] --> NX[NGINX]
+    NX -->|JWT and study access decision| GW[Gateway]
+    NX -->|authorized search| RT[Retrieval]
+    NX -->|authorized draft| GEN[Generation]
+    NX -->|authorized job status| IW[Ingestion worker]
+    NX -->|document and acceptance operations| GW
     RT --> RR[Reranker]
     RT -->|select once| REG[(Active generation)]
     RT -->|same generation| QD[(Qdrant)]
@@ -114,7 +139,7 @@ medical handlers do not yet execute that full workflow.
 
 | Service | Owned dependencies |
 |---|---|
-| Gateway | Sessions/document metadata, SQL study membership, fixed JWT key provider, downstream HTTP |
+| Gateway | Sessions/document metadata, SQL study membership, fixed JWT key provider |
 | Retrieval | Embedder, read-only Qdrant/Search, generation registry, HTTP reranker |
 | Generation | Chat client, SQL audit, retained evidence and reference markers |
 | Ingestion | Embedder, documents, durable jobs, evidence, registry and audit; publication accepts explicit sinks |
@@ -133,6 +158,30 @@ Local chat, embedding and reranking report synthetic identities. Their success
 proves platform behavior, not medical performance.
 
 ## Major decisions
+
+**One settings class for the scaffold.** `Settings` contains the shared set of
+configuration fields; every service can access them. Existing `MEDW_` variables,
+Helm values and `.env` files keep working. Missing Azure endpoints use `None`,
+and legacy blank strings normalize to `None`. Client factories check the values
+they need when they are called; local adapters do not require Azure configuration.
+Missing settings produce named errors and leave the service live but unready.
+The duplicate capability models were removed: they added validation objects
+without giving services distinct settings attributes. A future hierarchy should
+start with a minimal base and add fields only to the subclasses that need them.
+
+**The current service boundaries remain under review.** The original brief's
+five-service arrangement is retained. Streaming requires a suitable request
+path; it does not by itself require generation to be a separate deployment.
+Separate identity, scaling and release ownership are reasons to keep that
+boundary if the product needs them. Generation as application code inside the
+writer API, and bulk generation driven by Airflow, remain design options for a
+later decision. The FastAPI gateway currently owns JWT and database-backed study
+authorization. NGINX calls its small internal access-decision endpoint before
+forwarding job/search/draft requests directly to the relevant backend. Those
+request/response bodies no longer pass through Python gateway forwarding code.
+Gateway readiness is independent of those backends. Document operations and
+acceptance remain gateway responsibilities; generation's deployment boundary
+is unchanged.
 
 **Evidence-led RAG and a deterministic numeric path.** The target design uses
 retrieval and versioned prompts rather than generative fine-tuning. Numerical
@@ -214,6 +263,11 @@ Historical quota observations are not current subscription facts.
 | Metrics providers could replace one another; quick handlers never proved scale-up | One provider/two readers, cancellation-safe streaming counters and measured KEDA 1→4→1 |
 | Three Qdrant pods and PVCs implied clustering/backups | Peer bootstrap, explicit replication, snapshots and fresh restore with verified shard placement |
 | Network policies existed without proven enforcement; SQL egress mismatched routing | Local Calico allow/deny proof, explicit AKS Cilium and SQL Proxy configuration |
+| Empty Azure strings reached SDK construction; configuration roles were unclear | Optional environment inputs and explicit checks where client settings are used |
+| Request instrumentation and exporter startup looked duplicated | Named middleware attachment, one telemetry startup function and shared provenance serialization |
+| Python forwarding coupled gateway availability to every backend | Direct NGINX routes plus a body-free access check; backend outage leaves writer/auth operations available |
+| Local overlay/NGINX field mismatches escaped default renders | Every local values file now renders in `make check`; actual controller acceptance, local adapters and request behavior verified |
+| Charts assumed the retired community ingress-nginx controller | Maintained F5 NGINX OSS controller; direct routes, centralized access subrequests, TLS and controller pod/namespace selectors |
 
 Earlier boundary work also corrected missing projection fields and retry handling
 that crashed when throttling errors lacked a response. The executable tests and
@@ -335,6 +389,16 @@ The consolidated [verification record](docs/verification.json) preserves six
 original results: `checks`, `medw-compose-proof`, `sql-proof`,
 `medw-qdrant-proof`, `medw-scaffold-proof` and `medw-network-proof`.
 It distinguishes local evidence, artifact identity and unverified cloud behavior.
+`make check` also downloads and renders the pinned controller chart through
+[scripts/check_ingress.py](scripts/check_ingress.py), so it requires access to
+the official NGINX chart repository. It checks the rendered controller labels,
+IngressClass, required CRDs, external Service, auth support and controller selectors
+against the four publicly routed applications. The ingress
+tests separately render all five Flux environments and check TLS and NetworkPolicy.
+`make check` also renders all six `values-local.yaml` files. The current ingress
+proof writes `/tmp/medw-ingress-evidence.json`; the current Compose proof writes
+`/tmp/medw-nginx-compose-evidence.json`. The table below is historical completion
+evidence, not a claim that every older exercise was repeated for this change.
 
 | Exercise | Recorded result |
 |---|---|
@@ -406,6 +470,15 @@ Azure Entra authentication or token renewal.
 
 ## Operational signals and recovery
 
+`attach_request_instrumentation(app, name)` installs ASGI middleware while the
+application is assembled. `configure_telemetry(settings, provenance)` runs during
+lifespan startup and configures logging, metrics and tracing together. Both
+exporters take their resource attributes from `Provenance`, including the prompt
+hash computed from disk and reported by `/version`. The lifespan's `yield` marks
+the serving period; its exit stack closes clients at shutdown for either backend.
+An absent App Insights connection string disables Azure export while console
+logging, Prometheus and trace-context propagation remain available.
+
 One OpenTelemetry metric provider initializes Prometheus and, when configured,
 Azure Monitor readers together. A late attempt to add Azure after initialization
 fails explicitly. `medw_inflight_requests{app="SERVICE"}` counts requests through
@@ -468,6 +541,141 @@ jobs or no successful backup within 48 hours, requiring kube-state-metrics.
 Qdrant restoration alone does not restore source evidence, SQL audit or the
 active-generation registry; those stores need their own recovery policies.
 
+## Ingress controller
+
+[deploy/nginx-ingress.yaml](deploy/nginx-ingress.yaml) pins maintained F5 NGINX
+Ingress Controller 5.6.1 / Helm chart 2.7.1 with **NGINX Open Source**. No Plus
+license is required. The retired community `kubernetes/ingress-nginx` controller
+is a different project. See the [F5 release](https://github.com/nginx/kubernetes-ingress/releases/tag/v5.6.1).
+The dedicated IngressClass `medw-nginx` avoids taking ownership of an existing
+controller's `nginx` class during cutover.
+
+The gateway chart owns one F5 `VirtualServer` and three `Policy` resources.
+The controller turns these into NGINX configuration. This replaces the old
+catch-all Kubernetes `Ingress`; do not retain both for the same host.
+
+| Public request | Handler | Access check |
+|---|---|---|
+| `GET /studies/{study}/jobs/{job}` | Ingestion worker | NGINX subrequest to gateway |
+| `POST /studies/{study}/search` | Retrieval; still 501 | NGINX subrequest to gateway |
+| `POST /studies/{study}/sections/{section}/draft` | Generation; still 501 | NGINX subrequest to gateway |
+| Document listing/upload URL and section acceptance | Gateway; upload/accept still 501 | Existing FastAPI dependencies |
+| `/me` | Gateway | JWT dependency |
+| `/version` | Gateway | Public scaffold version |
+
+Public URLs are preserved; the old internal `/jobs/{study}/{job}` and `/draft`
+paths are removed. Internal retrieval `/search`, `/ingest`, auth endpoints,
+OpenAPI/docs, probes and metrics are not exposed by the public route table.
+Kubernetes probes and Prometheus continue to use internal service ports.
+`/_synthetic/work` is exposed only by an explicitly opted-in local chart.
+
+NGINX sends the bearer token plus overwritten `X-Original-URI` and
+`X-Original-Method` headers to `/_internal/authorize/{jobs|search|draft}`. This
+checks JWTs and SQL study membership without receiving the request body. It
+rejects ambiguous path encodings and authorizes the same study the backend
+receives. Identity/permission failures fail closed; client-supplied headers
+cannot select a different study. No extra runtime SQL identities are needed.
+These [external-auth policies](https://github.com/nginx/kubernetes-ingress/tree/v5.6.1/examples/custom-resources/external-auth)
+work with OSS. The two header overrides require enabling snippets: only trusted
+platform operators should have RBAC permission to edit Ingress, VirtualServer
+or Policy resources in the watched namespaces. This is a deliberate change
+from the earlier configuration with snippets/custom resources disabled.
+
+Each of the four public-facing applications grants access to the controller's
+namespace **and** pod labels in the same NetworkPolicy peer. Backend apps rely
+on that boundary for edge authorization. The monitoring namespace retains its
+existing trusted scrape access. Keep `ingress.controller` aligned in all four
+charts when relocating/relabelling NGINX, and use an enforcing CNI. Gateway
+no longer has a general network allowance to call those backends.
+
+Response buffering is disabled. `ingress.readTimeout` defaults to 300 seconds
+between upstream reads; it is not a total stream deadline. Auth calls instead
+use controller defaults of 3 seconds to connect and 10 seconds between reads.
+Data requests are not automatically retried, avoiding duplicate future POST
+operations. Missing backends and auth-service failures return 503. NGINX's
+401/403 error bodies differ from FastAPI's JSON errors; clients should use
+status codes. Existing application 404/501 responses are preserved. Search
+and drafting still fail explicitly before any public medical work is attempted.
+
+### Manual deployment and cutover
+
+The application changes assume these operator steps have been completed:
+
+1. Select the intended Kubernetes context, with Flux source/Helm controllers,
+   an enforcing CNI and the project's existing platform dependencies installed.
+   Set `MEDW_KUBE_CONTEXT` to that context. Configure the actual hostname in
+   `deploy/flux/<environment>/environment-values.yaml` under gateway's
+   `spec.values.ingress.host`. Existing JWT settings and study membership stay
+   under the gateway identity.
+2. Install or upgrade the controller **before** releasing the application charts:
+
+   ```sh
+   kubectl --context "$MEDW_KUBE_CONTEXT" apply -f deploy/nginx-ingress.yaml
+   kubectl --context "$MEDW_KUBE_CONTEXT" -n nginx-ingress wait helmrelease/nginx-ingress \
+     --for=condition=Ready --timeout=5m
+   kubectl --context "$MEDW_KUBE_CONTEXT" wait crd/virtualservers.k8s.nginx.org \
+     crd/policies.k8s.nginx.org --for=condition=Established --timeout=60s
+   ```
+
+   The HelmRelease explicitly installs/upgrades CRDs. Gateway's Flux release
+   depends on this controller release. The controller watches `medw` and
+   `nginx-ingress`; its deployment and Kubernetes Service are named
+   `nginx-ingress-controller`.
+3. Provision a certificate for the chosen hostname as Secret `gateway-tls` in
+   namespace `medw`, either with your certificate automation or existing files:
+
+   ```sh
+   kubectl --context "$MEDW_KUBE_CONTEXT" -n medw create secret tls gateway-tls \
+     --cert=/path/to/fullchain.pem --key=/path/to/private-key.pem \
+     --dry-run=client -o yaml | kubectl --context "$MEDW_KUBE_CONTEXT" -n medw apply -f -
+   ```
+
+   Cloud routes terminate TLS at NGINX and redirect HTTP using 308; local uses
+   HTTP. Secrets/private keys do not belong in Git.
+4. Publish the reviewed code and release all five images plus the updated
+   charts through the [existing immutable release workflow](#releases-and-versioning).
+   Local `nginx-switch-20260915` images are verification builds, not published
+   releases. The application charts are 0.5.0 with medw-lib 0.10.0. Do not mix
+   an old gateway forwarding image with the new backend route paths.
+5. Before changing DNS, check the new route object and the external address:
+
+   ```sh
+   kubectl --context "$MEDW_KUBE_CONTEXT" -n medw get virtualserver gateway
+   kubectl --context "$MEDW_KUBE_CONTEXT" -n nginx-ingress get service nginx-ingress-controller
+   ```
+
+   The VirtualServer must report `Valid`. Point the hostname's DNS record at
+   that LoadBalancer address after checking it with the intended Host/SNI name,
+   a valid JWT and allowed/denied study IDs. Confirm job-status readback,
+   expected search/draft 501, internal-path 404 and HTTPS redirect/certificate.
+   Keep an existing ingress controller until traffic has moved successfully;
+   applying these manifests does not uninstall it. Helm removes the gateway's
+   previous Ingress on upgrade; remove any independently managed conflicting
+   route through its own source of truth. Rollback requires the matching
+   application images and charts, not only a DNS edit.
+
+### Repeatable local ingress proof
+
+The isolated test uses real app images, F5 NGINX and Calico, generated signing
+keys/certificates and synthetic durable jobs. It checks TLS/SNI/redirects,
+streaming, access decisions, backend/auth failures and actual caller denials.
+It does not commission a cloud LoadBalancer, public DNS, a publicly trusted
+certificate or an Azure identity provider.
+
+```sh
+python scripts/build_images.py --tag nginx-switch-20260915
+KUBECONFIG=/tmp/medw-nginx-proof.kubeconfig minikube start -p medw-nginx-proof \
+  --driver=docker --cpus=3 --memory=4096 --kubernetes-version=v1.35.1 --cni=calico
+python scripts/verify_ingress.py --image-tag nginx-switch-20260915
+# Remove only this disposable profile after inspecting the result:
+KUBECONFIG=/tmp/medw-nginx-proof.kubeconfig minikube delete -p medw-nginx-proof
+```
+
+The verification script requires fresh `medw`/`nginx-ingress` namespaces and
+removes the namespaces it creates. Its default evidence path is
+`/tmp/medw-ingress-evidence.json`. The earlier completion evidence in
+`docs/verification.json` predates this switchover and is not proof of it.
+
 ## Azure commissioning
 
 This is a separate environment-validation phase. Review
@@ -478,7 +686,7 @@ region suitability or production readiness is established by the local proofs.
 1. Select subscription, resource group, region/residency boundary and operators.
    Configure hosted pipeline connections, destination ACR and scoped Git write
    identity. Fill environment endpoints and service-account client IDs.
-2. Provide AKS/Flux, an enforcing CNI, ingress, StorageClasses, KEDA, Prometheus
+2. Provide AKS/Flux, an enforcing CNI, [F5 NGINX ingress](#ingress-controller), StorageClasses, KEDA, Prometheus
    Operator/server and sufficient independent nodes/storage. Private endpoints
    need explicit `networkPolicy.additionalEgress` CIDRs. Verify actual allow/deny
    behavior from pods, not just successful manifest rendering.
@@ -523,7 +731,8 @@ limitations without secrets; local proofs do not replace these checks.
 
 1. This README, then [settings.py](libs/medw_core/settings.py).
 2. [schemas.py](libs/medw_core/schemas.py), [ports.py](libs/medw_core/ports.py),
-   [composition.py](libs/medw_core/composition.py) and [service.py](libs/medw_core/service.py).
+   [composition.py](libs/medw_core/composition.py), [service.py](libs/medw_core/service.py)
+   and [telemetry.py](libs/medw_core/telemetry.py).
 3. Authentication, source retention, durable jobs, indexing and audit modules in
    `libs/medw_core/`, alongside their failure-path tests.
 4. The five `services/` shells, retained retrieval adapters and `pipelines/` sinks.

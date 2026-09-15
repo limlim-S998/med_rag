@@ -103,14 +103,14 @@ asyncio.run(main())
 """
             run("docker", "exec", container("gateway"), "python", "-c", readback)
             compose("stop", "qdrant")
-            wait_ready({"retrieval": 503, "gateway": 503})
+            wait_ready({"retrieval": 503, "gateway": 200})
             assert status("retrieval", "/healthz") == status("gateway", "/healthz") == 200
             compose("start", "qdrant")
             wait_ready(dict.fromkeys(SERVICES, 200))
             report = {"result": "passed", "image_tag": args.image_tag, "versions": versions,
                       "checks": ["all five services live and ready with synthetic local dependencies",
                                  "persisted session survives application container restart",
-                                 "Qdrant outage propagates readiness503 while liveness200",
+                                 "Qdrant outage makes retrieval unready while gateway stays ready",
                                  "dependency recovery restores readiness without app restart"]}
             Path(args.output).write_text(json.dumps(report, indent=2) + "\n")
             print(json.dumps({"result": report["result"], "checks": report["checks"]}, indent=2))

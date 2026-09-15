@@ -10,9 +10,6 @@
 # waiting) or trigger the Airflow DAG (bulk). Job state goes in Cosmos, which
 # is what the status endpoint polls.
 
-from urllib.parse import quote
-
-import httpx
 from fastapi import APIRouter, HTTPException, Request
 
 from medw_core.service import domain_unavailable
@@ -31,18 +28,3 @@ async def list_documents(study_id: str, request: Request):
     if services is None:
         raise HTTPException(503, "document metadata unavailable")
     return await services.require("documents").by_study(study_id)
-
-
-@router.get("/{study_id}/jobs/{job_id}")
-async def job_status(study_id: str, job_id: str, request: Request):
-    # Study authorization has already run at the router boundary.
-    base = request.app.state.settings.ingestion_url
-    try:
-        response = await request.app.state.http.get(
-            f"{base}/jobs/{quote(study_id, safe='')}/{quote(job_id, safe='')}")
-        if response.status_code == 404:
-            raise HTTPException(404, "job not found")
-        response.raise_for_status()
-    except httpx.HTTPError as exc:
-        raise HTTPException(503, "job status unavailable") from exc
-    return response.json()

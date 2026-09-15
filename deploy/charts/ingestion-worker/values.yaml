@@ -50,3 +50,11 @@ autoscaling:
   # by Document Intelligence transactions per second, so more pods would turn a
   # queue into a pile of 429s. Concurrency is bounded in-process instead.
   enabled: false
+
+# Permit NGINX's authenticated requests; the gateway chart owns public routes.
+ingress:
+  enabled: true
+  controller:
+    namespace: nginx-ingress
+    podLabels:
+      app.kubernetes.io/name: nginx-ingress

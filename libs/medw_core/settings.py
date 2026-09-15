@@ -3,14 +3,22 @@
 # Source revision, image digest, model pins, prompt content and release/config
 # identity are distinct. See README.md#releases-and-versioning.
 
+from __future__ import annotations
+
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    """Shared environment configuration for the current scaffold.
+
+    Every service can access these fields. Optional Azure values are checked
+    where they are used; local services need no Azure configuration.
+    """
+
     model_config = SettingsConfigDict(
         env_prefix="MEDW_", env_file=".env", extra="ignore"
     )
@@ -44,9 +52,9 @@ class Settings(BaseSettings):
     # named instance of a model inside your AOAI resource. Pin the version
     # metadata check validates the actual model version and NoAutoUpgrade;
     # a name suffix alone does not pin an Azure deployment.
-    aoai_endpoint: str = ""
+    aoai_endpoint: str | None = None
     aoai_api_version: str = "2024-10-21"
-    aoai_resource_id: str = ""
+    aoai_resource_id: str | None = None
     chat_deployment: str = "gpt-4.1-mini-2025-04-14"
     embed_deployment: str = "text-embedding-3-large-1"
     embed_dim: int = 3072
@@ -78,30 +86,30 @@ class Settings(BaseSettings):
     search_ef: int = 128
 
     # --- Azure Cognitive Search (BM25 half) -----------------------------
-    search_endpoint: str = ""
+    search_endpoint: str | None = None
     search_index: str = "csr-chunks"
 
     # --- Storage / state -------------------------------------------------
-    blob_account_url: str = ""
+    blob_account_url: str | None = None
     blob_container: str = "raw"
 
     # Cosmos: semi-structured, high-churn (documents, jobs, sessions).
-    cosmos_endpoint: str = ""
+    cosmos_endpoint: str | None = None
     cosmos_database: str = "medw"
     cosmos_state_container: str = "platform-state"
 
     # Azure SQL: relational + append-only audit. No password field, on purpose:
     # auth is an AAD token, see medw_core.sql.
-    sql_server: str = ""  # not provisioned yet
+    sql_server: str | None = None  # not provisioned yet
     sql_database: str = "medw"
 
     # --- Document parsing / clinical NER ----------------------------------
     # NOTE the random suffix. Azure generates a custom subdomain when one is
     # not requested, so this URL CANNOT be built from the resource name -
     # it has to be read back with `az cognitiveservices account show`.
-    docintel_endpoint: str = ""
+    docintel_endpoint: str | None = None
     docintel_model: str = "prebuilt-layout"  # layout, not prebuilt-document
-    language_endpoint: str = ""
+    language_endpoint: str | None = None
 
     # --- Models with weights ----------------------------------------------
     # Registry name + pinned version. Never "latest": a classifier that changes
@@ -113,22 +121,20 @@ class Settings(BaseSettings):
     azureml_workspace: str = "medw-dev-ws"
 
     # --- Telemetry ---------------------------------------------------------
-    appinsights_connection_string: str = ""  # empty = console logging only
+    # Absent: console logs, Prometheus and trace context still work; no Azure export.
+    appinsights_connection_string: str | None = Field(default=None, repr=False)
 
     # --- Retrieval knobs --------------------------------------------------
     rrf_k: int = 60
     fusion_top_n: int = 30  # what goes into the cross-encoder
     rerank_top_k: int = 8  # what comes out, into the generator
     reranker_url: str = "http://reranker:8000"
-    retrieval_url: str = "http://retrieval:8000"
-    generation_url: str = "http://generation:8000"
-    ingestion_url: str = "http://ingestion-worker:8000"
 
     # Fixed by deployment configuration, never derived from an unverified JWT.
     auth_tenant_id: str = ""
     auth_audience: str = ""
     auth_issuer: str = ""
-    auth_jwks_url: str = ""
+    auth_jwks_url: str | None = None
     auth_jwks_cache_seconds: float = Field(default=300, gt=0, le=3600)
 
     # --- Prompts ----------------------------------------------------------
@@ -144,6 +150,18 @@ class Settings(BaseSettings):
     image_digest: str = ""
     release_bundle_sha: str = ""
     deployment_revision: str = ""
+
+    @field_validator(
+        "aoai_endpoint", "aoai_resource_id", "search_endpoint", "blob_account_url",
+        "cosmos_endpoint", "sql_server", "docintel_endpoint", "language_endpoint",
+        "appinsights_connection_string", "auth_jwks_url", mode="before",
+    )
+    @classmethod
+    def blank_is_absent(cls, value):
+        # Existing Helm values and .env files use empty strings for unset values.
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
 
     @model_validator(mode="after")
     def validate_modes(self):
@@ -169,6 +187,13 @@ class Settings(BaseSettings):
     # identity. Explicit host-side Azure development can use `az login`.
     # Azure services use identity rather than account keys. Qdrant is the
     # explicit key-based exception, injected from a Kubernetes Secret.
+
+
+def require_setting(value: str | None, name: str) -> str:
+    """Check a required string at its point of use and name its environment variable."""
+    if value is None or not value.strip():
+        raise ValueError(f"{name} must be set")
+    return value.strip()
 
 
 @lru_cache

@@ -11,8 +11,8 @@ from medw_core.projections import SECTION_FIELD, TEXT_FIELD
 from medw_core.schemas import Citation, Hit, RetrievalRequest, RetrievalResponse
 from medw_core.service import (
     add_platform_routes,
+    attach_request_instrumentation,
     domain_unavailable,
-    instrument,
     lifespan_for,
     readiness_response,
 )
@@ -25,7 +25,7 @@ from .sparse_repo import SparseRepo
 s = effective_settings(get_settings().model_copy(update={"service_name": "retrieval"}))
 app = FastAPI(title="retrieval", lifespan=lifespan_for(
     "retrieval", s, vector_factory=QdrantRepo, sparse_factory=SparseRepo))
-instrument(app, s, "retrieval")
+attach_request_instrumentation(app, "retrieval")
 add_platform_routes(app, s)
 
 
@@ -37,6 +37,14 @@ async def healthz() -> Response:
 @app.get("/readyz")
 async def readyz(request: Request) -> Response:
     return await readiness_response(request)
+
+
+@app.post("/studies/{study_id}/search")
+async def study_search(study_id: str):
+    # NGINX authorizes the path study first. Keep the public medical handler
+    # held back; /search below is an internal orchestration seam, not exposed
+    # by the edge. A future body schema must use this path study as authority.
+    domain_unavailable()
 
 
 async def retrieve_candidates(svc, req: RetrievalRequest):

@@ -21,7 +21,7 @@ from typing import Any
 from azure.cosmos.aio import ContainerProxy, CosmosClient
 from azure.cosmos.exceptions import CosmosResourceNotFoundError
 
-from medw_core.settings import Settings
+from medw_core.settings import Settings, require_setting
 
 # Container -> partition key. Mirrored in db/cosmos/containers.json, which is
 # what bootstrap.sh actually creates. Keep the two in step.
@@ -34,7 +34,7 @@ CONTAINERS = {
 
 
 def containers(client: CosmosClient, s: Settings) -> dict[str, ContainerProxy]:
-    db = client.get_database_client(s.cosmos_database)
+    db = client.get_database_client(require_setting(s.cosmos_database, "MEDW_COSMOS_DATABASE"))
     return {name: db.get_container_client(name) for name in CONTAINERS}
 
 

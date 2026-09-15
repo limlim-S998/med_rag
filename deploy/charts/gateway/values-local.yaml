@@ -24,12 +24,9 @@ resources:
     memory: 512Mi
 ingress:
   enabled: true
-  className: nginx
+  className: medw-nginx
   host: medw.local
   tls: false
-  annotations:
-    nginx.ingress.kubernetes.io/proxy-buffering: 'off'
-    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
 config:
   backend: local
   local_state_path: /data/platform.sqlite3

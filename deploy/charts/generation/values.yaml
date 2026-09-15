@@ -52,3 +52,11 @@ autoscaling:
   # this without raising the quota moves the failure from "requests queue" to
   # "everything 429s at once".
   maxReplicas: 8
+
+# Permit NGINX's authenticated requests; the gateway chart owns public routes.
+ingress:
+  enabled: true
+  controller:
+    namespace: nginx-ingress
+    podLabels:
+      app.kubernetes.io/name: nginx-ingress

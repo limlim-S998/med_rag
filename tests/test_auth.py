@@ -122,3 +122,64 @@ async def test_study_access_precedes_domain_handler_and_survives_restart(signed,
             assert (await client.post("/studies/allowed/draft", headers=headers)).status_code == 403
     assert calls == ["allowed"]
     await state.close()
+
+
+@pytest.mark.parametrize("operation,method,path,expected", [
+    ("jobs", "GET", "/studies/allowed/jobs/job-1", 204),
+    ("search", "POST", "/studies/allowed/search?study_id=other", 204),
+    ("draft", "POST", "/studies/allowed/sections/1.2/draft", 204),
+    ("jobs", "GET", "/studies/%61llowed/jobs/job-1", 204),
+    ("jobs", "GET", "/studies/other/jobs/job-1", 403),
+    ("jobs", "POST", "/studies/allowed/jobs/job-1", 403),
+    ("jobs", "GET", "/studies/allowed/search", 403),
+    ("jobs", "GET", "/studies/allowed/../other/jobs/job-1", 403),
+    ("jobs", "GET", "/studies/allowed%2f..%2fother/jobs/job-1", 403),
+    ("jobs", "GET", "/studies/allowed%252fother/jobs/job-1", 403),
+    ("jobs", "GET", "/studies//allowed/jobs/job-1", 403),
+    ("jobs", "GET", "/studies/%FF/jobs/job-1", 403),
+    ("jobs", "GET", "", 403),
+])
+async def test_nginx_access_decision_uses_exact_path_study(signed, operation, method, path, expected):
+    from services.gateway.app.routes.authorization import router
+
+    key, jwk, claims = signed
+    app = FastAPI()
+    app.include_router(router)
+    checked = []
+
+    async def allowed(oid, study):
+        checked.append((oid, study))
+        return study == "allowed"
+
+    app.state.services = SimpleNamespace(authorization=SimpleNamespace(allowed=allowed))
+    async with httpx.AsyncClient(transport=httpx.MockTransport(
+        lambda request: httpx.Response(200, json={"keys": [jwk]}),
+    )) as keys, httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                                base_url="http://gateway") as client:
+        app.state.token_validator = TokenValidator(config(), keys)
+        headers = {"Authorization": "Bearer " + encode(key, claims),
+                   "X-Original-URI": path, "X-Original-Method": method}
+        response = await client.get(f"/_internal/authorize/{operation}", headers=headers)
+        assert response.status_code == expected
+        if expected == 204:
+            assert response.content == b"" and checked == [("writer", "allowed")]
+        elif "/other/" not in path:
+            assert checked == []
+
+
+async def test_nginx_access_decision_fails_closed(signed):
+    from services.gateway.app.routes.authorization import router
+
+    key, jwk, claims = signed
+    app = FastAPI()
+    app.include_router(router)
+    app.state.services = None
+    async with httpx.AsyncClient(transport=httpx.MockTransport(
+        lambda request: httpx.Response(200, json={"keys": [jwk]}),
+    )) as keys, httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                                base_url="http://gateway") as client:
+        app.state.token_validator = TokenValidator(config(), keys)
+        headers = {"X-Original-URI": "/studies/allowed/jobs/job-1", "X-Original-Method": "GET"}
+        assert (await client.get("/_internal/authorize/jobs", headers=headers)).status_code == 401
+        headers["Authorization"] = "Bearer " + encode(key, claims)
+        assert (await client.get("/_internal/authorize/jobs", headers=headers)).status_code == 503

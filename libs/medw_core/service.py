@@ -17,29 +17,24 @@ from medw_core.content import prompt_hash
 from medw_core.health import DependencyUnavailable, HealthMonitor, http_check, unavailable_check
 from medw_core.provenance import Provenance
 from medw_core.settings import Settings
+from medw_core.telemetry import configure_telemetry
 
 
 def lifespan_for(name: str, settings: Settings, *, vector_factory=None, sparse_factory=None,
                  prompts: Path | None = None):
-    
+    """Build one startup/shutdown context for either backend.
+
+    FastAPI serves requests during the yield. Leaving the context on shutdown
+    closes every client registered with AsyncExitStack, including on failures.
+    """
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         actual_prompt = prompt_hash(prompts) if prompts is not None else settings.prompt_bundle_sha
-        runtime_settings = settings.model_copy(update={"prompt_bundle_sha": actual_prompt})
-        tracing.configure_logging(settings.log_level, name)
-        resource = {"deployment.environment.name": settings.env,
-                    "service.version": settings.image_sha,
-                    "medw.image_digest": settings.image_digest,
-                    "medw.release_bundle_sha": settings.release_bundle_sha,
-                    "medw.prompt_bundle_sha": actual_prompt,
-                    "medw.deployment_revision": settings.deployment_revision,
-                    "medw.chat_model_version": settings.chat_model_version,
-                    "medw.embed_model_version": settings.embed_model_version}
-        metrics.configure(settings.appinsights_connection_string, name,
-                          resource_attributes=resource)
-        tracing.configure(name, settings.appinsights_connection_string,
-                          resource_attributes=resource)
+        runtime_settings = settings.model_copy(
+            update={"prompt_bundle_sha": actual_prompt, "service_name": name})
         app.state.provenance = Provenance.from_settings(runtime_settings)
+        configure_telemetry(settings, app.state.provenance)
         app.state.settings = settings
 
         async with AsyncExitStack() as stack:
@@ -65,7 +60,7 @@ def lifespan_for(name: str, settings: Settings, *, vector_factory=None, sparse_f
             except Exception:
                 logging.getLogger(__name__).exception("service dependency initialization failed")
                 monitor.add("configuration", unavailable_check("dependency initialization failed"))
-                
+
             if name == "gateway":
                 from medw_core.auth import TokenValidator
                 app.state.token_validator = TokenValidator(settings, http)
@@ -73,10 +68,9 @@ def lifespan_for(name: str, settings: Settings, *, vector_factory=None, sparse_f
                 # every writer route still enforces normal authentication.
                 if not settings.synthetic_enabled:
                     monitor.add("identity-provider", app.state.token_validator.check)
-                for dep, url in (("retrieval", settings.retrieval_url),
-                                 ("generation", settings.generation_url),
-                                 ("ingestion", settings.ingestion_url)):
-                    monitor.add(dep, http_check(http, f"{url}/readyz"))
+                # Backend availability is independent of the access decision.
+                # NGINX selects ready backend pods; a backend outage must not
+                # withdraw the gateway and disable all study authorization.
             if name == "retrieval":
                 monitor.add("reranker", http_check(http, f"{settings.reranker_url}/readyz"))
             if prompts is not None:
@@ -91,7 +85,8 @@ def lifespan_for(name: str, settings: Settings, *, vector_factory=None, sparse_f
     return lifespan
 
 
-def instrument(app: FastAPI, settings: Settings, name: str) -> None:
+def attach_request_instrumentation(app: FastAPI, name: str) -> None:
+    """Attach ASGI wrappers; exporter/provider configuration happens in lifespan."""
     app.add_middleware(metrics.InFlightMiddleware, service=name)
     app.add_middleware(tracing.TraceMiddleware, service=name)
 

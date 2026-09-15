@@ -1,7 +1,6 @@
 {{- define "medw-lib.networkpolicy" -}}
 {{- if dig "enabled" true (.Values.networkPolicy | default dict) }}
-{{- $upstream := dict "gateway" (list "ingress-nginx") "retrieval" (list "gateway") "generation" (list "gateway") "ingestion-worker" (list "gateway") "reranker" (list "retrieval") }}
-{{- $downstream := dict "gateway" (list "retrieval" "generation" "ingestion-worker") "retrieval" (list "reranker") }}
+{{- $downstream := dict "retrieval" (list "reranker") }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -10,16 +9,21 @@ spec:
   podSelector: { matchLabels: { app: {{ .Values.name }} } }
   policyTypes: [Ingress, Egress]
   ingress:
-    {{- if eq .Values.name "gateway" }}
+    {{- if has .Values.name (list "gateway" "retrieval" "generation" "ingestion-worker") }}
+    {{- if .Values.ingress.enabled }}
     - from:
         - namespaceSelector:
-            matchLabels: { kubernetes.io/metadata.name: ingress-nginx }
+            matchLabels:
+              kubernetes.io/metadata.name: {{ required "ingress.controller.namespace is required" .Values.ingress.controller.namespace | quote }}
+          podSelector:
+            matchLabels:
+              {{- required "ingress.controller.podLabels must select controller pods" .Values.ingress.controller.podLabels | toYaml | nindent 14 }}
       ports: [{ protocol: TCP, port: 8000 }]
+    {{- end }}
     {{- else }}
     - from:
         - podSelector:
-            matchExpressions:
-              - { key: app, operator: In, values: {{ index $upstream .Values.name | toJson }} }
+            matchLabels: { app: retrieval }
       ports: [{ protocol: TCP, port: 8000 }]
     {{- end }}
     - from:

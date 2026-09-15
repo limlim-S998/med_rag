@@ -1,38 +1,78 @@
-{{/*
-Ingress. Only the gateway sets `ingress.enabled`; everything else is
-ClusterIP and unreachable from outside the cluster, which is the intended
-blast radius.
-
-The annotations matter more than they look. Generation streams tokens through
-the gateway, and an ingress that buffers the response defeats the entire
-point of streaming - the writer waits for the whole section anyway and you
-have added a hop. proxy-buffering off is not a tuning preference here, it is
-a functional requirement of the product.
-*/}}
+{{/* The gateway chart owns the public route table. Backend charts only grant
+controller network access. F5 VirtualServer/Policy resources require CRDs from
+our pinned controller chart. Public URLs pass unchanged to each application. */}}
 {{- define "medw-lib.ingress" -}}
-{{- if and .Values.ingress .Values.ingress.enabled }}
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+{{- if and (eq .Values.name "gateway") .Values.ingress.enabled }}
+{{- range $operation := list "jobs" "search" "draft" }}
+---
+apiVersion: k8s.nginx.org/v1
+kind: Policy
 metadata:
-  name: {{ .Values.name }}
-  annotations:
-    {{- toYaml .Values.ingress.annotations | nindent 4 }}
+  name: writer-{{ $operation }}-access
+spec:
+  externalAuth:
+    authServiceName: gateway
+    authServicePorts: [8000]
+    authURI: /_internal/authorize/{{ $operation }}
+    # Replace client-supplied values. Auth receives headers, never the body.
+    # Each operation has a distinct auth URI (required by the controller).
+    authSnippets: |
+      proxy_set_header X-Original-URI $request_uri;
+      proxy_set_header X-Original-Method $request_method;
+{{- end }}
+---
+apiVersion: k8s.nginx.org/v1
+kind: VirtualServer
+metadata:
+  name: gateway
 spec:
   ingressClassName: {{ .Values.ingress.className }}
+  host: {{ .Values.ingress.host | quote }}
   {{- if .Values.ingress.tls }}
   tls:
-    - hosts: [{{ .Values.ingress.host | quote }}]
-      secretName: {{ .Values.name }}-tls
+    secret: gateway-tls
+    redirect: { enable: true, code: 308, basedOn: scheme }
   {{- end }}
-  rules:
-    - host: {{ .Values.ingress.host | quote }}
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ .Values.name }}
-                port: { number: 8000 }
+  upstreams:
+    {{- range $name := list "gateway" "retrieval" "generation" "ingestion-worker" }}
+    - name: {{ $name }}
+      service: {{ $name }}
+      port: 8000
+      buffering: false
+      read-timeout: {{ $.Values.ingress.readTimeout | quote }}
+      connect-timeout: 3s
+      # A retried POST could start the same future job/draft twice.
+      next-upstream: "off"
+    {{- end }}
+  routes:
+    {{- range $route := list
+        (dict "operation" "jobs" "path" "~ ^/studies/[^/]+/jobs/[^/]+$" "backend" "ingestion-worker")
+        (dict "operation" "search" "path" "~ ^/studies/[^/]+/search$" "backend" "retrieval")
+        (dict "operation" "draft" "path" "~ ^/studies/[^/]+/sections/[^/]+/draft$" "backend" "generation") }}
+    - path: {{ $route.path | quote }}
+      policies: [{ name: writer-{{ $route.operation }}-access }]
+      action: { pass: {{ $route.backend }} }
+      errorPages:
+        - codes: [500, 502, 504]
+          return:
+            code: 503
+            type: application/json
+            body: '{\"detail\":\"service unavailable\"}'
+    {{- end }}
+    # Writer operations retain their existing FastAPI access dependencies.
+    - path: '~ ^/studies/[^/]+/(documents(:upload-url)?|sections/[^/]+/accept)$'
+      action: { pass: gateway }
+    - path: '= /me'
+      action: { pass: gateway }
+    - path: '= /version'
+      action: { pass: gateway }
+    {{- if and (eq .Values.env "local") (dig "synthetic_enabled" false .Values.config) }}
+    - path: '= /_synthetic/work'
+      action: { pass: gateway }
+    {{- end }}
+    # Probes/metrics, internal APIs, and auth subrequests are not public routes.
+    - path: /
+      action:
+        return: { code: 404, type: application/json, body: '{\"detail\":\"Not Found\"}' }
 {{- end }}
 {{- end -}}
