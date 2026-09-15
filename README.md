@@ -51,6 +51,14 @@ and backend/auth outage checks. These use generated keys and synthetic data;
 real DNS, cloud load-balancer behavior and Azure access remain operator checks.
 Earlier recovery/Flux/KEDA evidence was not rerun or relabelled.
 
+The NGINX cutover is also deployed to the existing `medw` minikube cluster.
+Source-versioned images were built from commit `8be1992`, loaded into the node,
+and selected through the published local Flux overlay. All six application/data
+Helm releases and the new controller are healthy. Live checks passed public
+routing, unauthenticated rejection, private-path exclusion, streaming and
+Calico allow/deny enforcement. Both existing PVC bindings were retained, and
+the old community ingress add-on was disabled. See [Local deployment](#local-deployment).
+
 ## Local development
 
 Requires Python 3.11 or newer, Docker, Helm and kubectl. The clean-install proof
@@ -613,6 +621,22 @@ application rollout. The controller is a separate Flux HelmRelease, installed
 from `deploy/nginx-ingress.yaml` with a local NodePort override. Cloud release
 pointers remain suspended.
 
+For reproducibility, the controller's local override is a merge patch on its
+HelmRelease, applied after the base controller manifest:
+
+```sh
+kubectl --context medw -n nginx-ingress patch helmrelease nginx-ingress --type=merge \
+  -p '{"spec":{"values":{"controller":{"service":{"type":"NodePort","httpPort":{"nodePort":30080},"httpsPort":{"nodePort":30443}}}}}}'
+```
+
+The cutover also corrected the old single-node Qdrant values to replication and
+write consistency of one. Its existing StatefulSet used `OrderedReady`, while
+the current chart uses `Parallel`; Kubernetes rejected that immutable-field
+upgrade. The StatefulSet was [removed with orphan propagation](https://kubernetes.io/docs/tasks/run-application/delete-stateful-set/)
+and recreated through Flux, preserving the pod during controller replacement
+and reusing the original PVC during the subsequent rollout. This was a one-time
+migration of the existing cluster, not an instruction to delete its data.
+
 Synthetic local adapters are explicitly enabled. This skips identity-provider
 readiness only: protected writer routes still reject unauthenticated requests.
 No real Entra application or writer membership has been commissioned for this
@@ -624,7 +648,6 @@ the isolated ingress proof; enabling synthetic mode is not an auth bypass.
 These steps are for a separately commissioned cloud environment. The current
 Azure resource inventory has no AKS cluster or ACR; they are not prerequisites
 for using the local deployment above:
-
 
 1. Select the intended Kubernetes context, with Flux source/Helm controllers,
    an enforcing CNI and the project's existing platform dependencies installed.
