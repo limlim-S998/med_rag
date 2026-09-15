@@ -13,8 +13,10 @@ patches:
       value:
         image:
           repository: medw-gateway
-          tag: dev-1788845240
+          tag: 8be19924b30edc325c2525f2439b5c1e3a62a044
           pullPolicy: Never
+          sourceSha: 8be19924b30edc325c2525f2439b5c1e3a62a044
+          digest: ''
         serviceAccount:
           annotations: {}
         autoscaling:
@@ -58,8 +60,10 @@ patches:
       value:
         image:
           repository: medw-retrieval
-          tag: dev-1788845240
+          tag: 8be19924b30edc325c2525f2439b5c1e3a62a044
           pullPolicy: Never
+          sourceSha: 8be19924b30edc325c2525f2439b5c1e3a62a044
+          digest: ''
         serviceAccount:
           annotations: {}
         autoscaling:
@@ -98,8 +102,10 @@ patches:
       value:
         image:
           repository: medw-generation
-          tag: dev-1788845240
+          tag: 8be19924b30edc325c2525f2439b5c1e3a62a044
           pullPolicy: Never
+          sourceSha: 8be19924b30edc325c2525f2439b5c1e3a62a044
+          digest: ''
         serviceAccount:
           annotations: {}
         autoscaling:
@@ -138,8 +144,10 @@ patches:
       value:
         image:
           repository: medw-ingestion-worker
-          tag: dev-1788845240
+          tag: 8be19924b30edc325c2525f2439b5c1e3a62a044
           pullPolicy: Never
+          sourceSha: 8be19924b30edc325c2525f2439b5c1e3a62a044
+          digest: ''
         serviceAccount:
           annotations: {}
         autoscaling:
@@ -206,8 +214,10 @@ patches:
       value:
         image:
           repository: medw-reranker
-          tag: dev
+          tag: 8be19924b30edc325c2525f2439b5c1e3a62a044
           pullPolicy: Never
+          sourceSha: 8be19924b30edc325c2525f2439b5c1e3a62a044
+          digest: ''
         serviceAccount:
           annotations: {}
         autoscaling:

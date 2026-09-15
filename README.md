@@ -597,9 +597,34 @@ operations. Missing backends and auth-service failures return 503. NGINX's
 status codes. Existing application 404/501 responses are preserved. Search
 and drafting still fail explicitly before any public medical work is attempted.
 
-### Manual deployment and cutover
+### Local deployment
 
-The application changes assume these operator steps have been completed:
+The existing minikube profile is `medw`. Its local Flux overlay targets
+`http://192.168.49.2:30080` (for example `/version`) and the NGINX Service uses
+NodePorts 30080/30443. The hostname is the node IP, so no hosts-file edit or
+public DNS is needed. The local route uses HTTP. The cluster uses Calico
+3.31.3 for network-policy enforcement; its original application-state and
+Qdrant PVCs are retained.
+
+The five local images use source commit
+`8be19924b30edc325c2525f2439b5c1e3a62a044` as both their tag and baked source
+identity. Flux continues to track this repository's `main` branch and owns the
+application rollout. The controller is a separate Flux HelmRelease, installed
+from `deploy/nginx-ingress.yaml` with a local NodePort override. Cloud release
+pointers remain suspended.
+
+Synthetic local adapters are explicitly enabled. This skips identity-provider
+readiness only: protected writer routes still reject unauthenticated requests.
+No real Entra application or writer membership has been commissioned for this
+local deployment. The signed-token/study-authorization behavior is covered by
+the isolated ingress proof; enabling synthetic mode is not an auth bypass.
+
+### Cloud deployment and cutover
+
+These steps are for a separately commissioned cloud environment. The current
+Azure resource inventory has no AKS cluster or ACR; they are not prerequisites
+for using the local deployment above:
+
 
 1. Select the intended Kubernetes context, with Flux source/Helm controllers,
    an enforcing CNI and the project's existing platform dependencies installed.
