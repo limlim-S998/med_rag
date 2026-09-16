@@ -23,6 +23,7 @@ add_platform_routes(app, s)
 # Backend request/response bodies travel through NGINX. This app retains the
 # access decision and writer operations that need its own dependencies.
 app.include_router(authorization.router)
+app.include_router(documents.upload_router)
 for router in (draft.router, documents.router):
     app.include_router(router, dependencies=[Depends(study_user)])
 

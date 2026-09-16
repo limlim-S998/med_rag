@@ -15,11 +15,13 @@ def main() -> None:
     parser.add_argument("--backend", choices=("local", "azure"), default="local")
     args = parser.parse_args()
     name = "medw-smoke-" + uuid.uuid4().hex[:12]
-    # Local adapters avoid any Azure calls. Reranker's held-back real path is
-    # selected independently and must remain unready.
+    source = subprocess.run(["docker", "image", "inspect", args.image, "--format",
+                             '{{index .Config.Labels "org.opencontainers.image.revision"}}'],
+                            check=True, capture_output=True, text=True).stdout.strip()
     subprocess.run(["docker", "run", "--detach", "--name", name,
                     "--env", f"MEDW_BACKEND={args.backend}", "--env", "MEDW_ENV=local",
                     "--env", f"MEDW_SERVICE_NAME={args.service}",
+                    "--env", f"MEDW_IMAGE_SHA={source}",
                     args.image], check=True, capture_output=True)
     probe = """import urllib.request, urllib.error, sys
 try:
@@ -44,8 +46,10 @@ except urllib.error.HTTPError as e:
             raise RuntimeError("liveness deadline exceeded")
         result = subprocess.run(["docker", "exec", name, "python", "-c", probe, "/readyz"],
                                 capture_output=True, text=True, check=True)
-        expected = "503" if args.service in ("gateway", "retrieval") else "200"
-        if args.backend == "azure":
+        # All other services depend on infrastructure absent from this isolated
+        # container. Full readiness is checked by the application verification.
+        expected = "200" if args.service == "reranker" else "503"
+        if args.backend == "azure" and source == "unversioned":
             expected = "503"
         allowed = {expected}
         if result.stdout.strip() not in allowed:

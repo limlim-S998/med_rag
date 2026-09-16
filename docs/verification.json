@@ -1,5 +1,5 @@
 {
-  "scope": "Synthetic local verification records. Each record identifies its own run and artifacts; the original September 10 completion records remain unchanged. The September 15 cutover record describes deployment to the existing local medw cluster.",
+  "scope": "Historical and current verification records. Each record identifies its own run, environment and artifacts; prior records do not establish that later code has passed. Local container, SQL and Kubernetes proofs are distinct from real Azure acceptance.",
   "records": {
     "checks": {
       "verified_at": "2026-09-10T03:12:14.824522+00:00",
@@ -280,6 +280,396 @@
         "reranker": "0.5.0+1253eabc293e",
         "retrieval": "0.5.0+1253eabc293e"
       }
+    },
+    "application-workflow-local": {
+      "result": "passed",
+      "project": "medw-application-proof-c1b982c7",
+      "image_tag": "application-workflow-local",
+      "backend": "local",
+      "checks": [
+        "all five packaged services are ready with the normal placeholder implementations",
+        "interrupted index publication preserves the active generation; worker restart resumes saved checkpoints",
+        "both documents survive study republishing and search/rerank HTTP calls return their evidence",
+        "stored source byte checksums match registered uploads",
+        "streamed output contains retrieved evidence and commits complete provenance before success",
+        "authenticated specific-draft acceptance and persisted job/audit state survive container restarts",
+        "missing authentication, cross-study access and forged actor fields fail",
+        "repeated ingestion does not append duplicate index audit",
+        "extraction and classifier interfaces persist actual placeholder identities and source checksums"
+      ],
+      "limits": [
+        "Uses SQLite/local artifacts instead of Azure services",
+        "Uses direct local service ports; edge NetworkPolicy/NGINX checked separately"
+      ],
+      "versions": {
+        "gateway": {
+          "env": "local",
+          "service": "gateway",
+          "image_sha": "unknown",
+          "chat_deployment": "scripted-chat",
+          "embed_version": "hash-1",
+          "prompt_bundle_sha": "local-dev",
+          "classifier_version": "placeholder-1",
+          "image_digest": "",
+          "release_bundle_sha": "",
+          "chat_model_name": "scripted-placeholder",
+          "chat_model_version": "1",
+          "embed_model_name": "token-hash",
+          "embed_model_version": "1",
+          "deployment_revision": "",
+          "backend": "local",
+          "medical_handlers": "placeholders"
+        },
+        "retrieval": {
+          "env": "local",
+          "service": "retrieval",
+          "image_sha": "unknown",
+          "chat_deployment": "scripted-chat",
+          "embed_version": "hash-1",
+          "prompt_bundle_sha": "local-dev",
+          "classifier_version": "placeholder-1",
+          "image_digest": "",
+          "release_bundle_sha": "",
+          "chat_model_name": "scripted-placeholder",
+          "chat_model_version": "1",
+          "embed_model_name": "token-hash",
+          "embed_model_version": "1",
+          "deployment_revision": "",
+          "backend": "local",
+          "medical_handlers": "placeholders"
+        },
+        "generation": {
+          "env": "local",
+          "service": "generation",
+          "image_sha": "unknown",
+          "chat_deployment": "scripted-chat",
+          "embed_version": "hash-1",
+          "prompt_bundle_sha": "sha256:500b813e155a44de5f1b2a229bdea7043c86f03f1baa9b4779bb5e6873279048",
+          "classifier_version": "placeholder-1",
+          "image_digest": "",
+          "release_bundle_sha": "",
+          "chat_model_name": "scripted-placeholder",
+          "chat_model_version": "1",
+          "embed_model_name": "token-hash",
+          "embed_model_version": "1",
+          "deployment_revision": "",
+          "backend": "local",
+          "medical_handlers": "placeholders"
+        },
+        "ingestion-worker": {
+          "env": "local",
+          "service": "ingestion-worker",
+          "image_sha": "unknown",
+          "chat_deployment": "scripted-chat",
+          "embed_version": "hash-1",
+          "prompt_bundle_sha": "local-dev",
+          "classifier_version": "placeholder-1",
+          "image_digest": "",
+          "release_bundle_sha": "",
+          "chat_model_name": "scripted-placeholder",
+          "chat_model_version": "1",
+          "embed_model_name": "token-hash",
+          "embed_model_version": "1",
+          "deployment_revision": "",
+          "backend": "local",
+          "medical_handlers": "placeholders"
+        },
+        "reranker": {
+          "env": "local",
+          "service": "reranker",
+          "image_sha": "unknown",
+          "chat_deployment": "scripted-chat",
+          "embed_version": "hash-1",
+          "prompt_bundle_sha": "local-dev",
+          "classifier_version": "placeholder-1",
+          "image_digest": "",
+          "release_bundle_sha": "",
+          "chat_model_name": "scripted-placeholder",
+          "chat_model_version": "1",
+          "embed_model_name": "token-hash",
+          "embed_model_version": "1",
+          "deployment_revision": "",
+          "backend": "local",
+          "medical_handlers": "placeholders"
+        }
+      },
+      "first_stream_event_ms": 52.02,
+      "draft_id": "da8b441a-edea-48f4-a910-3f8bf7d184a7",
+      "event_id": "da8b441a-edea-48f4-a910-3f8bf7d184a7",
+      "output_sha256": "d0ffe1af4cb29e3173530adc67122ec477a17e0eb0d80198172431bc14ea9724",
+      "index_generation": {
+        "generation_id": "70cac345bcc04b4e9934ae9596ac6d2f",
+        "study_id": "workflow-proof",
+        "dense_collection": "csr_5ec7822ee940ea75_70cac345bcc04b4e9934ae9596ac6d2f",
+        "sparse_generation": "70cac345bcc04b4e9934ae9596ac6d2f",
+        "parser_version": "placeholder-text-1",
+        "embed_version": "hash-1",
+        "embed_deployment": "hash-1",
+        "embed_model_version": "1",
+        "embed_model_name": "token-hash",
+        "dimensions": 64,
+        "payload_sha256": "ddf75d6f8c9a9cf74a320391b3e61992c848c9450bc13d79a90977f9bc598d68",
+        "chunk_count": 2
+      },
+      "source_checksums": [
+        "9ffe357a71edad3e6bd1d301db723f2fddd52f3de5b3f20fc4abcfa773c382df",
+        "c2583a03b0c9404d87a96cd90e7c685d3b51ea6fd052cf3e69fb983cef62c4be"
+      ],
+      "job_ids": [
+        "55c40f9bf3392ca16b7cadc4262a01c09400990a87f5631c608d818d4a3f3f96",
+        "57ef5006ffc2d9e0bb9c8b7c6976912aa517b4510f267968955cf375768ff5c2"
+      ],
+      "correlation_id": "c957dffb19334ff19848034a8167ba08",
+      "stream_events": 10,
+      "processing_provenance": [
+        {
+          "job_id": "55c40f9bf3392ca16b7cadc4262a01c09400990a87f5631c608d818d4a3f3f96",
+          "source_sha256": "9ffe357a71edad3e6bd1d301db723f2fddd52f3de5b3f20fc4abcfa773c382df",
+          "parser_version": "placeholder-text-1",
+          "classifier_version": "placeholder-1",
+          "table_type": "other",
+          "input_kind": "placeholder_envelope",
+          "medical_parsing": false
+        },
+        {
+          "job_id": "57ef5006ffc2d9e0bb9c8b7c6976912aa517b4510f267968955cf375768ff5c2",
+          "source_sha256": "c2583a03b0c9404d87a96cd90e7c685d3b51ea6fd052cf3e69fb983cef62c4be",
+          "parser_version": "placeholder-text-1",
+          "classifier_version": "placeholder-1",
+          "table_type": "other",
+          "input_kind": "placeholder_envelope",
+          "medical_parsing": false
+        }
+      ],
+      "cleanup": "removed disposable project and volumes",
+      "recorded_at": "2026-09-16T02:20:19.328373+00:00",
+      "scope": "Real Docker containers and Qdrant with final placeholder interface wiring, current unversioned development images; local SQLite/files adapters, not Azure."
+    },
+    "application-workflow-sql": {
+      "result": "passed",
+      "migrations": [
+        "0001_core.sql",
+        "0002_audit.sql",
+        "0003_grants.sql",
+        "0004_durable_contracts.sql",
+        "0005_application_workflow.sql"
+      ],
+      "event_id": "994b25cc-8dc3-4b31-baf8-fe2a5a7a2048",
+      "checks": [
+        "migrations apply once without historical edits",
+        "generation runtime role inserts audit and draft via actual SQL adapters",
+        "gateway procedure atomically accepts once and enforces study and actor",
+        "ingestion runtime role upserts document metadata and appends idempotent index audit",
+        "runtime audit updates/deletes and direct gateway status/audit writes denied"
+      ],
+      "cleanup": "removed disposable SQL container, volumes and network",
+      "recorded_at": "2026-09-16T02:06:47.085087+00:00",
+      "scope": "Real SQL Server container, current unversioned development working tree; not Azure SQL authentication."
+    },
+    "application-workflow-ingress": {
+      "result": "passed",
+      "context": "medw-nginx-proof",
+      "image_tag": "application-workflow-local",
+      "controller": "5.6.1",
+      "chart": "2.7.1",
+      "checks": [
+        "pinned OSS controller accepts real VirtualServer/Policy resources",
+        "upload, durable ingestion, both search stores, reranking, streamed drafting and acceptance work through NGINX",
+        "all protected routes reject missing identity, cross-study access and spoofed original-URI headers",
+        "internal APIs and operational surfaces are not publicly routed",
+        "real NGINX streams first synthetic chunk before completion",
+        "TLS terminates with verified certificate/SNI and HTTP redirects with 308",
+        "Calico rejects matching labels in wrong namespace and wrong labels in right namespace",
+        "backend outage returns 503 without disabling writer/auth operations",
+        "auth outage fails closed before a healthy jobs backend"
+      ],
+      "workflow": {
+        "source_sha256": "71f5a8deb1ab36953b058e35dcf74eda034cd152299ab28a79825d36ca1f74f9",
+        "source_revision": "040a9b1622a884d6d3aa8b823eda55db80aa6490ff9f34af35875e23b8eb0915",
+        "job_id": "529d073a3e9d771732c923d8e21f66f88ce667ce38f93774fb1496229503ab16",
+        "draft_id": "9f51dbef-4423-4785-9213-1603bedd5b34",
+        "event_id": "9f51dbef-4423-4785-9213-1603bedd5b34",
+        "output_sha256": "cb754ee123a30f6d12d8f7d81405ec7b574b5e59fadfa131f9c5a9c1be4e67ed",
+        "index_generation": {
+          "generation_id": "cc13f15be4684748a1493ec5bc225d4c",
+          "study_id": "allowed",
+          "dense_collection": "csr_eabc01f12ec3e7cb_cc13f15be4684748a1493ec5bc225d4c",
+          "sparse_generation": "cc13f15be4684748a1493ec5bc225d4c",
+          "parser_version": "placeholder-text-1",
+          "embed_version": "hash-1",
+          "embed_deployment": "hash-1",
+          "embed_model_version": "1",
+          "embed_model_name": "token-hash",
+          "dimensions": 64,
+          "payload_sha256": "574cb137ddd6eeac998bb05aa951b3000e9bbc0260efa35df2b25ed2b97637cc",
+          "chunk_count": 1
+        },
+        "stream_events": 7
+      },
+      "cleanup": {
+        "profile": "medw-nginx-proof",
+        "result": "deleted",
+        "verified_at": "2026-09-16T02:06:20.814011+00:00",
+        "remaining_profiles": [
+          {
+            "name": "medw",
+            "status": "Stopped"
+          }
+        ],
+        "docker_destroy_container_id": "adca4365e6c1629825acbccb61ad111e37d4d67616e50d4d8980b0677e27cd77",
+        "kubernetes_uid": "not captured before deletion",
+        "log": "* Deleting \"medw-nginx-proof\" in docker ...\n* Deleting container \"medw-nginx-proof\" ...\n* Removing /home/kusanagi/.minikube/machines/medw-nginx-proof ...\n* Removed all traces of the \"medw-nginx-proof\" cluster."
+      },
+      "recorded_at": "2026-09-16T02:06:47.085128+00:00",
+      "scope": "Disposable minikube with enforced Calico and F5 NGINX, unversioned development images before the final extraction/classifier interface wiring. Routing, authentication and SQL contracts are unchanged by that later wiring, which has separate final Docker proof. Original medw installation preserved; not Azure."
+    },
+    "application-workflow-checks": {
+      "recorded_at": "2026-09-16T02:20:44.065247+00:00",
+      "scope": "Final application and Azure commissioning source working tree before the first implementation commit; separate actual container/SQL/NGINX proofs identify their artifacts.",
+      "result": "passed",
+      "pytest_passed": 304,
+      "ruff": "passed",
+      "mypy_files": 49,
+      "import_contracts_kept": 6,
+      "deployable_charts": 6,
+      "flux_configurations": 5,
+      "nginx_controller_contract": "passed"
+    },
+    "azure-application-preflight": {
+      "timestamp": "2026-09-16T02:04:51.530432+00:00",
+      "checks": [
+        {
+          "name": "tools",
+          "passed": true,
+          "detail": "Required local tools and Docker available"
+        },
+        {
+          "name": "account",
+          "passed": true,
+          "detail": {
+            "id": "f60eae2b-d738-4d0e-8096-9f3f952e0cea",
+            "tenantId": "721342f3-ed34-4553-93ea-4fbe8f7149eb"
+          }
+        },
+        {
+          "name": "subscription-permissions",
+          "passed": true,
+          "detail": "Resource creation and role-assignment permissions present"
+        },
+        {
+          "name": "providers",
+          "passed": true,
+          "detail": "Required resource providers registered"
+        },
+        {
+          "name": "node-quota",
+          "passed": true,
+          "detail": "Standard_D4s_v5 available; quota covers 4 vCPUs"
+        },
+        {
+          "name": "borrowed-resources",
+          "passed": true,
+          "detail": {
+            "borrowed_search_id": "/subscriptions/f60eae2b-d738-4d0e-8096-9f3f952e0cea/resourceGroups/med-rag-tester/providers/Microsoft.Search/searchServices/medrag325744d5search",
+            "borrowed_cosmos_id": "/subscriptions/f60eae2b-d738-4d0e-8096-9f3f952e0cea/resourceGroups/med-rag-tester/providers/Microsoft.DocumentDB/databaseAccounts/medrag325744d5cosmos"
+          }
+        },
+        {
+          "name": "entra",
+          "passed": true,
+          "detail": {
+            "writer_object_id": "d453e6a4-1641-41f4-9ab2-bfe11bc4bee6",
+            "sql_admin_object_id": "d453e6a4-1641-41f4-9ab2-bfe11bc4bee6",
+            "app_registration": "created before paid infrastructure; tenant policy may deny"
+          }
+        },
+        {
+          "name": "git",
+          "passed": true,
+          "detail": "Configured source branch is reachable"
+        },
+        {
+          "name": "devops",
+          "passed": true,
+          "detail": "DevOps project, source connection and configured build capacity available"
+        },
+        {
+          "name": "estimated-cost",
+          "passed": true,
+          "detail": {
+            "currency": "AUD",
+            "hours": 4,
+            "hourly_aud": 0.4413,
+            "usage_reserve_aud": 5.0,
+            "estimated_aud": 6.77,
+            "quotes": {
+              "node": {
+                "hourly_aud": 0.3337,
+                "meter": "D4s v5",
+                "price_aud": 0.3337,
+                "unit": "1 Hour"
+              },
+              "registry": {
+                "hourly_aud": 0.009654166666666667,
+                "meter": "Basic Registry Unit",
+                "price_aud": 0.2317,
+                "unit": "1/Day"
+              },
+              "sql": {
+                "hourly_aud": 0.010262499999999999,
+                "meter": "B DTU",
+                "price_aud": 0.2463,
+                "unit": "1/Day"
+              },
+              "disk": {
+                "hourly_aud": 0.019442602739726027,
+                "meter": "P6 LRS Disk",
+                "price_aud": 14.1931,
+                "unit": "1/Month"
+              },
+              "load_balancer": {
+                "hourly_aud": 0.0348,
+                "meter": "Standard Included LB Rules and Outbound Rules",
+                "price_aud": 0.0348,
+                "unit": "1 Hour"
+              },
+              "public_ip": {
+                "hourly_aud": 0.007,
+                "meter": "Standard IPv4 Static Public IP",
+                "price_aud": 0.007,
+                "unit": "1 Hour"
+              }
+            },
+            "is_hard_cap": false
+          }
+        },
+        {
+          "name": "existing-deployment",
+          "passed": true,
+          "detail": null
+        }
+      ],
+      "passed": true,
+      "billable_resources_created": false,
+      "scope": "Real Azure access, quotas, borrowed-resource compatibility and estimated charges before any billable resource creation. Does not establish application deployment."
+    },
+    "azure-build-access-probe": {
+      "passed": true,
+      "agent_pool": "",
+      "timestamp": "2026-09-16T02:00:17.476009+00:00",
+      "probe_sha256": "1b7c9b5989f9dc68b213ee80a3a6319f7b0d551a2b3476000d85d3adc7bada9c",
+      "run_id": 2,
+      "pipeline_id": 5,
+      "url": "https://dev.azure.com/gzwhbosons/25157fdf-acbf-421e-a82f-24bc7e104476/_apis/pipelines/5/runs/2",
+      "result": "succeeded",
+      "scope": "Real hosted Azure Pipelines checkout and GitHub write on a disposable branch; temporary pipeline/branch removed afterward, so historical run URL no longer opens. Not the application delivery pipeline."
+    },
+    "azure-api-authentication": {
+      "timestamp": "2026-09-16T02:14:21.101103+00:00",
+      "passed": true,
+      "method": "authorization_code_pkce",
+      "signature_issuer_audience_tenant_validated": true,
+      "actor_matches_configured_writer": true
     }
   },
   "documentation_cleanup": {

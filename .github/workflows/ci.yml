@@ -109,6 +109,7 @@ jobs:
           file: services/${{ matrix.service }}/Dockerfile
           push: false
           load: true
+          build-args: SOURCE_SHA=${{ github.sha }}
           tags: medw-${{ matrix.service }}:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -116,6 +117,6 @@ jobs:
       - name: Container startup and probe contract
         run: python scripts/smoke_image.py --image medw-${{ matrix.service }}:ci --service '${{ matrix.service }}'
 
-      - name: Held-back real reranker remains unready
+      - name: Installed reranker works without Azure model provisioning
         if: matrix.service == 'reranker'
         run: python scripts/smoke_image.py --image medw-reranker:ci --service reranker --backend azure

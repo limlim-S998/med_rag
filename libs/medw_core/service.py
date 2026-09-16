@@ -4,7 +4,7 @@ import asyncio
 import dataclasses
 import json
 import logging
-from contextlib import AsyncExitStack, asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager, suppress
 from pathlib import Path
 
 import httpx
@@ -61,7 +61,7 @@ def lifespan_for(name: str, settings: Settings, *, vector_factory=None, sparse_f
                 logging.getLogger(__name__).exception("service dependency initialization failed")
                 monitor.add("configuration", unavailable_check("dependency initialization failed"))
 
-            if name == "gateway":
+            if name in {"gateway", "generation"}:
                 from medw_core.auth import TokenValidator
                 app.state.token_validator = TokenValidator(settings, http)
                 # Synthetic diagnostics can run without an identity provider;
@@ -73,6 +73,27 @@ def lifespan_for(name: str, settings: Settings, *, vector_factory=None, sparse_f
                 # withdraw the gateway and disable all study authorization.
             if name == "retrieval":
                 monitor.add("reranker", http_check(http, f"{settings.reranker_url}/readyz"))
+            if name == "generation":
+                monitor.add("retrieval", http_check(http, f"{settings.retrieval_url}/readyz"))
+            if name == "ingestion-worker" and app.state.services is not None:
+                from medw_core.ingestion import IngestionRunner
+                services = app.state.services
+                app.state.ingestion = IngestionRunner(
+                    settings, services, dense=services.require("dense_writer"),
+                    sparse=services.require("sparse_writer"))
+                worker = asyncio.create_task(app.state.ingestion.serve(), name="ingestion-poller")
+
+                async def stop_worker():
+                    worker.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await worker
+
+                async def check_worker():
+                    if worker.done():
+                        raise RuntimeError("ingestion polling loop stopped")
+
+                stack.push_async_callback(stop_worker)
+                monitor.add("ingestion-poller", check_worker)
             if prompts is not None:
                 if settings.prompt_bundle_sha.startswith("sha256:"):
                     if settings.prompt_bundle_sha != actual_prompt:
@@ -106,7 +127,7 @@ def add_platform_routes(app: FastAPI, settings: Settings) -> None:
             "release_bundle_sha": settings.release_bundle_sha,
             "backend": settings.backend,
         }
-        return {**data, "backend": settings.backend, "medical_handlers": "held-back"}
+        return {**data, "backend": settings.backend, "medical_handlers": "placeholders"}
 
     if settings.synthetic_enabled:
         # Settings restricts this surface to explicitly opted-in local/test

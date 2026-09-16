@@ -15,6 +15,8 @@ if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
     parser.error("invalid migration image digest")
 root = pathlib.Path(__file__).resolve().parent.parent
 subprocess.run(["docker", "run", "--rm", "--env", "MEDW_SQL_CONNECTION_STRING",
+                "--env", "MEDW_SQL_ACCESS_TOKEN", "--env", "MEDW_SQL_SERVER",
+                "--env", "MEDW_SQL_DATABASE",
                 "--mount", f"type=bind,src={root},dst=/workspace,readonly",
                 f"{args.registry}/generation@{digest}", "python", "/workspace/scripts/migrate.py"],
                check=True)

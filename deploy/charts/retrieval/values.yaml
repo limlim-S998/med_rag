@@ -21,13 +21,11 @@ config:
   cosmos_endpoint: ""
   cosmos_database: "medw"
   cosmos_state_container: "platform-state"
-  aoai_resource_id: ""
-  chat_deployment: gpt-4.1-mini-2025-04-14
-  embed_deployment: text-embedding-3-large-1
-  embed_version: v3l-001
-  prompt_bundle_sha: 4f2a91c
+  chat_deployment: scripted-chat
+  embed_deployment: hash-1
+  embed_version: hash-1
+  prompt_bundle_sha: local-dev
 
-  aoai_endpoint: ""
   qdrant_url: http://qdrant:6333
   reranker_url: http://reranker:8000
   # The sparse half. One shared index for all studies, filtered by study_id -

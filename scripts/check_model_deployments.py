@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Read expected Azure model identities through management metadata, without inference."""
+"""Validate target infrastructure and the currently installed model identities.
+
+Remote Azure adapters remain available, but are not the installed implementations.
+Their ARM validation belongs to the release that actually wires those adapters.
+"""
 import argparse
+import ast
 import json
 import pathlib
-import subprocess
 import uuid
-from urllib.parse import quote
 
 import yaml
-
-from medw_core.model_identity import validate_deployment
 
 if __package__:
     from .release import ROOT, validate
@@ -21,11 +22,10 @@ else:
 REQUIRED_TARGETS = {
     "gateway": ("cosmos_endpoint", "blob_account_url", "sql_server", "auth_tenant_id",
                 "auth_audience", "auth_issuer", "auth_jwks_url"),
-    "retrieval": ("aoai_endpoint", "aoai_resource_id", "cosmos_endpoint", "search_endpoint"),
-    "generation": ("aoai_endpoint", "aoai_resource_id", "cosmos_endpoint", "blob_account_url",
-                   "sql_server"),
-    "ingestion-worker": ("aoai_endpoint", "aoai_resource_id", "cosmos_endpoint", "blob_account_url",
-                         "sql_server", "search_endpoint", "docintel_endpoint", "language_endpoint"),
+    "retrieval": ("cosmos_endpoint", "search_endpoint"),
+    "generation": ("cosmos_endpoint", "blob_account_url", "sql_server", "retrieval_url",
+                   "auth_tenant_id", "auth_audience", "auth_issuer", "auth_jwks_url"),
+    "ingestion-worker": ("cosmos_endpoint", "blob_account_url", "sql_server", "search_endpoint"),
     "reranker": (),
 }
 
@@ -57,6 +57,27 @@ def validate_targets(documents: list[dict]) -> dict:
         settings[name] = config
     return settings
 
+def installed_identities() -> dict:
+    tree = ast.parse((ROOT / "libs/medw_core/placeholders.py").read_text())
+    for statement in tree.body:
+        if isinstance(statement, ast.Assign) and any(
+                isinstance(target, ast.Name) and target.id == "MODEL_IDENTITIES"
+                for target in statement.targets):
+            return ast.literal_eval(statement.value)
+    raise ValueError("installed implementations have no model identity declaration")
+
+
+def validate_installed(behavior: dict, identities: dict) -> None:
+    for prefix, kind in (("chat", "chat"), ("embed", "embedding")):
+        for field in ("name", "version"):
+            if behavior[f"{prefix}_model_{field}"] != identities[kind][field]:
+                raise ValueError(f"{kind} identity differs from installed implementation")
+    if behavior["embed_version"] != identities["embedding"]["deployment"]:
+        raise ValueError("embedding compatibility differs from installed implementation")
+    if behavior["table_classifier_version"] != identities["classifier"]["version"]:
+        raise ValueError("classifier identity differs from installed implementation")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("bundle", type=pathlib.Path)
@@ -65,22 +86,14 @@ def main() -> None:
     bundle = validate(json.loads(args.bundle.read_text()))
     environment = ROOT / "deploy/flux" / args.environment / "environment-values.yaml"
     settings = validate_targets(list(yaml.safe_load_all(environment.read_text())))
-    for service, kind in (("generation", "chat"), ("retrieval", "embed"),
-                          ("ingestion-worker", "embed")):
-        config = settings[service]
-        resource = config.get("aoai_resource_id", "")
-        deployment = config.get(f"{kind}_deployment", "")
-        if not resource.startswith("/subscriptions/") or not deployment:
-            raise ValueError(f"{service}: configure resource ID and deployment before release")
-        url = (f"https://management.azure.com{resource}/deployments/{quote(deployment, safe='')}"
-               "?api-version=2024-10-01")
-        result = subprocess.run(["az", "rest", "--method", "get", "--url", url, "--output", "json"],
-                                check=True, capture_output=True, text=True)
-        payload = json.loads(result.stdout)
-        expected = (bundle["behavior"][f"{kind}_model_name"],
-                    bundle["behavior"][f"{kind}_model_version"])
-        validate_deployment(payload, *expected)
-        print(f"verified {service} {kind}: {expected[0]} {expected[1]}")
+    identities = installed_identities()
+    validate_installed(bundle["behavior"], identities)
+    for service, kind, prefix in (("generation", "chat", "chat"),
+                                  ("retrieval", "embedding", "embed"),
+                                  ("ingestion-worker", "embedding", "embed")):
+        if settings[service].get(f"{prefix}_deployment") != identities[kind]["deployment"]:
+            raise ValueError(f"{service}: deployment differs from installed implementation")
+    print("verified installed model identities and configured Azure infrastructure targets")
 
 
 if __name__ == "__main__":

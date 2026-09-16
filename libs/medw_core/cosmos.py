@@ -55,7 +55,7 @@ class DocumentRepo:
     async def by_study(self, study_id: str) -> list[dict[str, Any]]:
         # partition_key set => single-partition query. Without it this is a
         # cross-partition fan-out that gets slower as studies accumulate.
-        q = "SELECT * FROM c WHERE c.study_id = @s ORDER BY c.ingested_at DESC"
+        q = "SELECT * FROM c WHERE c.study_id = @s AND NOT IS_DEFINED(c.kind) ORDER BY c.ingested_at DESC"
         it = self.c.query_items(
             query=q,
             parameters=[{"name": "@s", "value": study_id}],

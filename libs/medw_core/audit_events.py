@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import uuid
 
 from medw_core.provenance import Provenance
@@ -42,8 +43,8 @@ def generation_event(provenance: Provenance, generation: IndexGeneration, *,
 def normalize_generation(event: dict) -> tuple[dict, list[Citation]]:
     row = {column: event[column] for column in AUDIT_COLUMNS}
     uuid.UUID(row["event_id"])
-    if len(row["correlation_id"]) != 32:
-        raise ValueError("correlation_id must contain 32 characters")
+    if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", row["correlation_id"]):
+        raise ValueError("invalid correlation_id")
     manifest = row["index_manifest"]
     generation = IndexGeneration.model_validate(json.loads(manifest)
                                                 if isinstance(manifest, str) else manifest)
@@ -69,3 +70,23 @@ def normalize_generation(event: dict) -> tuple[dict, list[Citation]]:
     row["source_chunk_ids"] = json.dumps(ids)
     row["source_citations"] = json.dumps([c.model_dump() for c in citations])
     return row, citations
+
+
+INDEX_COLUMNS = (
+    "event_id", "study_id", "doc_id", "parser_version", "embed_version",
+    "collection", "chunks_upserted", "index_generation_id", "source_revision", "correlation_id",
+)
+
+
+def normalize_index(event: dict) -> dict:
+    values = {"event_id": str(uuid.uuid4()), "correlation_id": None, **event}
+    if any(values.get(key) is None for key in INDEX_COLUMNS if key != "correlation_id"):
+        raise ValueError("complete source/index provenance required")
+    row = {key: values[key] for key in INDEX_COLUMNS}
+    row["event_id"] = str(uuid.UUID(row["event_id"]))
+    if row["correlation_id"] is not None and not re.fullmatch(
+            r"[A-Za-z0-9_.:-]{1,128}", row["correlation_id"]):
+        raise ValueError("invalid correlation_id")
+    if not isinstance(row["chunks_upserted"], int) or row["chunks_upserted"] < 0:
+        raise ValueError("invalid indexed chunk count")
+    return row

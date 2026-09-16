@@ -22,9 +22,7 @@ config:
   cosmos_endpoint: ""
   cosmos_database: medw
   blob_account_url: ""
-  # Not provisioned. Azure SQL needs an AAD admin principal decision
-  # (no AAD group exists on this subscription), so it is deliberately
-  # empty rather than pointing at a server that does not exist.
+  # Filled by the Azure deployment configuration.
   sql_server: ""
   sql_database: medw
 

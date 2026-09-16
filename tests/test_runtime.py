@@ -46,10 +46,14 @@ async def test_probe_timeout_is_bounded_and_http_status_is_checked():
 @pytest.mark.parametrize("service", ["gateway", "generation", "ingestion-worker", "reranker"])
 async def test_local_service_dependencies_are_scoped(service, tmp_path):
     settings = Settings(backend="local", env="test", local_state_path=str(tmp_path / "state.db"),
-                        local_artifact_dir=str(tmp_path / "artifacts"))
+                        local_artifact_dir=str(tmp_path / "artifacts"), qdrant_url="http://127.0.0.1:1")
     async with AsyncExitStack() as stack:
         services = await build(settings, stack, service=service)
-        await services.health.check()
+        if service == "ingestion-worker":
+            with pytest.raises(DependencyUnavailable, match="dense-writer"):
+                await services.health.check()
+        else:
+            await services.health.check()
         for field in DEPENDENCIES[service]:
             assert services.require(field) is not None
         if service in {"gateway", "reranker"}:
@@ -67,9 +71,9 @@ async def test_azure_reranker_live_shell_never_constructs_an_azure_credential(mo
     monkeypatch.setattr(azure, "credential", forbidden)
     async with AsyncExitStack() as stack:
         services = await build(Settings(backend="azure"), stack, service="reranker")
-        assert services.reranker is None
-        with pytest.raises(DependencyUnavailable, match="reranker-model"):
-            await services.health.check()
+        assert services.reranker is not None
+        await services.health.check()
+        assert await services.reranker.rerank("hello", [("1", "hello")], top_k=1) == [("1", 1.0)]
 
 
 async def test_session_persists_but_user_scope_and_expiry_are_enforced(tmp_path):

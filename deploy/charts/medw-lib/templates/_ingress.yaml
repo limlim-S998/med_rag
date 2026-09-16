@@ -3,7 +3,7 @@ controller network access. F5 VirtualServer/Policy resources require CRDs from
 our pinned controller chart. Public URLs pass unchanged to each application. */}}
 {{- define "medw-lib.ingress" -}}
 {{- if and (eq .Values.name "gateway") .Values.ingress.enabled }}
-{{- range $operation := list "jobs" "search" "draft" }}
+{{- range $operation := list "jobs" "search" "draft" "ingest" }}
 ---
 apiVersion: k8s.nginx.org/v1
 kind: Policy
@@ -39,6 +39,7 @@ spec:
       service: {{ $name }}
       port: 8000
       buffering: false
+      client-max-body-size: 5m
       read-timeout: {{ $.Values.ingress.readTimeout | quote }}
       connect-timeout: 3s
       # A retried POST could start the same future job/draft twice.
@@ -47,6 +48,7 @@ spec:
   routes:
     {{- range $route := list
         (dict "operation" "jobs" "path" "~ ^/studies/[^/]+/jobs/[^/]+$" "backend" "ingestion-worker")
+        (dict "operation" "ingest" "path" "~ ^/studies/[^/]+/documents/[^/]+/ingest$" "backend" "ingestion-worker")
         (dict "operation" "search" "path" "~ ^/studies/[^/]+/search$" "backend" "retrieval")
         (dict "operation" "draft" "path" "~ ^/studies/[^/]+/sections/[^/]+/draft$" "backend" "generation") }}
     - path: {{ $route.path | quote }}
@@ -62,6 +64,11 @@ spec:
     # Writer operations retain their existing FastAPI access dependencies.
     - path: '~ ^/studies/[^/]+/(documents(:upload-url)?|sections/[^/]+/accept)$'
       action: { pass: gateway }
+    {{- if eq .Values.env "local" }}
+    # Local storage checks its short-lived upload capability in the handler.
+    - path: '~ ^/studies/[^/]+/uploads/[^/]+$'
+      action: { pass: gateway }
+    {{- end }}
     - path: '= /me'
       action: { pass: gateway }
     - path: '= /version'

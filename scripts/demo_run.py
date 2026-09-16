@@ -1,0 +1,187 @@
+#!/usr/bin/env python3
+"""Exercise the normal application APIs and save evidence without credentials."""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import pathlib
+import ssl
+import time
+import uuid
+from collections.abc import Callable
+from urllib.parse import quote, urlsplit
+
+import httpx
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+
+
+def workflow(base_url: str, file: str | pathlib.Path, study: str, section: str,
+             token: str, ca_file: str | pathlib.Path | None = None, *, timeout: float = 300,
+             doc_id: str | None = None, on_submitted: Callable[[dict], None] | None = None) -> dict:
+    """A client, not another implementation of the application's workflow."""
+    payload = pathlib.Path(file).read_bytes()
+    if not 0 < len(payload) <= 5 * 1024 * 1024:
+        raise ValueError("file must contain between 1 byte and 5 MiB")
+    if urlsplit(base_url).scheme != "https" and urlsplit(base_url).hostname not in {"localhost", "127.0.0.1"}:
+        raise ValueError("remote application connections require HTTPS")
+    trust = ssl.create_default_context(cafile=str(ca_file) if ca_file else None)
+    cid, checksum = uuid.uuid4().hex, hashlib.sha256(payload).hexdigest()
+    prefix = "/studies/" + quote(study, safe="")
+    evidence: dict = {"schema_version": 1, "correlation_id": cid, "study_id": study,
+                "input": {"sha256": checksum, "size_bytes": len(payload)}, "checks": {}}
+    with httpx.Client(base_url=base_url.rstrip("/"), verify=trust, timeout=timeout,
+                      headers={"Authorization": "Bearer " + token, "x-correlation-id": cid}) as client:
+        def request(method, path, **kwargs):
+            response = client.request(method, path, **kwargs)
+            # Do not include response bodies or URLs containing upload tokens in exceptions.
+            if not response.is_success:
+                raise RuntimeError(f"application {method} failed with HTTP {response.status_code}")
+            return response.json()
+
+        version = request("GET", "/version")
+        registration = request("POST", prefix + "/documents:upload-url", json={
+            "filename": pathlib.Path(file).name, "size_bytes": len(payload), "sha256": checksum,
+            **({"doc_id": doc_id} if doc_id else {})})
+        # The upload URL is a capability. Never attach the writer's JWT or save it.
+        upload_url = registration["upload_url"]
+        upload_trust = trust if urlsplit(upload_url).netloc == urlsplit(base_url).netloc else True
+        with httpx.Client(verify=upload_trust, timeout=timeout) as uploader:
+            uploaded = uploader.put(upload_url, content=payload, headers=registration.get("headers", {}))
+            if not uploaded.is_success:
+                raise RuntimeError(f"blob upload failed with HTTP {uploaded.status_code}")
+        body = {"upload_id": registration["upload_id"], "idempotency_key": uuid.uuid4().hex}
+        ingest_path = prefix + "/documents/" + quote(registration["doc_id"], safe="") + "/ingest"
+        job = request("POST", ingest_path, json=body)
+        repeated = request("POST", ingest_path, json=body)
+        if job["id"] != repeated["id"]:
+            raise AssertionError("idempotent submission created a second job")
+        evidence["checks"]["idempotent_submission"] = True
+        if on_submitted:
+            on_submitted(job)
+        deadline = time.monotonic() + timeout
+        while job["state"] not in {"done", "failed"}:
+            if time.monotonic() >= deadline:
+                raise TimeoutError("ingestion deadline exceeded")
+            time.sleep(0.5)
+            job = request("GET", prefix + "/jobs/" + quote(job["id"], safe=""))
+        if job["state"] != "done":
+            raise RuntimeError("ingestion job failed; inspect its correlation ID")
+        documents = request("GET", prefix + "/documents")
+        document = next(row for row in documents if row["doc_id"] == registration["doc_id"])
+        query = "sha256:" + checksum
+        search = request("POST", prefix + "/search", json={"query": query, "top_k": 8})
+        if not any(hit["citation"]["source_revision"] == job["source_revision"] for hit in search["hits"]):
+            raise AssertionError("retrieval did not return the uploaded source")
+        lines, text_parts, elapsed = [], [], []
+        began = time.monotonic()
+        with client.stream("POST", prefix + "/sections/" + quote(section, safe="") + "/draft",
+                           json={"query": query, "top_k": 8}) as response:
+            if not response.is_success:
+                raise RuntimeError(f"draft failed with HTTP {response.status_code}")
+            for raw in response.iter_lines():
+                if not raw:
+                    continue
+                event = json.loads(raw)
+                lines.append(event)
+                elapsed.append(time.monotonic() - began)
+                if event["type"] == "delta":
+                    text_parts.append(event["text"])
+        output = "".join(text_parts)
+        if not lines or lines[-1]["type"] != "complete":
+            raise AssertionError("stream ended without durable audit/draft completion")
+        complete = lines[-1]
+        if checksum not in output or complete["output_sha256"] != hashlib.sha256(output.encode()).hexdigest():
+            raise AssertionError("draft output does not preserve source/checksum identity")
+        accepted = request("POST", prefix + "/sections/" + quote(section, safe="") + "/accept",
+                           json={"draft_id": complete["draft_id"]})
+        if accepted["draft_id"] != complete["draft_id"] or accepted["status"] != "accepted":
+            raise AssertionError("acceptance changed the wrong draft")
+        evidence.update(upload_id=registration["upload_id"], document=document,
+                        job_id=job["id"], source_revision=job["source_revision"],
+                        job_checkpoints=job["checkpoints"], release=version,
+                        index_generation=search["index_generation"],
+                        draft=complete, acceptance=accepted,
+                        stream={"events": len(lines), "delta_events": len(text_parts),
+                                "first_event_seconds": elapsed[0], "duration_seconds": elapsed[-1]},
+                        output_sha256=complete["output_sha256"])
+        evidence["checks"].update(ingestion_done=True, retrieved_uploaded_source=True,
+                                  streamed_draft=len(text_parts) > 1, accepted_specific_draft=True,
+                                  medical_verification_not_performed=(
+                                      complete["verification"]["status"] == "not_performed"))
+    return evidence
+
+
+def acquire_token(state: dict, cache_file: pathlib.Path | None = None) -> str:
+    """Public-client login with an optional private, local MSAL token cache."""
+    import msal
+    applications = state["applications"]
+    cache = msal.SerializableTokenCache()
+    if cache_file and cache_file.exists():
+        os.chmod(cache_file, 0o600)
+        cache.deserialize(cache_file.read_text())
+    client = msal.PublicClientApplication(applications["client"]["appId"],
+                                         authority="https://login.microsoftonline.com/" + state["config"]["tenant_id"],
+                                         token_cache=cache)
+    scopes = ["api://" + applications["api"]["appId"] + "/access"]
+    try:
+        expected_user = state["config"].get("writer_object_id")
+        for account in client.get_accounts():
+            if expected_user and account.get("local_account_id") != expected_user:
+                continue
+            result = client.acquire_token_silent(scopes, account=account)
+            if result and "access_token" in result:
+                return result["access_token"]
+        method = state["config"].get("api_login_method", "browser")
+        if method == "browser":
+            port = int(state["config"].get("api_login_port", 8400))
+            if not 1024 <= port <= 65535:
+                raise ValueError("api_login_port must be between 1024 and 65535")
+            message = f"Open http://localhost:{port} in a browser on this computer to sign in."
+            print(message, flush=True)
+            result = client.acquire_token_interactive(
+                scopes=scopes, port=port, timeout=600,
+                welcome_template="<html><body><a href='$auth_uri'>Sign in to the medical writer API</a></body></html>",
+                auth_uri_callback=lambda _: print(message, flush=True))
+        elif method == "device":
+            flow = client.initiate_device_flow(scopes=scopes)
+            if "user_code" not in flow:
+                raise RuntimeError("could not start API sign-in")
+            print(flow["message"], flush=True)
+            result = client.acquire_token_by_device_flow(flow)
+        else:
+            raise ValueError("api_login_method must be browser or device")
+        if "access_token" not in result:
+            raise RuntimeError("API sign-in failed: " + result.get("error", "unknown"))
+        return result["access_token"]
+    finally:
+        if cache_file and cache.has_state_changed:
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            descriptor = os.open(cache_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(descriptor, "w") as stream:
+                os.fchmod(stream.fileno(), 0o600)
+                stream.write(cache.serialize())
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--config", type=pathlib.Path, default=ROOT / "data/azure/config.json")
+    parser.add_argument("--file", type=pathlib.Path, required=True)
+    parser.add_argument("--output", type=pathlib.Path)
+    args = parser.parse_args()
+    config = json.loads(args.config.read_text())
+    directory = ROOT / "data/azure" / config["resource_group"]
+    state = json.loads((directory / "state.json").read_text())
+    token = os.environ.get("MEDW_DEMO_TOKEN") or acquire_token(state, directory / "api-token-cache.json")
+    report = workflow("https://" + state["hostname"], args.file, config["study_id"],
+                      config.get("section_path", "11.4.2"), token, directory / "tls/server.crt")
+    output = args.output or directory / "application-evidence.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(report, indent=2) + "\n")
+    print(f"Workflow passed; evidence: {output}")
+
+
+if __name__ == "__main__":
+    main()

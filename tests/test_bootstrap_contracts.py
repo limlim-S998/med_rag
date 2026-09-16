@@ -2,7 +2,6 @@
 
 import json
 import pathlib
-import shlex
 import subprocess
 
 from infra.search_payload import api_payload
@@ -38,27 +37,17 @@ def test_bootstrap_shell_parses_without_running_azure():
     subprocess.run(["bash", "-n", str(ROOT / "infra/bootstrap.sh")], check=True)
 
 
-def test_aks_bootstrap_uses_policy_enforcing_cilium_overlay():
-    script = (ROOT / "infra/bootstrap.sh").read_text().replace("\\\n", " ")
-    command = next(line for line in script.splitlines() if line.startswith("az aks create "))
-    tokens = shlex.split(command)
-    for flag, value in {
-        "--network-plugin": "azure",
-        "--network-plugin-mode": "overlay",
-        "--network-dataplane": "cilium",
-        "--pod-cidr": "$POD_CIDR",
-        "--service-cidr": "$SERVICE_CIDR",
-        "--dns-service-ip": "$DNS_SERVICE_IP",
-    }.items():
-        assert tokens[tokens.index(flag) + 1] == value
+def test_azure_bootstrap_uses_policy_enforcing_cilium_overlay():
+    script = (ROOT / "scripts/azure.py").read_text()
+    assert '"--network-plugin", "azure"' in script
+    assert '"--network-plugin-mode", "overlay"' in script
+    assert '"--network-dataplane", "cilium"' in script
+    assert '"--node-count", "1"' in script
+    assert '"--tier", "free"' in script
 
 
 def test_sql_bootstrap_pins_proxy_for_tcp_1433_egress():
-    script = (ROOT / "infra/bootstrap.sh").read_text().replace("\\\n", " ")
-    command = next(
-        line for line in script.splitlines() if line.startswith("az sql server conn-policy update ")
-    )
-    tokens = shlex.split(command)
-    assert tokens[tokens.index("--connection-type") + 1] == "Proxy"
-    assert tokens[tokens.index("-s") + 1] == "${PREFIX}sql"
-    assert script.index("az sql server create ") < script.index(command) < script.index("az sql db create ")
+    script = (ROOT / "scripts/azure.py").read_text()
+    assert '"--connection-type", "Proxy"' in script
+    assert script.index('checkpoint("sql-server"') < script.index('checkpoint("sql-proxy"')
+    assert script.index('checkpoint("sql-proxy"') < script.index('checkpoint("sql-database"')

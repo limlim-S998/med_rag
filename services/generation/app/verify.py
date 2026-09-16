@@ -38,3 +38,11 @@ def structural_rules(section_path: str, text: str) -> list[str]:
 # Layer 4: every generated paragraph carries the chunk IDs it drew on, and the
 # UI makes them clickable. The writer is the accountable author; the tool
 # never touches a submission.
+
+
+def placeholder_verification(output: str) -> dict:
+    """Exercise the verification step without claiming a medical check passed."""
+    return {"status": "not_performed", "implementation": "placeholder-1",
+            "numeric_check_passed": False, "structural_check_passed": False,
+            "output_present": bool(output),
+            "reason": "Medical verification has not been implemented."}

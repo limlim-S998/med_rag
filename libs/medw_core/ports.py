@@ -24,6 +24,7 @@
 from collections.abc import AsyncIterator
 from typing import Protocol, runtime_checkable
 
+from medw_core.indexing import GenerationSink as GenerationSink  # noqa: PLC0414
 from medw_core.persistence import StateStore as StateStore  # noqa: PLC0414 - public port re-export
 from medw_core.schemas import (
     Chunk,
@@ -136,10 +137,10 @@ class LayoutExtractor(Protocol):
     paragraphs with roles.
 
     Returns a plain dict in Document Intelligence's layout shape rather than a
-    parsed model, because the local implementation is recorded fixtures of
-    exactly that shape. That is what lets `parsers/table.py` - the code that
-    makes this clinical rather than generic RAG - be exercised for real with
-    no per-page extraction cost.
+    parsed model. The installed placeholder reads an immutable registered
+    artifact URI and supplies decoded content with empty paragraphs/tables;
+    it explicitly reports that medical parsing was not performed. Recorded
+    fixtures and the retained Azure adapter can supply actual layout later.
     """
 
     async def extract(self, source_uri: str, *, pages: str | None = None) -> dict: ...
@@ -202,7 +203,8 @@ class JobStore(Protocol):
 
     async def create(self, study_id: str, doc_id: str, *,
                      source_revision: str | None = None,
-                     idempotency_key: str | None = None) -> dict: ...
+                     idempotency_key: str | None = None,
+                     correlation_id: str | None = None) -> dict: ...
 
     async def advance(self, job: dict, state: str) -> dict: ...
 
@@ -223,6 +225,19 @@ class JobStore(Protocol):
 @runtime_checkable
 class HealthCheck(Protocol):
     async def check(self) -> None: ...
+
+
+class DraftStore(Protocol):
+    async def create(self, event: dict) -> dict: ...
+    async def get(self, study_id: str, section_path: str, draft_id: str) -> dict | None: ...
+    async def accept(self, study_id: str, section_path: str, draft_id: str,
+                     user_oid: str, correlation_id: str) -> dict: ...
+
+
+class UploadStore(Protocol):
+    async def register(self, study_id: str, request, *, public_base_url: str) -> dict: ...
+    async def write_local(self, study_id: str, upload_id: str, token: str, payload: bytes) -> None: ...
+    async def capture(self, study_id: str, doc_id: str, upload_id: str, evidence) -> SourceRevision: ...
 
 
 @runtime_checkable

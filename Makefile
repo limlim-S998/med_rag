@@ -69,3 +69,24 @@ search-index:  ## push the Cognitive Search index definition
 
 seed:          ## parse + chunk + index the sample study
 	python -m pipelines.cli index --study ABC-101 --path data/sample/
+
+.PHONY: demo-run
+demo-run:      ## Upload FILE through the normal Azure application and retain evidence
+	@test -n "$(FILE)" || (echo "FILE is required"; exit 2)
+	./.venv/bin/python scripts/demo_run.py --config "$(AZURE_CONFIG)" --file "$(FILE)"
+
+# Copy infra/azure.example.json to this ignored path and fill its resource IDs.
+AZURE_CONFIG ?= data/azure/config.json
+AZURE_PYTHON ?= .venv/bin/python
+.PHONY: azure-preflight azure-up azure-verify azure-down
+azure-preflight: ## cloud/access/price checks and a cached temporary CI probe; no paid Azure creation
+	$(AZURE_PYTHON) scripts/azure.py preflight --config "$(AZURE_CONFIG)"
+
+azure-up: ## resumable Azure provisioning, identities, pipeline and Flux deployment
+	$(AZURE_PYTHON) scripts/azure.py up --config "$(AZURE_CONFIG)"
+
+azure-verify: ## export actual cluster/TLS/route/release evidence
+	$(AZURE_PYTHON) scripts/azure.py verify --config "$(AZURE_CONFIG)"
+
+azure-down: ## remove only journalled owned infrastructure and borrowed test data
+	$(AZURE_PYTHON) scripts/azure.py down --config "$(AZURE_CONFIG)"

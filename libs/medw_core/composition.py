@@ -1,8 +1,4 @@
-"""Choose service-scoped dependencies once, at startup.
-
-Qdrant and Search adapters remain service-owned factories so the shared
-library never imports a service. Backend selection happens here.
-"""
+"""Select infrastructure once; both backends run the same model implementations."""
 
 from __future__ import annotations
 
@@ -35,6 +31,10 @@ class Services:
     index_registry: ports.IndexSelector | None = None
     evidence: ports.EvidenceStore | None = None
     authorization: ports.StudyAccess | None = None
+    drafts: ports.DraftStore | None = None
+    uploads: ports.UploadStore | None = None
+    dense_writer: ports.GenerationSink | None = None
+    sparse_writer: ports.GenerationSink | None = None
     health: ports.HealthCheck | None = None
 
     def require(self, name: str):
@@ -45,182 +45,116 @@ class Services:
 
 
 DEPENDENCIES = {
-    "gateway": {"sessions", "documents", "authorization"},
+    "gateway": {"sessions", "documents", "authorization", "drafts", "uploads"},
     "retrieval": {"embedder", "sparse", "vectors", "state", "index_registry"},
-    "generation": {"chat", "audit", "evidence", "state"},
-    "ingestion-worker": {
-        "embedder",
-        "jobs",
-        "documents",
-        "audit",
-        "state",
-        "index_registry",
-        "evidence",
-    },
+    "generation": {"chat", "audit", "evidence", "state", "drafts", "authorization"},
+    "ingestion-worker": {"embedder", "layout", "classifier", "jobs", "documents", "audit", "state",
+                         "index_registry", "evidence", "uploads", "dense_writer", "sparse_writer"},
     "reranker": {"reranker"},
 }
 
 
 def effective_settings(s: Settings) -> Settings:
-    """Synthetic model identities cannot be confused with Azure vector spaces."""
-    if s.backend == "local":
-        return s.model_copy(
-            update={
-                "chat_deployment": "local-scripted",
-                "chat_model_name": "synthetic",
-                "chat_model_version": "1",
-                "embed_deployment": "local-hash-000",
-                "embed_version": "local-hash-000",
-                "embed_model_name": "synthetic-hash",
-                "embed_model_version": "1",
-                "table_classifier_version": "held-back",
-            }
-        )
+    """Model identity is explicit configuration, independent of infrastructure."""
     return s
 
 
-async def build(
-    s: Settings,
-    stack: AsyncExitStack,
-    *,
-    credential=None,
-    service: str | None = None,
-    vector_factory: Callable | None = None,
-    sparse_factory: Callable | None = None,
-) -> Services:
+async def build(s: Settings, stack: AsyncExitStack, *, credential=None,
+                service: str | None = None, vector_factory: Callable | None = None,
+                sparse_factory: Callable | None = None) -> Services:
     from medw_core.durable_jobs import DurableJobStore
     from medw_core.indexing import IndexRegistry
+    from medw_core.placeholders import (
+        PARSER_VERSION,
+        HashEmbedder,
+        PlaceholderChatClient,
+        PlaceholderLayoutExtractor,
+        PlaceholderReranker,
+        PlaceholderTableClassifier,
+        validate_model_identities,
+    )
+    from medw_core.uploads import UploadService, UploadStorage
 
-    s = effective_settings(s)
     name = service or s.service_name
-    required = DEPENDENCIES.get(
-        name, set().union(*DEPENDENCIES.values()) | {"layout", "entities"}
-    )
-    health = HealthMonitor(
-        timeout=s.readiness_timeout, cache_seconds=s.readiness_cache_seconds
-    )
+    required = DEPENDENCIES.get(name, set().union(*DEPENDENCIES.values()))
+    health = HealthMonitor(timeout=s.readiness_timeout, cache_seconds=s.readiness_cache_seconds)
     result: dict = {"backend": s.backend, "health": health}
     state: ports.StateStore | None = None
+    upload_state: ports.StateStore | None = None
+    upload_storage: UploadStorage | None = None
+    factories: dict[str, Callable[[], object]] = {
+        "embedder": lambda: HashEmbedder(dimensions=s.embed_dim),
+        "chat": PlaceholderChatClient, "reranker": PlaceholderReranker,
+        "classifier": PlaceholderTableClassifier,
+    }
+    for field, factory in factories.items():
+        if field in required:
+            result[field] = factory()
+
+    async def check_models():
+        validate_model_identities(
+            (s.chat_deployment, s.chat_model_name, s.chat_model_version),
+            (s.embed_deployment, s.embed_model_name, s.embed_model_version))
+        if (s.embed_version != "hash-1" or s.table_classifier_version != "placeholder-1"
+                or s.parser_version != PARSER_VERSION):
+            raise ValueError("configured model compatibility differs from installed implementation")
+
+    health.add("installed-models", check_models)
+    if "reranker" in required:
+        health.add("reranker-model", result["reranker"].check)
 
     if s.backend == "local":
-        from medw_core.local.chat import ScriptedChatClient
-        from medw_core.local.embedder import HashEmbedder
-        from medw_core.local.indexes import DurableSparseIndex
+        from medw_core.local.indexes import DurableSparseIndex, SQLiteGenerationSink
         from medw_core.local.platform import (
             LocalStudyAccess,
             PersistentDocumentStore,
             PersistentSessionStore,
         )
-        from medw_core.local.reranker import SyntheticReranker
-        from medw_core.local.stores import (
-            DictionaryEntityExtractor,
-            FixtureLayoutExtractor,
-        )
         from medw_core.persistence import SQLiteStateStore
         from medw_core.sources import EvidenceStore, LocalArtifacts
+        from medw_core.uploads import LocalUploadStorage
 
-        if required & {
-            "state",
-            "jobs",
-            "sessions",
-            "documents",
-            "authorization",
-            "evidence",
-        }:
-            local_state = SQLiteStateStore(s.local_state_path)
-            state = local_state
+        if required & {"state", "jobs", "sessions", "documents", "authorization", "evidence", "uploads"}:
+            state = local_state = SQLiteStateStore(s.local_state_path)
             stack.push_async_callback(local_state.close)
             health.add("local-state", local_state.check)
             result["state"] = state
-        factories: dict[str, Callable[[], object]] = {
-            "embedder": lambda: HashEmbedder(dimensions=s.embed_dim),
-            "chat": ScriptedChatClient,
-            "reranker": SyntheticReranker,
-            "layout": lambda: FixtureLayoutExtractor(s.fixture_dir),
-            "entities": DictionaryEntityExtractor,
-        }
-        for field, factory in factories.items():
-            if field in required:
-                result[field] = factory()
-        if state is not None:
-            if "sparse" in required:
-                result["sparse"] = DurableSparseIndex(state)
-            if "sessions" in required:
-                result["sessions"] = PersistentSessionStore(state)
-            if "documents" in required:
-                result["documents"] = PersistentDocumentStore(state)
-            if "authorization" in required:
-                result["authorization"] = LocalStudyAccess(state)
+            upload_state = state
+            local_factories: dict[str, Callable[[], object]] = {
+                "sparse": lambda: DurableSparseIndex(local_state),
+                "sparse_writer": lambda: SQLiteGenerationSink(local_state),
+                "sessions": lambda: PersistentSessionStore(local_state),
+                "documents": lambda: PersistentDocumentStore(local_state),
+                "authorization": lambda: LocalStudyAccess(local_state),
+                "evidence": lambda: EvidenceStore(local_state, LocalArtifacts(s.local_artifact_dir)),
+            }
+            for field, factory in local_factories.items():
+                if field in required:
+                    result[field] = factory()
+        if "uploads" in required:
+            from pathlib import Path
+            upload_storage = LocalUploadStorage(Path(s.local_artifact_dir) / "staging")
         if "audit" in required:
             from medw_core.local.durable_audit import SQLiteAuditSink
-
             audit = SQLiteAuditSink(s.local_state_path)
             result["audit"] = audit
             stack.push_async_callback(audit.close)
             health.add("audit", audit.check)
-        if "evidence" in required:
-            assert state is not None
-            result["evidence"] = EvidenceStore(
-                state, LocalArtifacts(s.local_artifact_dir)
-            )
-    else:
-        if name == "reranker":
-            health.add(
-                "reranker-model", unavailable_check("model implementation held back")
-            )
-            return Services(**result)
-
+        if "drafts" in required:
+            from medw_core.drafts import SQLiteDraftStore
+            drafts = SQLiteDraftStore(s.local_state_path)
+            result["drafts"] = drafts
+            stack.push_async_callback(drafts.close)
+            health.add("drafts", drafts.check)
+    elif required - {"reranker"}:
         from medw_core import azure
-        from medw_core.adapters import AzureOpenAIChatClient, AzureOpenAIEmbedder
-        from medw_core.rate_limit import TokenBucket
 
         cred = credential or azure.credential()
         if credential is None:
             await stack.enter_async_context(cred)
-        if required & {"embedder", "chat"}:
-            import httpx
-
-            from medw_core.model_identity import ModelIdentityCheck
-
-            resource_id = require_setting(s.aoai_resource_id, "MEDW_AOAI_RESOURCE_ID")
-            client = azure.openai_client(s, cred)
-            stack.push_async_callback(client.close)
-            # Chat and embeddings are different Azure deployments and quotas.
-            if "embedder" in required:
-                result["embedder"] = AzureOpenAIEmbedder(
-                    client, s, TokenBucket(s.embed_pod_tpm)
-                )
-            if "chat" in required:
-                result["chat"] = AzureOpenAIChatClient(
-                    client, s, TokenBucket(s.pod_tpm)
-                )
-
-            async def check_openai():
-                await client.models.list()
-
-            health.add("azure-openai", check_openai)
-            metadata_http = await stack.enter_async_context(
-                httpx.AsyncClient(timeout=s.readiness_timeout)
-            )
-            expected = []
-            if "embedder" in required:
-                expected.append(
-                    (s.embed_deployment, s.embed_model_name, s.embed_model_version)
-                )
-            if "chat" in required:
-                expected.append(
-                    (s.chat_deployment, s.chat_model_name, s.chat_model_version)
-                )
-            health.add(
-                "model-identity",
-                ModelIdentityCheck(
-                    cred, metadata_http, resource_id, expected
-                ).check,
-            )
-        if required & {"sessions", "documents", "state", "jobs", "index_registry"}:
+        if required & {"sessions", "documents", "state", "jobs", "index_registry", "uploads"}:
             from medw_core.cosmos import DocumentRepo, SessionRepo, containers
             from medw_core.cosmos_state import CosmosStateStore
-
             cosmos = azure.cosmos_client(s, cred)
             stack.push_async_callback(cosmos.close)
             boxes = containers(cosmos, s)
@@ -230,57 +164,67 @@ async def build(
             if "documents" in required:
                 result["documents"] = DocumentRepo(boxes["documents"])
                 health.add("documents", boxes["documents"].read)
+            if "uploads" in required:
+                upload_state = CosmosStateStore(boxes["documents"])
             if required & {"state", "jobs", "index_registry"}:
-                container_name = require_setting(s.cosmos_state_container, "MEDW_COSMOS_STATE_CONTAINER")
-                database_name = require_setting(s.cosmos_database, "MEDW_COSMOS_DATABASE")
-                state_container = cosmos.get_database_client(database_name).get_container_client(container_name)
-                cosmos_state = CosmosStateStore(state_container)
-                state = cosmos_state
+                container = cosmos.get_database_client(s.cosmos_database).get_container_client(
+                    require_setting(s.cosmos_state_container, "MEDW_COSMOS_STATE_CONTAINER"))
+                state = cosmos_state = CosmosStateStore(container)
                 result["state"] = state
                 health.add("platform-state", cosmos_state.check)
-        if required & {"audit", "authorization"}:
+        if required & {"audit", "authorization", "drafts"}:
+            from medw_core.drafts import SqlDraftStore
             from medw_core.sql import SqlAuditSink, SqlStudyAccess, engine
-
             database = engine(s, credential=cred)
             stack.push_async_callback(database.dispose)
             if "audit" in required:
                 result["audit"] = SqlAuditSink(database)
             if "authorization" in required:
                 result["authorization"] = SqlStudyAccess(database)
+            if "drafts" in required:
+                result["drafts"] = SqlDraftStore(database)
+                health.add("drafts", result["drafts"].check)
 
             async def check_sql():
                 from sqlalchemy import text
-
                 async with database.connect() as connection:
                     await connection.execute(text("SELECT 1"))
-
             health.add("sql", check_sql)
-        if "evidence" in required:
+        if required & {"evidence", "uploads"}:
             from medw_core.blob_artifacts import BlobArtifacts
             from medw_core.sources import EvidenceStore
-
+            from medw_core.uploads import AzureUploadStorage
             blobs = azure.blob_client(s, cred)
             stack.push_async_callback(blobs.close)
             container_name = require_setting(s.blob_container, "MEDW_BLOB_CONTAINER")
             blob_container = blobs.get_container_client(container_name)
-            assert state is not None
-            result["evidence"] = EvidenceStore(state, BlobArtifacts(blob_container))
+            if "evidence" in required:
+                assert state is not None
+                result["evidence"] = EvidenceStore(state, BlobArtifacts(blob_container))
+            if "uploads" in required:
+                upload_storage = AzureUploadStorage(blobs, container_name)
             health.add("source-artifacts", blob_container.get_container_properties)
-        if "sparse" in required and sparse_factory is not None:
+        if required & {"sparse", "sparse_writer"}:
             search = azure.search_client(s, cred)
             stack.push_async_callback(search.close)
-            result["sparse"] = sparse_factory(search)
+            if "sparse" in required and sparse_factory is not None:
+                result["sparse"] = sparse_factory(search)
+            if "sparse_writer" in required:
+                from medw_core.search_sink import SearchGenerationSink
+                result["sparse_writer"] = SearchGenerationSink(search)
             health.add("sparse-index", search.get_document_count)
-        if "reranker" in required:
-            health.add(
-                "reranker-model", unavailable_check("model implementation held back")
-            )
 
     if state is not None:
         if "jobs" in required:
             result["jobs"] = DurableJobStore(state)
         if "index_registry" in required:
             result["index_registry"] = IndexRegistry(state)
+    if "uploads" in required:
+        assert upload_state is not None and upload_storage is not None
+        result["uploads"] = UploadService(upload_state, upload_storage,
+                                         ttl_seconds=s.upload_ttl_seconds, max_bytes=s.upload_max_bytes)
+    if "layout" in required:
+        result["layout"] = PlaceholderLayoutExtractor(result["evidence"].artifacts)
     if result.get("audit") is not None and result.get("evidence") is not None:
         result["audit"].evidence = result["evidence"]
     if "vectors" in required and vector_factory is not None:
@@ -288,18 +232,26 @@ async def build(
         result["vectors"] = vectors
         stack.push_async_callback(vectors.client.close)
         health.add("vector-index", vectors.client.get_collections)
-    # Service factories may be attached later by an owning service. A missing
-    # required dependency is never treated as proof of readiness.
+    if "dense_writer" in required:
+        from qdrant_client import AsyncQdrantClient
+
+        from medw_core.qdrant_sink import QdrantGenerationSink
+        client = AsyncQdrantClient(url=s.qdrant_url, api_key=s.qdrant_api_key or None,
+                                   timeout=max(1, int(s.readiness_timeout)))
+        stack.push_async_callback(client.close)
+        result["dense_writer"] = QdrantGenerationSink(
+            client, replication_factor=s.qdrant_replication_factor,
+            write_consistency_factor=s.qdrant_write_consistency_factor,
+            shard_number=s.qdrant_shard_number)
+        health.add("dense-writer", client.get_collections)
     if name in DEPENDENCIES:
         for field in required - result.keys():
-            if field == "reranker" and s.backend == "azure":
-                continue
             health.add(field, unavailable_check(f"{field} was not wired"))
     return Services(**result)
 
 
 def readiness(services: Services, required: tuple[str, ...]) -> tuple[bool, str]:
-    """Legacy structural check; live service probes await services.health.check."""
+    """Structural check only; HTTP readiness also probes live dependencies."""
     missing = [name for name in required if getattr(services, name, None) is None]
     if missing:
         return False, "not wired: " + ", ".join(missing)

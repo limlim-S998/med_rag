@@ -12,8 +12,10 @@ import subprocess
 import yaml
 
 if __package__:
+    from .check_model_deployments import validate_installed
     from .release import ROOT, validate
 else:
+    from check_model_deployments import validate_installed
     from release import ROOT, validate
 
 
@@ -44,6 +46,11 @@ def main() -> None:
                        '{{index .Config.Labels "org.opencontainers.image.revision"}}')
         if revision != artifact["source_sha"]:
             raise ValueError(f"{service}: built source revision differs from release metadata")
+        identities = json.loads(run(
+            "docker", "run", "--rm", "--network", "none", image, "python", "-c",
+            "import json; from medw_core.placeholders import MODEL_IDENTITIES; "
+            "print(json.dumps(MODEL_IDENTITIES))"))
+        validate_installed(bundle["behavior"], identities)
         if service == "generation":
             actual = run("docker", "run", "--rm", "--network", "none", image, "python", "-c",
                          "from pathlib import Path; from medw_core.content import prompt_hash; "

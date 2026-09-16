@@ -2,10 +2,10 @@
 
 import json
 import sqlite3
-import uuid
 from pathlib import Path
 
-from medw_core.audit_events import normalize_generation
+from medw_core.audit_events import normalize_generation, normalize_index
+from medw_core.persistence import Conflict
 from medw_core.schemas import IndexGeneration
 
 
@@ -42,7 +42,16 @@ class SQLiteAuditSink:
         return row["event_id"]
 
     async def record_index(self, event: dict) -> str:
-        row = {"event_id": str(uuid.uuid4()), **event}
-        self.connection.execute("INSERT INTO platform_audit VALUES (?,?,?)",
-                                (row["event_id"], "index", json.dumps(row)))
+        row = normalize_index(event)
+        try:
+            self.connection.execute("INSERT INTO platform_audit VALUES (?,?,?)",
+                                    (row["event_id"], "index", json.dumps(row)))
+        except sqlite3.IntegrityError:
+            existing = self.connection.execute(
+                "SELECT kind,event_json FROM platform_audit WHERE event_id=?",
+                (row["event_id"],)).fetchone()
+            if existing is None:
+                raise
+            if existing[0] != "index" or json.loads(existing[1]) != row:
+                raise Conflict("index audit identity already contains different content") from None
         return row["event_id"]

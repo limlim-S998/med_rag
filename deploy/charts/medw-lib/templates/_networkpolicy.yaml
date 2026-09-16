@@ -1,6 +1,6 @@
 {{- define "medw-lib.networkpolicy" -}}
 {{- if dig "enabled" true (.Values.networkPolicy | default dict) }}
-{{- $downstream := dict "retrieval" (list "reranker") }}
+{{- $downstream := dict "retrieval" (list "reranker") "generation" (list "retrieval") }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -9,6 +9,11 @@ spec:
   podSelector: { matchLabels: { app: {{ .Values.name }} } }
   policyTypes: [Ingress, Egress]
   ingress:
+    {{- if eq .Values.name "retrieval" }}
+    - from:
+        - podSelector: { matchLabels: { app: generation } }
+      ports: [{ protocol: TCP, port: 8000 }]
+    {{- end }}
     {{- if has .Values.name (list "gateway" "retrieval" "generation" "ingestion-worker") }}
     {{- if .Values.ingress.enabled }}
     - from:

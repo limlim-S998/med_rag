@@ -13,7 +13,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Shared environment configuration for the current scaffold.
+    """Environment configuration shared by the application processes.
 
     Every service can access these fields. Optional Azure values are checked
     where they are used; local services need no Azure configuration.
@@ -27,12 +27,8 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     service_name: str = "unset"
 
-    # --- which implementations get wired -----------------------------------
-    # Composition chooses dependency implementations. Platform startup also
-    # uses the backend to validate identity and synthetic-mode prerequisites.
-    #
-    #   azure  real services, real credential, real cost
-    #   local  persistent SQLite/artifact stores and synthetic AI adapters
+    # Infrastructure selection only. Both backends run the same installed
+    # placeholder models and application workflow.
     backend: Literal["local", "azure"] = "azure"
 
     # Local persistent stores use this file across process restarts. Tests can
@@ -42,32 +38,40 @@ class Settings(BaseSettings):
     synthetic_enabled: bool = False
     readiness_timeout: float = Field(default=3.0, gt=0, le=30)
     readiness_cache_seconds: float = Field(default=5.0, ge=0, le=60)
+    parser_version: str = "placeholder-text-1"
+    upload_max_bytes: int = Field(default=5 * 1024 * 1024, ge=1, le=5 * 1024 * 1024)
+    upload_ttl_seconds: int = Field(default=900, ge=1, le=3600)
+    # Used for locally served upload capabilities when a reverse proxy changes
+    # the upstream Host/port. Azure upload URLs come directly from Blob Storage.
+    public_base_url: str | None = None
+    ingestion_poll_seconds: float = Field(default=1.0, gt=0, le=60)
+    ingestion_lease_seconds: float = Field(default=60, ge=5, le=3600)
+    ingestion_max_attempts: int = Field(default=5, ge=1, le=20)
 
     # Recorded Document Intelligence layout responses, replayed by the local
     # LayoutExtractor. Point this at a directory of *.layout.json.
     fixture_dir: str = "data/sample/ABC-101"
 
-    # --- Azure OpenAI ---------------------------------------------------
-    # You call a *deployment name*, not a model name. The deployment is a
-    # named instance of a model inside your AOAI resource. Pin the version
-    # metadata check validates the actual model version and NoAutoUpgrade;
-    # a name suffix alone does not pin an Azure deployment.
+    # --- Installed model identities and dormant Azure model adapters -----
+    # Current identities name the packaged placeholders. Azure model adapters
+    # remain available for later integration; they use endpoint/resource inputs
+    # below and require remote deployment metadata checks when actually wired.
     aoai_endpoint: str | None = None
     aoai_api_version: str = "2024-10-21"
     aoai_resource_id: str | None = None
-    chat_deployment: str = "gpt-4.1-mini-2025-04-14"
-    embed_deployment: str = "text-embedding-3-large-1"
-    embed_dim: int = 3072
-    chat_model_name: str = "gpt-4.1-mini"
-    chat_model_version: str = "2025-04-14"
-    embed_model_name: str = "text-embedding-3-large"
+    chat_deployment: str = "scripted-chat"
+    embed_deployment: str = "hash-1"
+    embed_dim: int = 64
+    chat_model_name: str = "scripted-placeholder"
+    chat_model_version: str = "1"
+    embed_model_name: str = "token-hash"
     embed_model_version: str = "1"
 
     # Compatibility label carried by each generation, alongside actual model
     # identity and dimensions. Readers reject a mismatched selected generation.
-    embed_version: str = "v3l-001"
+    embed_version: str = "hash-1"
 
-    # This pod's share of the deployment's tokens-per-minute quota. Per-pod,
+    # Retained Azure adapters: this pod's share of tokens-per-minute quota. Per-pod,
     # not global: a distributed limiter would need a shared store on the hot
     # path to solve what replica-count arithmetic already solves. maxReplicas
     # in values.yaml times this number must stay under the provisioned quota.
@@ -100,7 +104,7 @@ class Settings(BaseSettings):
 
     # Azure SQL: relational + append-only audit. No password field, on purpose:
     # auth is an AAD token, see medw_core.sql.
-    sql_server: str | None = None  # not provisioned yet
+    sql_server: str | None = None
     sql_database: str = "medw"
 
     # --- Document parsing / clinical NER ----------------------------------
@@ -115,10 +119,10 @@ class Settings(BaseSettings):
     # Registry name + pinned version. Never "latest": a classifier that changes
     # under you changes which table-to-text template fires, which changes the
     # prose, with no commit anywhere.
-    table_classifier_name: str = "table-type-classifier"
-    table_classifier_version: str = "7"
+    table_classifier_name: str = "placeholder-table-classifier"
+    table_classifier_version: str = "placeholder-1"
     table_classifier_min_proba: float = 0.65  # below this, generic template
-    azureml_workspace: str = "medw-dev-ws"
+    azureml_workspace: str | None = None
 
     # --- Telemetry ---------------------------------------------------------
     # Absent: console logs, Prometheus and trace context still work; no Azure export.
@@ -129,6 +133,7 @@ class Settings(BaseSettings):
     fusion_top_n: int = 30  # what goes into the cross-encoder
     rerank_top_k: int = 8  # what comes out, into the generator
     reranker_url: str = "http://reranker:8000"
+    retrieval_url: str = "http://retrieval:8000"
 
     # Fixed by deployment configuration, never derived from an unverified JWT.
     auth_tenant_id: str = ""
@@ -154,7 +159,7 @@ class Settings(BaseSettings):
     @field_validator(
         "aoai_endpoint", "aoai_resource_id", "search_endpoint", "blob_account_url",
         "cosmos_endpoint", "sql_server", "docintel_endpoint", "language_endpoint",
-        "appinsights_connection_string", "auth_jwks_url", mode="before",
+        "appinsights_connection_string", "auth_jwks_url", "public_base_url", mode="before",
     )
     @classmethod
     def blank_is_absent(cls, value):

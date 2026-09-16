@@ -26,6 +26,7 @@ from medw_core.local.stores import (
     InMemorySessionStore,
     InMemorySparseIndex,
 )
+from medw_core.placeholders import PlaceholderLayoutExtractor, PlaceholderTableClassifier
 from medw_core.schemas import Chunk, DocType, RetrievalFilter
 from medw_core.settings import Settings
 
@@ -50,6 +51,8 @@ def assert_conforms(impl: type, port: type, methods: list[str]) -> None:
         (InMemorySparseIndex, ports.SparseIndex, ["search", "index"]),
         (ScriptedChatClient, ports.ChatClient, ["stream", "complete_json"]),
         (FixtureLayoutExtractor, ports.LayoutExtractor, ["extract"]),
+        (PlaceholderLayoutExtractor, ports.LayoutExtractor, ["extract"]),
+        (PlaceholderTableClassifier, ports.TableClassifier, ["classify"]),
         (DictionaryEntityExtractor, ports.EntityExtractor, ["extract"]),
         (InMemoryJobStore, ports.JobStore, ["create", "advance", "fail", "get"]),
         (InMemoryAuditSink, ports.AuditSink, ["record_generation", "record_index"]),
@@ -83,8 +86,8 @@ async def test_local_backend_wires_every_port_without_azure():
     async with AsyncExitStack() as stack:
         svc = await build(Settings(backend="local"), stack)
     assert svc.backend == "local"
-    for field in ("embedder", "sparse", "chat", "layout", "entities",
-                  "jobs", "sessions", "documents", "audit"):
+    for field in ("embedder", "sparse", "chat", "classifier", "layout", "reranker",
+                  "jobs", "sessions", "documents", "audit", "uploads", "drafts"):
         assert getattr(svc, field) is not None, f"{field} unwired under local"
 
 
@@ -92,7 +95,7 @@ async def test_services_is_frozen():
     """A service cannot swap a dependency after startup. If it could, the
     composition root would only describe what things were wired to initially."""
     async with AsyncExitStack() as stack:
-        svc = await build(Settings(backend="local"), stack)
+        svc = await build(Settings(backend="local"), stack, service="gateway")
     with pytest.raises(dataclasses.FrozenInstanceError):
         svc.embedder = None            # type: ignore[misc]
 
@@ -101,7 +104,7 @@ async def test_require_names_the_missing_dependency():
     """Services get only what they need. Reaching for something absent should
     say which thing and where to fix it, not raise AttributeError on None."""
     async with AsyncExitStack() as stack:
-        svc = await build(Settings(backend="local"), stack)
+        svc = await build(Settings(backend="local"), stack, service="gateway")
     with pytest.raises(RuntimeError, match="classifier"):
         svc.require("classifier")
 
@@ -235,12 +238,11 @@ async def test_readiness_is_true_locally_when_dependencies_are_wired():
 
 
 async def test_readiness_is_false_when_a_dependency_is_unwired():
-    """`classifier` is wired by neither backend, so a service declaring it
-    required must report not-ready and name it."""
+    """A gateway cannot claim availability of a model it does not own."""
     from medw_core.composition import readiness
 
     async with AsyncExitStack() as stack:
-        svc = await build(Settings(backend="local"), stack)
+        svc = await build(Settings(backend="local"), stack, service="gateway")
     ready, reason = readiness(svc, ("classifier",))
     assert not ready and "classifier" in reason
 

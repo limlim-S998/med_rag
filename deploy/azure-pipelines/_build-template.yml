@@ -1,25 +1,27 @@
-# One complete release contains all five services from the same clean source.
-# Registry credentials and migration identity are Azure DevOps service settings.
+# One release contains all five immutable images from the same clean source.
 parameters:
-  - name: registryConnection
-    type: string
-    default: acr-medw
   - name: registryHost
     type: string
     default: medwdevacr.azurecr.io
+  - name: azureConnection
+    type: string
+    default: medw-deployment
+  - name: agentPool
+    type: string
+    default: ''
   - name: releaseBranch
     type: string
     default: main
-
-  - name: modelValidationConnection
-    type: string
-    default: medw-model-metadata-readonly
 
 stages:
   - stage: build
     jobs:
       - job: all_images
-        pool: { vmImage: ubuntu-latest }
+        pool:
+          ${{ if eq(parameters.agentPool, '') }}:
+            vmImage: ubuntu-latest
+          ${{ else }}:
+            name: ${{ parameters.agentPool }}
         steps:
           - checkout: self
             persistCredentials: true
@@ -34,67 +36,80 @@ stages:
               set -euo pipefail
               python -m pip install -r requirements-dev.txt
               make lint arch types test charts
-            displayName: Install tools and check existing repository suites
-          - task: Docker@2
+            displayName: Check code, contracts and deployment manifests
+          - task: AzureCLI@2
             inputs:
-              command: login
-              containerRegistry: ${{ parameters.registryConnection }}
-          - script: |
-              set -euo pipefail
-              python scripts/build_images.py --registry '${{ parameters.registryHost }}' --push --output /tmp/images.json
-              python scripts/release.py create --images /tmp/images.json --behavior deploy/release-behavior.json --output /tmp/bundle.json
-              python scripts/verify_release.py /tmp/bundle.json --registry '${{ parameters.registryHost }}' --environment dev
-            displayName: Build, smoke, publish and record exact digests
+              azureSubscription: ${{ parameters.azureConnection }}
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -euo pipefail
+                az acr login --name '${{ parameters.registryHost }}'
+                python scripts/build_images.py --registry '${{ parameters.registryHost }}' --push --output /tmp/images.json
+                python scripts/release.py create --images /tmp/images.json --behavior deploy/release-behavior.json --output /tmp/bundle.json
+                python scripts/verify_release.py /tmp/bundle.json --registry '${{ parameters.registryHost }}' --environment dev
+            displayName: Build, smoke, publish and verify exact artifacts
           - publish: /tmp/bundle.json
             artifact: release
 
   - stage: validate_models
     dependsOn: build
     jobs:
-      - job: metadata
-        pool: { vmImage: ubuntu-latest }
+      - job: installed_implementations
+        pool:
+          ${{ if eq(parameters.agentPool, '') }}:
+            vmImage: ubuntu-latest
+          ${{ else }}:
+            name: ${{ parameters.agentPool }}
+        steps:
+          - checkout: self
+          - download: current
+            artifact: release
+          - script: |
+              set -euo pipefail
+              python -m pip install pyyaml==6.0.2
+              PYTHONPATH=libs python scripts/check_model_deployments.py '$(Pipeline.Workspace)/release/bundle.json' --environment dev
+            displayName: Verify installed model identity and target infrastructure
+
+  - stage: migrate
+    dependsOn: validate_models
+    jobs:
+      - job: sql_migrations
+        pool:
+          ${{ if eq(parameters.agentPool, '') }}:
+            vmImage: ubuntu-latest
+          ${{ else }}:
+            name: ${{ parameters.agentPool }}
         steps:
           - checkout: self
           - download: current
             artifact: release
           - task: AzureCLI@2
             inputs:
-              azureSubscription: ${{ parameters.modelValidationConnection }}
+              azureSubscription: ${{ parameters.azureConnection }}
               scriptType: bash
               scriptLocation: inlineScript
               inlineScript: |
                 set -euo pipefail
-                python -m pip install pyyaml==6.0.2
-                PYTHONPATH=libs python scripts/check_model_deployments.py '$(Pipeline.Workspace)/release/bundle.json' --environment dev
-
-  - stage: migrate
-    dependsOn: validate_models
-    jobs:
-      - job: sql_migrations
-        pool: { vmImage: ubuntu-latest }
-        steps:
-          - checkout: self
-          - download: current
-            artifact: release
-          - task: Docker@2
-            inputs:
-              command: login
-              containerRegistry: ${{ parameters.registryConnection }}
-          # Deployment-only identity. Configure the secret variable in the
-          # protected pipeline environment; runtime identities do not get DDL.
-          - script: |
-              set -euo pipefail
-              python scripts/run_migrations_image.py --bundle '$(Pipeline.Workspace)/release/bundle.json' --registry '${{ parameters.registryHost }}'
+                az acr login --name '${{ parameters.registryHost }}'
+                export MEDW_SQL_ACCESS_TOKEN="$(az account get-access-token --resource https://database.windows.net/ --query accessToken -o tsv)"
+                python scripts/run_migrations_image.py --bundle '$(Pipeline.Workspace)/release/bundle.json' --registry '${{ parameters.registryHost }}'
+                unset MEDW_SQL_ACCESS_TOKEN
             env:
-              MEDW_SQL_CONNECTION_STRING: $(migrationConnectionString)
-            displayName: Apply tracked SQL migrations; errors fail this stage
+              MEDW_SQL_SERVER: $(sqlServer)
+              MEDW_SQL_DATABASE: $(sqlDatabase)
+            displayName: Apply tracked migrations with federated deployment identity
 
   - stage: promote_to_dev
     dependsOn: migrate
     condition: succeeded()
     jobs:
       - job: commit_release
-        pool: { vmImage: ubuntu-latest }
+        pool:
+          ${{ if eq(parameters.agentPool, '') }}:
+            vmImage: ubuntu-latest
+          ${{ else }}:
+            name: ${{ parameters.agentPool }}
         steps:
           - checkout: self
             persistCredentials: true
@@ -107,4 +122,4 @@ stages:
               python scripts/commit_release.py '$(Pipeline.Workspace)/release/bundle.json' --environment dev --branch '${{ parameters.releaseBranch }}' --push
             env:
               PYTHONPATH: libs
-            displayName: Commit selected bundle with retry after successful migrations
+            displayName: Select release in Git after successful migrations

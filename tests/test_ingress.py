@@ -55,24 +55,24 @@ def test_environment_route_and_network_policy_agree(gateway_chart, tmp_path, env
         assert upstream["read-timeout"] == "300s"
         assert upstream["next-upstream"] == "off"
     routes = ingress["spec"]["routes"]
-    assert [route["action"]["pass"] for route in routes[:3]] == [
-        "ingestion-worker", "retrieval", "generation",
+    assert [route["action"]["pass"] for route in routes[:4]] == [
+        "ingestion-worker", "ingestion-worker", "retrieval", "generation",
     ]
     policies = {doc["metadata"]["name"]: doc["spec"]["externalAuth"]
                 for doc in resources if doc["kind"] == "Policy"}
-    for route in routes[:3]:
+    for route in routes[:4]:
         auth = policies[route["policies"][0]["name"]]
         assert auth["authServiceName"] == "gateway" and auth["authServicePorts"] == [8000]
         assert "proxy_set_header X-Original-URI $request_uri;" in auth["authSnippets"]
         assert "proxy_set_header X-Original-Method $request_method;" in auth["authSnippets"]
         assert route["errorPages"][0]["return"]["code"] == 503
-    assert len({auth["authURI"] for auth in policies.values()}) == 3
+    assert len({auth["authURI"] for auth in policies.values()}) == 4
     assert routes[-1]["action"]["return"]["code"] == 404
     assert not any("/_internal" in route["path"] or "/metrics" in route["path"] for route in routes)
-    assert policy["spec"]["ingress"][0]["from"] == [{
+    assert any(rule["from"] == [{
         "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "nginx-ingress"}},
         "podSelector": {"matchLabels": {"app.kubernetes.io/name": "nginx-ingress"}},
-    }]
+    }] for rule in policy["spec"]["ingress"])
 
 
 def test_controller_namespace_and_pod_selectors_are_configurable(gateway_chart, tmp_path):
@@ -107,10 +107,13 @@ def test_backends_allow_controller_without_creating_public_routes(gateway_chart,
     resources = render(chart, tmp_path, {})
     assert not any(doc["kind"] in {"Ingress", "VirtualServer", "Policy"} for doc in resources)
     policy = next(doc for doc in resources if doc["kind"] == "NetworkPolicy")
-    assert policy["spec"]["ingress"][0]["from"] == [{
+    assert any(rule["from"] == [{
         "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "nginx-ingress"}},
         "podSelector": {"matchLabels": {"app.kubernetes.io/name": "nginx-ingress"}},
-    }]
+    }] for rule in policy["spec"]["ingress"])
+    if service == "retrieval":
+        assert any(rule["from"] == [{"podSelector": {"matchLabels": {"app": "generation"}}}]
+                   for rule in policy["spec"]["ingress"])
     assert "gateway" not in str(policy["spec"]["ingress"])
 
 

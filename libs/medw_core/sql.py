@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 import struct
+import uuid
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
-from medw_core.audit_events import AUDIT_COLUMNS, normalize_generation
+from medw_core.audit_events import (
+    AUDIT_COLUMNS,
+    INDEX_COLUMNS,
+    normalize_generation,
+    normalize_index,
+)
+from medw_core.persistence import Conflict
 from medw_core.schemas import IndexGeneration
 from medw_core.settings import Settings, require_setting
 
@@ -68,16 +75,58 @@ class SqlAuditSink:
         return row["event_id"]
 
     async def record_index(self, event: dict) -> str:
-        import uuid
-        row = {"event_id": str(uuid.uuid4()), **event}
-        required = ("event_id", "study_id", "doc_id", "parser_version", "embed_version",
-                    "collection", "chunks_upserted", "index_generation_id", "source_revision")
-        if any(row.get(k) is None for k in required):
-            raise ValueError("complete source/index provenance required")
-        statement = ("INSERT INTO audit.index_event (" + ",".join(required) + ") VALUES ("
-                     + ",".join(":" + c for c in required) + ")")
-        async with self.engine.begin() as conn:
-            await conn.execute(text(statement), row)
+        from sqlalchemy.exc import IntegrityError
+
+        row = normalize_index(event)
+        statement = ("INSERT INTO audit.index_event (" + ",".join(INDEX_COLUMNS) + ") VALUES ("
+                     + ",".join(":" + column for column in INDEX_COLUMNS) + ")")
+        try:
+            async with self.engine.begin() as conn:
+                if event.get("document") is not None:
+                    import hashlib
+                    import json
+
+                    document = event["document"]
+                    registry = {
+                        "doc_id": hashlib.sha256(json.dumps(
+                            [row["study_id"], row["doc_id"]], separators=(",", ":")).encode()).hexdigest(),
+                        "study_id": row["study_id"], "doc_type": document["doc_type"],
+                        "classifier_ver": document["classifier_version"],
+                        "blob_path": document["blob_path"], "parser_version": row["parser_version"],
+                    }
+                    # The old schema's document key is global. A scoped hash
+                    # preserves logical IDs in Cosmos/audit without cross-study
+                    # collisions or a destructive primary-key migration.
+                    present = (await conn.execute(text(
+                        "SELECT doc_id FROM core.document WITH (UPDLOCK,HOLDLOCK) "
+                        "WHERE doc_id=:doc_id"), registry)).first()
+                    if present:
+                        await conn.execute(text(
+                            "UPDATE core.document SET doc_type=:doc_type,"
+                            "classifier_ver=:classifier_ver,blob_path=:blob_path,"
+                            "parser_version=:parser_version,ingested_at=SYSUTCDATETIME() "
+                            "WHERE doc_id=:doc_id AND study_id=:study_id"), registry)
+                    else:
+                        await conn.execute(text(
+                            "INSERT INTO core.document "
+                            "(doc_id,study_id,doc_type,classifier_ver,blob_path,parser_version) "
+                            "VALUES (:doc_id,:study_id,:doc_type,:classifier_ver,:blob_path,:parser_version)"),
+                            registry)
+                await conn.execute(text(statement), row)
+        except IntegrityError:
+            # A lost acknowledgement/recovered lease may repeat a completed
+            # write. Only exactly the same event may reuse its immutable ID.
+            async with self.engine.connect() as conn:
+                existing = (await conn.execute(text(
+                    "SELECT " + ",".join(INDEX_COLUMNS)
+                    + " FROM audit.index_event WHERE event_id=:event_id"),
+                    {"event_id": row["event_id"]})).mappings().first()
+            if existing is None:
+                raise
+            stored = dict(existing)
+            stored["event_id"] = str(uuid.UUID(str(stored["event_id"])))
+            if stored != row:
+                raise Conflict("index audit identity already contains different content") from None
         return row["event_id"]
 
 

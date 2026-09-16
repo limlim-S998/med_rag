@@ -11,6 +11,7 @@ import hashlib
 import os
 import pathlib
 import re
+import struct
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -80,9 +81,19 @@ def main() -> None:
     args = parser.parse_args()
     import pyodbc
     secret = os.environ.get(args.connection_string_env)
+    access_token = os.environ.get("MEDW_SQL_ACCESS_TOKEN")
+    attrs = {}
+    if access_token:
+        server, database = os.environ.get("MEDW_SQL_SERVER"), os.environ.get("MEDW_SQL_DATABASE")
+        if not server or not database or any(c in server + database for c in ";{}\n\r"):
+            parser.error("valid MEDW_SQL_SERVER and MEDW_SQL_DATABASE are required with a SQL token")
+        secret = (f"DRIVER={{ODBC Driver 18 for SQL Server}};SERVER=tcp:{server},1433;"
+                  f"DATABASE={database};Encrypt=yes;TrustServerCertificate=no;")
+        token = access_token.encode("utf-16-le")
+        attrs[1256] = struct.pack("<I", len(token)) + token
     if not secret:
-        parser.error(f"{args.connection_string_env} must be supplied by the migration identity")
-    connection = pyodbc.connect(secret, autocommit=False, timeout=30)
+        parser.error(f"{args.connection_string_env} or MEDW_SQL_ACCESS_TOKEN must be supplied")
+    connection = pyodbc.connect(secret, attrs_before=attrs, autocommit=False, timeout=30)
     try:
         for migration in apply(connection, args.directory):
             print(f"applied {migration}")

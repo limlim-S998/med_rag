@@ -91,15 +91,15 @@ async def test_gateway_does_not_use_openai_settings(monkeypatch):
             await build(settings, stack, service="gateway", credential=object())
 
 
-async def test_generation_requires_model_identity_before_openai_construction(monkeypatch):
+async def test_generation_needs_real_storage_but_no_azure_model_client(monkeypatch):
     def forbidden(*args):
-        pytest.fail("model identity must be configured before constructing an OpenAI client")
+        pytest.fail("the installed placeholder must not construct an OpenAI client")
 
     monkeypatch.setattr(azure, "openai_client", forbidden)
     settings = Settings(_env_file=None, backend="azure",
                         aoai_endpoint="https://test.openai.azure.com")
     async with AsyncExitStack() as stack:
-        with pytest.raises(ValueError, match="MEDW_AOAI_RESOURCE_ID"):
+        with pytest.raises(ValueError, match="MEDW_COSMOS_ENDPOINT"):
             await build(settings, stack, service="generation", credential=object())
 
 

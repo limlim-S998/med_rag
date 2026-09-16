@@ -1,25 +1,53 @@
-# Upload and ingestion status.
-#
-# Upload does not stream the file through this pod. The gateway issues a
-# short-lived user-delegation SAS scoped to one blob path and the client PUTs
-# directly to Blob Storage - a 300MB TFL package should not traverse a pod
-# that is otherwise handling JSON. The SAS is delegated from the pod's managed
-# identity, so there is still no account key anywhere.
-#
-# Then: notify the ingestion worker (single doc, synchronous - the writer is
-# waiting) or trigger the Airflow DAG (bulk). Job state goes in Cosmos, which
-# is what the status endpoint polls.
+"""Register bounded uploads and expose document metadata.
 
-from fastapi import APIRouter, HTTPException, Request
+Azure clients upload directly to a single-blob SAS URL. The local adapter exposes
+an equivalent expiring capability route backed by shared durable files.
+"""
 
-from medw_core.service import domain_unavailable
+from fastapi import APIRouter, HTTPException, Query, Request, Response
+
+from medw_core.persistence import Conflict
+from medw_core.uploads import UploadRequest
 
 router = APIRouter(prefix="/studies", tags=["documents"])
+upload_router = APIRouter(prefix="/studies", tags=["uploads"])
 
 
-@router.post("/{study_id}/documents:upload-url")
-async def upload_url(study_id: str, filename: str):
-    domain_unavailable()
+@router.post("/{study_id}/documents:upload-url", status_code=201)
+async def upload_url(study_id: str, body: UploadRequest, request: Request):
+    services = request.app.state.services
+    if services is None:
+        raise HTTPException(503, "upload registration unavailable")
+    try:
+        return await services.require("uploads").register(
+            study_id, body, public_base_url=(request.app.state.settings.public_base_url
+                                            or str(request.base_url)))
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@upload_router.put("/{study_id}/uploads/{upload_id}", status_code=201, include_in_schema=False)
+async def upload_bytes(study_id: str, upload_id: str, request: Request,
+                       token: str = Query(min_length=32, max_length=256)):
+    services = request.app.state.services
+    if services is None:
+        raise HTTPException(503, "upload storage unavailable")
+    uploads = services.require("uploads")
+    # Bound before buffering, including chunked requests without Content-Length.
+    payload = bytearray()
+    async for part in request.stream():
+        if len(payload) + len(part) > uploads.max_bytes:
+            raise HTTPException(413, "file exceeds configured upload limit")
+        payload.extend(part)
+    try:
+        await uploads.write_local(study_id, upload_id, token, bytes(payload))
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(404, "registered upload not found") from exc
+    except (ValueError, Conflict) as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return Response(status_code=201)
 
 
 @router.get("/{study_id}/documents")

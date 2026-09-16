@@ -1,790 +1,419 @@
 # medwriter-assist
 
-A platform scaffold for a medical writing assistant that will draft Clinical
-Study Report sections from source evidence. The retained code covers service
-boundaries, authentication, durable state, evidence identity, release/version
-control, recovery and telemetry. Medical parsing, ranking, drafting and
-verification implementations remain deliberately held back.
+A medical-writing application with functioning upload, ingestion, retrieval,
+drafting and acceptance workflows. The installed models are deterministic
+placeholders. They exercise the infrastructure and preserve source provenance;
+they do not provide medical interpretation or verification.
 
-This README is the project's documentation: current state, architecture,
-decisions, corrected errors and operating procedures. The two Markdown files
-under `services/generation/app/prompts/` are application templates, not project
-documentation. Recorded verification results are preserved in
-[docs/verification.json](docs/verification.json).
+`backend=local|azure` selects infrastructure adapters. Both environments run the
+same application and placeholder processing. There is no separate demonstration
+mode, workflow or version axis. Azure OpenAI and other remote model adapters are
+retained for later integration but are not constructed or provisioned now.
 
-Contents: [Local development](#local-development) · [Architecture](#architecture) ·
-[Major decisions](#major-decisions) · [Corrected errors](#corrected-errors) ·
-[Deliberate gaps](#deliberate-gaps-and-next-work) ·
-[Releases](#releases-and-versioning) · [Verification](#verification) ·
-[Operations](#operational-signals-and-recovery) · [Azure](#azure-commissioning) ·
-[Walkthrough](#file-walkthrough)
+This README is the project documentation. The two Markdown files under
+`services/generation/app/prompts/` are application templates. Historical and
+current verification records live in [docs/verification.json](docs/verification.json).
+Each record identifies its own tested artifacts; older results are not evidence
+that a later build has passed the same exercise.
 
 ## Current state
 
-The platform scaffolding is implemented and ready for a file-by-file review.
-The September 2026 completion verification passed 197 tests, six import
-contracts, Ruff, mypy, six deployable chart checks and five Flux configurations.
-All five service images built and passed startup/dependency checks. Disposable
-local exercises demonstrated persistent state, actual SQL audit permissions,
-Qdrant node loss and fresh restore, Flux rollout/rollback, enforced caller
-restrictions and KEDA scaling from one replica to four and back to one.
+The application workflow has passed an isolated container exercise with all five
+services and real Qdrant: two uploads, persistent jobs, interrupted publication,
+worker restart, checkpoint recovery, retention of previously ingested documents,
+HTTP retrieval/reranking, streamed output, durable audit and acceptance. The
+exercise uses SQLite and files for the local infrastructure adapters and signed
+test JWTs. It does not establish Azure storage, Entra, SQL, pipeline or AKS behavior.
 
-These results use synthetic data. Live Azure commissioning and medical-quality
-validation remain separate. The evidence records the completion run before
-this documentation consolidation: its image digests, temporary Git revisions
-and prompt hashes identify those tested artifacts. They are not regenerated
-claims about later builds. No live Azure deployment or shared Git push was
-performed by the completion or documentation passes.
+A separate real SQL Server container exercise passed the five migrations,
+idempotent indexing audit, draft persistence and acceptance. Runtime principals
+were denied audit updates and deletes. Azure SQL authentication remains part of
+cloud commissioning.
 
-The current supervisor-review changes passed `make check` on 15 September 2026
-using host Python 3.12.13: 240 tests, six import contracts, Ruff/mypy, six
-application/data charts, five Flux configurations and the pinned F5 NGINX
-controller render. These changes simplify settings, clarify telemetry startup
-and move job/search/draft forwarding into the maintained NGINX controller.
-All five updated images built and passed startup checks as `nginx-switch-20260915`.
+Azure commissioning uses the normal `dev` configuration and the deployment tools
+below. A successful cloud acceptance report must demonstrate the actual Azure
+services and release transitions; an implemented command or rendered manifest
+alone does not meet that requirement. Current run results and outstanding
+commissioning checks are recorded in the verification JSON.
 
-The updated Compose exercise passed startup, persistent-state restart, isolated
-retrieval failure and recovery checks. A disposable Kubernetes 1.35.1 cluster
-with the actual F5 controller and Calico passed direct routing, JWT/study access,
-spoofed-header rejection, streaming, certificate/SNI/redirect, network-policy
-and backend/auth outage checks. These use generated keys and synthetic data;
-real DNS, cloud load-balancer behavior and Azure access remain operator checks.
-Earlier recovery/Flux/KEDA evidence was not rerun or relabelled.
-
-The NGINX cutover is also deployed to the existing `medw` minikube cluster.
-Source-versioned images were built from commit `8be1992`, loaded into the node,
-and selected through the published local Flux overlay. All six application/data
-Helm releases and the new controller are healthy. Live checks passed public
-routing, unauthenticated rejection, private-path exclusion, streaming and
-Calico allow/deny enforcement. Both existing PVC bindings were retained, and
-the old community ingress add-on was disabled. See [Local deployment](#local-deployment).
+The existing `medw` minikube installation and its persistent volumes are preserved.
+Its application images remain pinned to the earlier NGINX cutover release
+`8be19924b30edc325c2525f2439b5c1e3a62a044`. It is not silently relabelled as this
+new application release. Its Qdrant image remains explicitly pinned to 1.12.1
+until a separate backed-up storage upgrade. New deployments use Qdrant 1.19.0,
+aligned with the installed client.
 
 ## Local development
 
-Requires Python 3.11 or newer, Docker, Helm and kubectl. The clean-install proof
-used host Python 3.14.7; service images use locked Python 3.11 dependencies.
-The editable host environment resolves development dependencies separately.
+Requires Python 3.11+, Docker, Helm and kubectl. Service images use Python 3.11
+with exact hash-checked dependencies; the host environment resolves development
+requirements separately.
 
 ```sh
 make dev
 source .venv/bin/activate
 make check
 make up-full
-# After stopping the foreground Compose process:
+# After stopping the foreground process:
 make down
 ```
 
-`make up` starts Qdrant, retrieval and the synthetic reranker; `make up-full`
-adds gateway, generation and ingestion. No Azure credentials are mounted.
-SQLite state and immutable artifacts persist in the `platform_state` named
-volume, mounted at `/data`; Qdrant has its own volume. `make down` preserves
-both. `.env.example` configures services run directly on the host; Compose
-supplies its own explicit local settings. `make up-legacy` additionally starts
-Chroma for the retained legacy-store setup.
+`make up` starts Qdrant, retrieval and reranker; `make up-full` adds gateway,
+generation and ingestion. SQLite state and immutable artifacts persist in the
+`platform_state` volume; Qdrant has its own volume. `make down` preserves both.
+No Azure credentials are required. `.env.example` supplies host-run settings;
+Compose supplies its own adapter and container-address settings.
 
-| Service | Host port | Platform behavior |
+| Service | Local host port | Responsibility |
 |---|---|---|
-| Gateway | 8000 | JWT/study access decisions, document metadata and acceptance shell |
-| Retrieval | 8001 | Shared dense/sparse generation selection; fusion held back |
-| Reranker | 8002 | Explicit deterministic local double |
-| Generation | 8003 | Lifecycle, provenance and audit dependencies; drafting held back |
-| Ingestion worker | 8004 | Durable job-status shell; clinical ingestion held back |
+| Gateway | 8000 | JWT/study access, upload registration, documents, acceptance |
+| Retrieval | 8001 | One generation selection, both indexes, fusion, HTTP reranking |
+| Reranker | 8002 | Deterministic lexical scoring over HTTP |
+| Generation | 8003 | JWT actor, HTTP retrieval, streamed output, audit and draft persistence |
+| Ingestion worker | 8004 | Registered upload submission, durable polling, stages and publication |
 
-Every service exposes `/healthz`, `/readyz`, `/version` and `/metrics`.
-Liveness reports whether the process is alive; bounded, cached readiness
-checks report dependency availability. The assembled local stack becomes ready;
-gateway readiness depends on its own stores and identity provider; retrieval
-readiness also depends on its reranker. A backend outage does not withdraw the
-gateway. Synthetic mode skips identity-provider readiness, but never JWT checks.
-The real reranker is live but unready until its implementation and weights exist.
+Compose exposes diagnostic ports on localhost and does not run the Kubernetes
+NGINX controller. Retrieval and ingestion rely on the deployed edge and enforced
+NetworkPolicies for public study authorization. Do not publish their diagnostic
+ports externally. Gateway and generation additionally verify writer JWTs and
+membership themselves. Configure an identity provider and seed membership for
+manual writer requests; the disposable verification harness supplies its own
+signing keys and membership without changing the application authentication code.
 
-`/_synthetic/work?seconds=5` streams bounded test work only when explicitly
-enabled with the local backend in a local/test environment. It makes no model
-call. The Kubernetes public routes require verified JWTs and explicit study membership;
-unknown users/studies fail closed. Unimplemented medical handlers return 501
-rather than successful empty responses. `make seed` and `make eval` remain
-held-back entrypoints, not working medical ingestion/evaluation commands.
+```sh
+python scripts/build_images.py --tag application-proof
+python scripts/verify_application.py --image-tag application-proof
+```
 
-Compose exposes application ports on localhost for diagnostics; it does not run
-the Kubernetes NGINX controller. Direct backend ports bypass the edge access
-check. Use the disposable ingress proof below to test the public API boundary.
-Do not publish those diagnostic ports externally.
+The harness creates and removes its own Compose project and volumes. It writes
+machine-readable evidence under `/tmp`. A dirty source build is explicitly
+unversioned and cannot serve as a published release.
 
-## Architecture
+For the real NGINX/NetworkPolicy proof, use a fresh disposable profile:
 
-Five FastAPI services share [medw_core](libs/medw_core/).
-[ports.py](libs/medw_core/ports.py) defines dependency interfaces;
-[schemas.py](libs/medw_core/schemas.py) defines shared data;
-[composition.py](libs/medw_core/composition.py) selects service-specific adapters;
-[service.py](libs/medw_core/service.py) owns lifecycle, probes and request middleware;
-[telemetry.py](libs/medw_core/telemetry.py) configures process logging/exporters.
-Import contracts prevent domain interfaces from depending on vendor SDK types.
+```sh
+export KUBECONFIG=/tmp/medw-nginx-proof.kubeconfig
+minikube start -p medw-nginx-proof --driver=docker --kubernetes-version=v1.35.1 --cni=calico --cpus=4 --memory=6144 --keep-context
+kubectl --context medw-nginx-proof wait --for=condition=Ready nodes --all --timeout=180s
+python scripts/verify_ingress.py --image-tag application-proof
+minikube delete -p medw-nginx-proof
+unset KUBECONFIG
+```
+
+The harness removes its application namespaces even on failure; delete the
+disposable profile afterward. Its fixed context prevents targeting `medw`.
+
+Every service has `/healthz`, `/readyz`, `/version` and `/metrics`. Readiness probes
+the dependencies it actually uses: a working placeholder reranker is ready without
+Azure model resources; a storage outage remains visible. Generation also checks
+retrieval, and retrieval checks reranker. The gateway does not depend on backend
+availability to make access decisions. Existing `synthetic_enabled` controls only
+the local diagnostic `/_synthetic/work` route and identity-provider readiness;
+it neither selects the application implementation nor bypasses JWT validation.
+
+## Architecture and application contract
 
 ```mermaid
 flowchart TB
-    W[Writer] --> NX[NGINX]
-    NX -->|JWT and study access decision| GW[Gateway]
-    NX -->|authorized search| RT[Retrieval]
-    NX -->|authorized draft| GEN[Generation]
-    NX -->|authorized job status| IW[Ingestion worker]
-    NX -->|document and acceptance operations| GW
-    RT --> RR[Reranker]
-    RT -->|select once| REG[(Active generation)]
-    RT -->|same generation| QD[(Qdrant)]
-    RT -->|same generation| SP[(Sparse index)]
-    IW -->|stage and validate| QD
-    IW -->|stage and validate| SP
-    IW -->|publish after checks| REG
-    IW --> JOBS[(Jobs and checkpoints)]
-    IW --> EVID[(Immutable source evidence)]
-    GEN --> EVID
-    GEN --> AUDIT[(Append-only audit)]
-    GW --> ACCESS[(Sessions and membership)]
+    Client --> NGINX
+    NGINX -->|JWT and study authorization| Gateway
+    Client -->|single blob SAS| Blob[(Blob Storage)]
+    NGINX -->|ingest and job status| Ingestion
+    NGINX -->|search| Retrieval
+    NGINX -->|draft| Generation
+    NGINX -->|upload registration and acceptance| Gateway
+    Ingestion --> Blob
+    Ingestion --> State[(Cosmos jobs, checkpoints, evidence, active generation)]
+    Ingestion --> Qdrant[(Qdrant)]
+    Ingestion --> Search[(Azure Search)]
+    Retrieval --> State
+    Retrieval --> Qdrant
+    Retrieval --> Search
+    Retrieval -->|HTTP| Reranker
+    Generation -->|HTTP| Retrieval
+    Generation --> Blob
+    Generation --> SQL[(SQL audit and drafts)]
+    Gateway --> SQL
+    Ingestion --> SQL
 ```
 
-The arrows describe platform contracts and intended request flow. Held-back
-medical handlers do not yet execute that full workflow.
+1. Authenticated `POST /studies/{study}/documents:upload-url` accepts
+   `{filename,size_bytes,sha256,doc_id?}` and registers an upload. Files must be
+   nonempty and at most 5 MiB. Azure returns a short-lived, create-only user
+   delegation SAS for one staging blob. The client uploads directly to Blob.
+   Local storage provides an equivalent expiring capability URL. Neither URL nor
+   its token belongs in logs or evidence reports.
+2. Authenticated `POST /studies/{study}/documents/{document}/ingest` accepts
+   `{upload_id,idempotency_key}` and returns `202` with a durable job ID. Arbitrary
+   download URLs are not accepted. Size and SHA-256 are checked, an Azure ETag
+   protects the read, and immutable source bytes are captured before acknowledgment.
+   Repeated matching submissions return the same job, including after SAS expiry;
+   reusing a key for different input is rejected.
+3. `GET /studies/{study}/jobs/{job}` reports persisted progress. The worker polls
+   durable jobs, leases them, renews leases and saves immutable stage checkpoints.
+   Per-study serialization prevents overlapping publication. Restart recovery
+   retains the job's generation identity and skips committed stages.
+4. A study generation includes the newest revision of every previously published
+   document. The worker stages both indexes, reads back counts and payload hashes,
+   retains evidence and conditionally replaces one active manifest. Partial
+   publication leaves the old generation selected. SQL indexing audit and document
+   metadata are idempotent across a crash after publication.
+5. `POST /studies/{study}/search` accepts `{query,top_k,...filters}`. The path owns
+   study scope; forged identity/study body fields are rejected. Retrieval selects
+   one compatible manifest, queries both indexes, fuses ranks and calls reranker
+   over HTTP. Citations identify immutable source revisions and locations.
+6. `POST /studies/{study}/sections/{section}/draft` accepts
+   `{query,top_k?,max_tokens?}`. Generation validates the JWT actor and membership,
+   retrieves over HTTP, checks returned text against retained evidence and streams
+   NDJSON `start`, `delta`, then `complete`. **Only `complete` confirms the audit
+   and draft reference were persisted.** An `error` or interrupted stream is not
+   a committed draft. Verification explicitly reports `not_performed`.
+7. `POST /studies/{study}/sections/{section}/accept` accepts `{draft_id}` and
+   transitions that specific draft under the authenticated writer. The SQL
+   procedure atomically records acceptance and changes status. It cannot mutate
+   the original generation audit. Same-writer repeat acceptance is idempotent.
 
-| Service | Owned dependencies |
+## Installed processing and deliberate gaps
+
+| Component | Current implementation / identity |
 |---|---|
-| Gateway | Sessions/document metadata, SQL study membership, fixed JWT key provider |
-| Retrieval | Embedder, read-only Qdrant/Search, generation registry, HTTP reranker |
-| Generation | Chat client, SQL audit, retained evidence and reference markers |
-| Ingestion | Embedder, documents, durable jobs, evidence, registry and audit; publication accepts explicit sinks |
-| Reranker | Local double or held-back real model; no Azure role assignments |
-
-| Data | Azure/deployed store | Local implementation |
-|---|---|---|
-| Source bytes | Content-addressed Blob objects | Content-addressed files |
-| Documents and sessions | Cosmos; sessions partitioned by user | SQLite |
-| Jobs, evidence manifests, retention references, index pointers | Cosmos `platform-state`, partitioned by study, no TTL | SQLite conditional revisions |
-| Dense serving data | Qdrant collection per study/generation | Real Qdrant |
-| Sparse serving data | Shared Search index with study/generation filters | Durable SQLite generations and synthetic BM25 |
-| Registry, membership, audit | SQL | SQLite adapters; separate real SQL verification |
-
-Local chat, embedding and reranking report synthetic identities. Their success
-proves platform behavior, not medical performance.
-
-## Major decisions
-
-**One settings class for the scaffold.** `Settings` contains the shared set of
-configuration fields; every service can access them. Existing `MEDW_` variables,
-Helm values and `.env` files keep working. Missing Azure endpoints use `None`,
-and legacy blank strings normalize to `None`. Client factories check the values
-they need when they are called; local adapters do not require Azure configuration.
-Missing settings produce named errors and leave the service live but unready.
-The duplicate capability models were removed: they added validation objects
-without giving services distinct settings attributes. A future hierarchy should
-start with a minimal base and add fields only to the subclasses that need them.
-
-**The current service boundaries remain under review.** The original brief's
-five-service arrangement is retained. Streaming requires a suitable request
-path; it does not by itself require generation to be a separate deployment.
-Separate identity, scaling and release ownership are reasons to keep that
-boundary if the product needs them. Generation as application code inside the
-writer API, and bulk generation driven by Airflow, remain design options for a
-later decision. The FastAPI gateway currently owns JWT and database-backed study
-authorization. NGINX calls its small internal access-decision endpoint before
-forwarding job/search/draft requests directly to the relevant backend. Those
-request/response bodies no longer pass through Python gateway forwarding code.
-Gateway readiness is independent of those backends. Document operations and
-acceptance remain gateway responsibilities; generation's deployment boundary
-is unchanged.
-
-**Evidence-led RAG and a deterministic numeric path.** The target design uses
-retrieval and versioned prompts rather than generative fine-tuning. Numerical
-content should come from parsed source structures, with the model supplying
-connective prose and separate numerical/structural checks. Those medical
-algorithms and full clinical prompts remain unimplemented here.
-`section_draft.md` is a placeholder; `structural_verdict.md` sketches a
-schema-driven judgement prompt. Neither establishes clinical correctness.
-
-**Immutable evidence survives reindexing.** A logical document can change;
-its source revisions cannot. Revision identity includes study, document and
-content hash. Chunks carry source revision, parser version and source location.
-[sources.py](libs/medw_core/sources.py) resolves citations from archived evidence
-independently of serving indexes. Published generations and audited citations
-retain reference markers. No automatic evidence deletion or regulatory
-retention period is invented. Session/draft TTLs do not govern cited evidence.
-
-**One published generation coordinates two stores.** Qdrant provides explicit
-collection/vector control; Search supplies the lexical half. A generation names
-both stores, embedding model/deployment/version/dimensions, parser identity and
-expected chunk count/payload hash. [indexing.py](libs/medw_core/indexing.py) stages
-both stores, inspects their data, requires a passing evaluation callback,
-retains evidence and conditionally updates one active pointer. Retrieval selects
-that pointer once for both searches and rejects incompatible embedding identities.
-Partial writes or failed evaluation leave the old selection active. Rollback
-revalidates the retained target and reader compatibility. This costs temporary
-duplicate storage and orphan cleanup; it avoids claiming a cross-store transaction.
-
-**Cosmos state and SQL audit have different contracts.** State needs conditional
-point updates; audit needs relational queries and independent INSERT-only
-permissions. SQL stores output, its hash, citations, the selected index manifest
-and release/model/config provenance across 27 audit fields. Evidence retention
-precedes the INSERT: a failed SQL write can leave a conservative reference, but
-cannot remove cited evidence. No cross-store foreign key is implied.
-
-**Jobs persist before work starts.** [durable_jobs.py](libs/medw_core/durable_jobs.py)
-uses conditional revisions/ETags, expiring worker leases and immutable checkpoint
-references. A replacement worker skips committed stages and recovers expired
-claims; stale workers cannot commit after ownership changes. A crash may repeat
-an uncommitted stage, so callbacks must be idempotent. Background tasks alone
-are not the durability mechanism; clinical callbacks are still held back.
-
-**Permissions follow service responsibilities.** Each service has its own
-managed identity and federated service account; backup has a separate identity.
-Retrieval reads indexes and registry state. Generation can append evidence
-references and audit rows, without replacing/deleting evidence. JWT signature,
-fixed issuer/audience/tenant and temporal claims are validated before study access.
-Internal calls rely on enforced NetworkPolicy. Azure control-plane roles are
-not assumed to grant data-plane operations: test each required action under
-its actual identity, including after RBAC propagation and token renewal.
-
-**Artifact identity and deployment configuration are separate.** Images are
-selected by digest, charts by Git revision, and behavior by a release bundle.
-Each environment owns its selection. See [release rules](#releases-and-versioning).
-Model names and dated deployment labels are insufficient: readiness checks
-actual deployment metadata and disabled automatic upgrades without inference.
-
-**Residency, networking and recovery are deployment decisions.** Bootstrap's
-chat deployment uses `GlobalStandard` for the synthetic learning setup; it does
-not establish suitability for client data. Verify deployment type, region,
-contractual boundary and quota before commissioning. AKS explicitly selects
-Azure CNI Overlay/Cilium. SQL uses Proxy to match TCP 1433 egress. Qdrant
-replication protects availability; independent snapshots provide recovery.
-Historical quota observations are not current subscription facts.
-
-## Corrected errors
-
-| Earlier issue | Correction and evidence |
-|---|---|
-| Dense/sparse filters and payloads could diverge | Shared filters/projections, generation selection and payload readback tests |
-| Chunk IDs alone were treated as proof of index equality | Verify counts and payload content before publication and rollback |
-| Source edits and reindexing could lose citation history | Immutable source revisions and evidence retained outside serving indexes |
-| In-memory jobs/audit and Python interface shape implied durability | Persistent checkpoints/leases; actual SQL readback and denied UPDATE/DELETE |
-| Every service constructed unrelated dependencies; wiring implied readiness | Service-specific composition, bounded reachability/recovery checks and explicit held-back responses |
-| Shared image/chart settings could move another environment | Per-environment bundle selection, exact image digests and pinned chart source |
-| Image tags, chart versions or missing packaged modules hid stale/broken builds | Revision reconciliation, locked dependencies and all-five-image startup checks |
-| A dated deployment label and a configured prompt hash implied actual identity | Model metadata verification and hashes computed from packaged prompt bytes |
-| Failed renders/migrations or concurrent release writes could be mishandled | Failure-propagating checks, tracked transactional migrations and retry-safe Git commits |
-| Metrics providers could replace one another; quick handlers never proved scale-up | One provider/two readers, cancellation-safe streaming counters and measured KEDA 1→4→1 |
-| Three Qdrant pods and PVCs implied clustering/backups | Peer bootstrap, explicit replication, snapshots and fresh restore with verified shard placement |
-| Network policies existed without proven enforcement; SQL egress mismatched routing | Local Calico allow/deny proof, explicit AKS Cilium and SQL Proxy configuration |
-| Empty Azure strings reached SDK construction; configuration roles were unclear | Optional environment inputs and explicit checks where client settings are used |
-| Request instrumentation and exporter startup looked duplicated | Named middleware attachment, one telemetry startup function and shared provenance serialization |
-| Python forwarding coupled gateway availability to every backend | Direct NGINX routes plus a body-free access check; backend outage leaves writer/auth operations available |
-| Local overlay/NGINX field mismatches escaped default renders | Every local values file now renders in `make check`; actual controller acceptance, local adapters and request behavior verified |
-| Charts assumed the retired community ingress-nginx controller | Maintained F5 NGINX OSS controller; direct routes, centralized access subrequests, TLS and controller pod/namespace selectors |
-
-Earlier boundary work also corrected missing projection fields and retry handling
-that crashed when throttling errors lacked a response. The executable tests and
-recorded evidence support these corrections; historical Azure demonstrations
-are not substituted for current cloud verification.
-
-## Deliberate gaps and next work
-
-- **Medical implementation:** parsers/chunking, pipeline CLI, worker callbacks,
-  bulk DAG execution, fusion, real reranker/classifier weights, numeric rendering,
-  drafting and verification remain held back. The backfill sketch fails explicitly;
-  its evaluation edge is connected, but it is not a working clinical pipeline.
-- **Medical evaluation:** no populated approved golden set or measured recall,
-  numerical fidelity, clinical accuracy or regulatory-compliance result. The
-  publication evaluator contract works with synthetic callbacks only.
-- **Cloud commissioning:** real Entra/managed identity, Cosmos/Search/Blob round
-  trips, SQL token renewal, destination ACR, hosted pipelines, AKS networking and
-  Azure telemetry/backup destination require live checks.
-- **Product scope:** no frontend, client rule catalogue, completed clinical prompt
-  content, automatic evidence deletion policy or subscription-level IaC product.
-  `infra/bootstrap.sh` is an imperative provisioning recipe requiring review.
-
-The preserved implementation branch is `implementation/retrieval-slice`
-(`089dd50`); ignored `holding/` is only a convenience copy. Restore components
-one at a time and adapt them to the current source, job and generation contracts.
-Start with fixtures/parsers and pipeline callbacks, then fusion/weights and a
-measured evaluator, then drafting/verification. Copying the old branch wholesale
-would bypass the completed platform changes.
-
-## Releases and versioning
-
-[scripts/release.py](scripts/release.py) validates a complete bundle:
-
-| Identity | Meaning |
-|---|---|
-| Five image digests and full source SHAs | Deployed bytes and code attribution are separate |
-| `chart_source_sha` | Immutable chart revision, independent of image changes |
-| Model names/versions, `embed_dim`, `embed_version` | Expected model behavior and compatible embedding space |
-| `prompt_bundle_sha` | SHA-256 of ordered prompt-file paths and bytes, with length prefixes |
-| Behavior configuration and `bundle_sha` | Canonical JSON digest covering the selected release |
-| Runtime `deployment_revision` | `values-sha256:` digest of effective Helm values, including secret references; not a Git commit |
-
-`prompt_hash` includes every Markdown file under the prompt directory. Project
-documentation now lives outside that directory. Removing its former README
-changes the next build's prompt hash even though the two templates are unchanged;
-build/runtime compute it automatically. Existing evidence retains the older
-artifact's hash. Azure readiness rejects configured prompt/source mismatches.
-
-Cloud overlays use `environment-values.yaml` for endpoints, registry repositories,
-identities and secret references, and `release-values.yaml` for the selected
-bundle. They target separate clusters. Selection changes only the release file;
-promotion preserves artifacts/behavior and rollback selects a previous bundle.
-`medwriter-release-charts` pins the chart source in `flux-system`; Git-hosted
-charts use `reconcileStrategy: Revision`. Shared edits on main cannot silently
-advance another environment's pinned chart source. Superseded retrieval chart
-staging/prod values files are empty pointers to this configuration path.
-
-Cloud releases start suspended with blank Azure endpoints/identities. Qdrant's
-initial activation is separate; its backup job receives the selected ingestion
-image. Complete [Azure commissioning](#azure-commissioning) before activation.
-
-```sh
-# Local build; dirty sources are explicitly unversioned.
-python scripts/build_images.py --tag scaffold-proof
-
-# Publishing workflow: requires a clean source revision and configured registry.
-python scripts/build_images.py --registry REGISTRY --push --output /tmp/images.json
-python scripts/release.py create --images /tmp/images.json \
-  --behavior deploy/release-behavior.json --output /tmp/bundle.json
-python scripts/verify_release.py /tmp/bundle.json --registry REGISTRY --environment dev
-python scripts/check_model_deployments.py /tmp/bundle.json --environment dev
-# Select locally; these commands do not commit, push or contact a cluster.
-python scripts/release.py select /tmp/bundle.json --environment dev
-python scripts/release.py select /tmp/bundle.json --environment staging
-```
-
-Across registries, copy the artifacts first, then verify exact destination
-digests, baked source and packaged prompts. Do not rebuild for promotion.
-Register only `deploy/azure-pipelines/delivery.yml` as the automatic pipeline;
-per-service YAML files are manual entrypoints to the same complete-release flow.
-It checks code/charts, builds/smokes/publishes all five images, verifies artifacts
-and model metadata, runs migrations, then commits the dev selection. GitHub CI
-also checks code/manifests and image startup. Flux performs application rollout.
-
-[commit_release.py](scripts/commit_release.py) uses a temporary worktree, retries
-concurrent Git updates and prevents stale builds replacing newer sources.
-It defaults to preview; `--push` writes the deployment branch and intentional
-rollback requires `--allow-rollback`. It leaves unrelated checkout changes alone.
-`bump_image_tag.py` is a compatibility entrypoint for complete-bundle selection.
-
-SQL migrations in `db/sql/` are ordered, checksummed and serialized with a SQL
-application lock. Each migration and its history row commit atomically; failures
-stop promotion, repeat execution is a no-op, and edited history is rejected.
-Add a new migration instead of editing one already applied. `make migrate` uses
-`MEDW_SQL_CONNECTION_STRING` from a separate migration identity. Runtime users
-have no DDL permissions. Migration 0004 adds provenance/membership and widens
-hash fields without rewriting historical audit rows.
-
-Service `requirements.in` files generate exact, hash-checked Python 3.11/Linux
-x86-64 `requirements.txt` locks. Docker installs them with `--require-hashes
---no-deps`; the Python base is digest-pinned and ODBC driver version-pinned.
-This controls dependency selection, not bit-identical OS-package rebuilds.
-Refresh deliberately with `uv==0.8.22`, for example:
-
-```sh
-uv pip compile services/gateway/requirements.in --python-version 3.11 \
-  --python-platform x86_64-manylinux_2_28 --generate-hashes \
-  --output-file services/gateway/requirements.txt
-```
-
-After a `medw-lib` version change, update every consumer and regenerate
-`Chart.lock` with `helm dependency update`; routine checks use `dependency build`.
-Vendored archives stay ignored. Restoring learned inference also requires pinned
-weight revisions; the scaffold does not download unused weights.
-
-## Verification
-
-The consolidated [verification record](docs/verification.json) preserves six
-original results: `checks`, `medw-compose-proof`, `sql-proof`,
-`medw-qdrant-proof`, `medw-scaffold-proof` and `medw-network-proof`.
-It distinguishes local evidence, artifact identity and unverified cloud behavior.
-`make check` also downloads and renders the pinned controller chart through
-[scripts/check_ingress.py](scripts/check_ingress.py), so it requires access to
-the official NGINX chart repository. It checks the rendered controller labels,
-IngressClass, required CRDs, external Service, auth support and controller selectors
-against the four publicly routed applications. The ingress
-tests separately render all five Flux environments and check TLS and NetworkPolicy.
-`make check` also renders all six `values-local.yaml` files. The current ingress
-proof writes `/tmp/medw-ingress-evidence.json`; the current Compose proof writes
-`/tmp/medw-nginx-compose-evidence.json`. The table below is historical completion
-evidence, not a claim that every older exercise was repeated for this change.
-
-| Exercise | Recorded result |
-|---|---|
-| Clean source export/install | Python 3.14.7, 197 tests, six import contracts, mypy/Ruff/pip checks; six charts/five Flux configurations |
-| Kubernetes schemas | 37 valid, zero invalid/errors, 42 CRD schemas skipped |
-| Five images / Compose | Import/startup checks; all five ready together, restart persistence, outage makes readiness 503 while liveness stays 200, recovery restores readiness |
-| Real SQL Server 2022 CU17 | Four migrations, repeat zero, failure rollback, all 27 audit fields read back, actual mutation denied |
-| Qdrant / Azurite | Three peers, two replicas per shard, 60 points, reader write denial, node-loss reads, matching fresh restore |
-| Flux / Prometheus / KEDA | Image-only and unchanged-version chart-only rollout, rollback, 12 in flight, replicas 1→4→1, final gauge zero |
-| Calico | Unrestricted baseline, unapproved caller denied, retrieval caller allowed |
-
-Reproduce the synthetic exercises from the installed development environment:
-
-```sh
-make check
-python scripts/build_images.py --tag scaffold-proof
-python scripts/verify_compose.py --image-tag scaffold-proof
-python scripts/verify_qdrant_recovery.py --blob
-python scripts/verify_cluster.py
-python scripts/verify_network.py --install-calico
-```
-
-Compose and Qdrant harnesses remove their own disposable containers/networks.
-Cluster verification also requires minikube and Flux CLI. It creates only
-`medw-scaffold-proof` (6 GiB, four CPUs, Kubernetes 1.32.2), installs pinned
-controllers, and serves a temporary local Git repository; its Git revisions are
-not project-release revisions. It leaves the profile/controllers for inspection:
-
-```sh
-kubectl --context medw-scaffold-proof -n medw get pods
-minikube delete -p medw-scaffold-proof
-```
-
-Never substitute an existing working cluster into these harnesses. For manual
-local Flux setup, `scripts/local_deploy.sh --help` requires an explicit
-`-proof`/`-local` context and an existing private HTTP Git server with its bare
-repository under temporary storage. It builds/loads images and updates that
-local source; it neither pushes project origin nor manually upgrades Flux-owned
-application releases. The local overlay mounts shared state on a single-node PVC.
-
-To reproduce SQL permissions, export a strong, test-only `MSSQL_SA_PASSWORD`
-and run this Bash recipe. It creates its own SQL instance and cleans up on exit:
-
-```bash
-(
-  set -euo pipefail
-  : "${MSSQL_SA_PASSWORD:?Export a strong disposable SQL test password first}"
-  MEDW_SQL_TEST_NAME="medw-sql-proof-$$-$RANDOM"
-  MEDW_SQL_TEST_NET="$MEDW_SQL_TEST_NAME-net"
-  docker build -t medw-generation:scaffold-proof -f services/generation/Dockerfile .
-  docker network create "$MEDW_SQL_TEST_NET"
-  trap 'docker rm -f "$MEDW_SQL_TEST_NAME" >/dev/null 2>&1 || true; docker network rm "$MEDW_SQL_TEST_NET" >/dev/null 2>&1 || true' EXIT
-  docker run -d --name "$MEDW_SQL_TEST_NAME" --network "$MEDW_SQL_TEST_NET" \
-    -e ACCEPT_EULA=Y -e MSSQL_PID=Developer -e MSSQL_SA_PASSWORD \
-    mcr.microsoft.com/mssql/server@sha256:d252932ef839c24c61c1139cc98f69c85ca774fa7c6bfaaa0015b7eb02b9dc87
-  docker run --rm --network "$MEDW_SQL_TEST_NET" \
-    -e MSSQL_SA_PASSWORD -e MEDW_ALLOW_DISPOSABLE_SQL_TEST=yes \
-    -e MEDW_TEST_SQL_SERVER="$MEDW_SQL_TEST_NAME" \
-    -e PYTHONPATH=/workspace/libs:/workspace \
-    -v "$PWD:/workspace:ro" -w /workspace \
-    medw-generation:scaffold-proof python db/verify_sql.py
-)
-```
-
-The password is forwarded from the environment. `db/verify_sql.py` creates a
-random test database, exercises the actual adapter/migrations/grants, and drops
-it. Non-Azure SQL uses contained test users without logins; this does not prove
-Azure Entra authentication or token renewal.
-
-## Operational signals and recovery
-
-`attach_request_instrumentation(app, name)` installs ASGI middleware while the
-application is assembled. `configure_telemetry(settings, provenance)` runs during
-lifespan startup and configures logging, metrics and tracing together. Both
-exporters take their resource attributes from `Provenance`, including the prompt
-hash computed from disk and reported by `/version`. The lifespan's `yield` marks
-the serving period; its exit stack closes clients at shutdown for either backend.
-An absent App Insights connection string disables Azure export while console
-logging, Prometheus and trace-context propagation remain available.
-
-One OpenTelemetry metric provider initializes Prometheus and, when configured,
-Azure Monitor readers together. A late attempt to add Azure after initialization
-fails explicitly. `medw_inflight_requests{app="SERVICE"}` counts requests through
-streaming and decrements on completion, error or cancellation; probes/metrics
-are excluded. KEDA uses that operational series. Medical-quality instruments
-have no measured domain results yet. W3C trace/correlation context propagates
-across ASGI/httpx; request bodies and identifier-bearing paths are not exported
-by the tracing middleware. High-cardinality audit IDs are not metric labels.
-
-The cluster proof uses KEDA 2.17.2, Prometheus chart 27.11.0 and bounded synthetic
-streams; the network proof installs Calico 3.29.3. Short scale-down windows are
-proof settings, not deployed stream-protection defaults. Local tests capture the
-real Azure metric envelope before network transmission; actual Azure ingestion
-and dashboard permissions remain unverified.
-
-Qdrant is one unauthenticated node for routine local work. The deployed chart
-bootstraps three peers and creates collections with three shards, replication 2
-and write consistency 2. Changing settings does not redistribute existing shards.
-Availability needs independent worker nodes; three containers on one host only
-prove the tested logical failure case. `qdrant-auth` supplies `api-key` for
-writers/backup and `read-only-api-key` for retrieval. Network/TLS controls must
-be commissioned with the actual endpoints.
-
-The backup CronJob uses the selected ingestion image, its own workload identity
-and the chart's packaged backup script. Configure `snapshots.clientId`, account,
-container, prefix and retention; precreate the destination and grant Blob access
-only on that container. Jobs run in UTC without overlap. The configurable
-30-day backup default is not a clinical evidence-retention requirement. Reserve
-node snapshot headroom and ephemeral scratch space for the full per-peer set.
-
-Backup freezes writes on each peer, preserves existing lock state, requires
-green collections, captures every peer's local shards, and checks IDs, payloads
-and vectors before/after capture. Locks are restored before upload. The complete
-manifest is uploaded last; partial uploads are not selectable backups. Expired
-complete sets are removed only after a new backup succeeds.
-
-```sh
-python scripts/qdrant_backup.py backup \
-  --nodes http://node0:6333,http://node1:6333,http://node2:6333 \
-  --directory /tmp/qdrant-backup --upload
-python scripts/qdrant_backup.py restore \
-  --nodes http://fresh0:6333,http://fresh1:6333,http://fresh2:6333 \
-  --blob-key qdrant/BACKUP_ID
-```
-
-Use an empty backup directory. Supply `QDRANT_API_KEY` through secret injection,
-plus `BACKUP_ACCOUNT_URL`, `BACKUP_CONTAINER` and `BACKUP_PREFIX`; only the local
-Blob emulator uses `AZURE_STORAGE_CONNECTION_STRING`. Restore requires fresh,
-empty peers, matching peer count and the exact recorded Qdrant version. It
-verifies checksums, restores the frozen snapshots with `no_sync`, reconciles
-captured shard placement/replicas and verifies content/searches. Keep writers
-detached until verification and coordinated index publication succeed. After a
-failed restore, start again with fresh target storage.
-
-SIGTERM attempts lock restoration; SIGKILL, host loss or network failure can
-strand locks. Once the old job is confirmed stopped, use the script's `unlock`
-operation with the same peers; it removes only `medw-backup:` locks. Failures
-emit structured logs and nonzero exits. Optional Prometheus rules alert on failed
-jobs or no successful backup within 48 hours, requiring kube-state-metrics.
-Qdrant restoration alone does not restore source evidence, SQL audit or the
-active-generation registry; those stores need their own recovery policies.
-
-## Ingress controller
-
-[deploy/nginx-ingress.yaml](deploy/nginx-ingress.yaml) pins maintained F5 NGINX
-Ingress Controller 5.6.1 / Helm chart 2.7.1 with **NGINX Open Source**. No Plus
-license is required. The retired community `kubernetes/ingress-nginx` controller
-is a different project. See the [F5 release](https://github.com/nginx/kubernetes-ingress/releases/tag/v5.6.1).
-The dedicated IngressClass `medw-nginx` avoids taking ownership of an existing
-controller's `nginx` class during cutover.
-
-The gateway chart owns one F5 `VirtualServer` and three `Policy` resources.
-The controller turns these into NGINX configuration. This replaces the old
-catch-all Kubernetes `Ingress`; do not retain both for the same host.
-
-| Public request | Handler | Access check |
-|---|---|---|
-| `GET /studies/{study}/jobs/{job}` | Ingestion worker | NGINX subrequest to gateway |
-| `POST /studies/{study}/search` | Retrieval; still 501 | NGINX subrequest to gateway |
-| `POST /studies/{study}/sections/{section}/draft` | Generation; still 501 | NGINX subrequest to gateway |
-| Document listing/upload URL and section acceptance | Gateway; upload/accept still 501 | Existing FastAPI dependencies |
-| `/me` | Gateway | JWT dependency |
-| `/version` | Gateway | Public scaffold version |
-
-Public URLs are preserved; the old internal `/jobs/{study}/{job}` and `/draft`
-paths are removed. Internal retrieval `/search`, `/ingest`, auth endpoints,
-OpenAPI/docs, probes and metrics are not exposed by the public route table.
-Kubernetes probes and Prometheus continue to use internal service ports.
-`/_synthetic/work` is exposed only by an explicitly opted-in local chart.
-
-NGINX sends the bearer token plus overwritten `X-Original-URI` and
-`X-Original-Method` headers to `/_internal/authorize/{jobs|search|draft}`. This
-checks JWTs and SQL study membership without receiving the request body. It
-rejects ambiguous path encodings and authorizes the same study the backend
-receives. Identity/permission failures fail closed; client-supplied headers
-cannot select a different study. No extra runtime SQL identities are needed.
-These [external-auth policies](https://github.com/nginx/kubernetes-ingress/tree/v5.6.1/examples/custom-resources/external-auth)
-work with OSS. The two header overrides require enabling snippets: only trusted
-platform operators should have RBAC permission to edit Ingress, VirtualServer
-or Policy resources in the watched namespaces. This is a deliberate change
-from the earlier configuration with snippets/custom resources disabled.
-
-Each of the four public-facing applications grants access to the controller's
-namespace **and** pod labels in the same NetworkPolicy peer. Backend apps rely
-on that boundary for edge authorization. The monitoring namespace retains its
-existing trusted scrape access. Keep `ingress.controller` aligned in all four
-charts when relocating/relabelling NGINX, and use an enforcing CNI. Gateway
-no longer has a general network allowance to call those backends.
-
-Response buffering is disabled. `ingress.readTimeout` defaults to 300 seconds
-between upstream reads; it is not a total stream deadline. Auth calls instead
-use controller defaults of 3 seconds to connect and 10 seconds between reads.
-Data requests are not automatically retried, avoiding duplicate future POST
-operations. Missing backends and auth-service failures return 503. NGINX's
-401/403 error bodies differ from FastAPI's JSON errors; clients should use
-status codes. Existing application 404/501 responses are preserved. Search
-and drafting still fail explicitly before any public medical work is attempted.
-
-### Local deployment
-
-The existing minikube profile is `medw`. Its local Flux overlay targets
-`http://192.168.49.2:30080` (for example `/version`) and the NGINX Service uses
-NodePorts 30080/30443. The hostname is the node IP, so no hosts-file edit or
-public DNS is needed. The local route uses HTTP. The cluster uses Calico
-3.31.3 for network-policy enforcement; its original application-state and
-Qdrant PVCs are retained.
-
-The five local images use source commit
-`8be19924b30edc325c2525f2439b5c1e3a62a044` as both their tag and baked source
-identity. Flux continues to track this repository's `main` branch and owns the
-application rollout. The controller is a separate Flux HelmRelease, installed
-from `deploy/nginx-ingress.yaml` with a local NodePort override. Cloud release
-pointers remain suspended.
-
-For reproducibility, the controller's local override is a merge patch on its
-HelmRelease, applied after the base controller manifest:
-
-```sh
-kubectl --context medw -n nginx-ingress patch helmrelease nginx-ingress --type=merge \
-  -p '{"spec":{"values":{"controller":{"service":{"type":"NodePort","httpPort":{"nodePort":30080},"httpsPort":{"nodePort":30443}}}}}}'
-```
-
-The cutover also corrected the old single-node Qdrant values to replication and
-write consistency of one. Its existing StatefulSet used `OrderedReady`, while
-the current chart uses `Parallel`; Kubernetes rejected that immutable-field
-upgrade. The StatefulSet was [removed with orphan propagation](https://kubernetes.io/docs/tasks/run-application/delete-stateful-set/)
-and recreated through Flux, preserving the pod during controller replacement
-and reusing the original PVC during the subsequent rollout. This was a one-time
-migration of the existing cluster, not an instruction to delete its data.
-
-Synthetic local adapters are explicitly enabled. This skips identity-provider
-readiness only: protected writer routes still reject unauthenticated requests.
-No real Entra application or writer membership has been commissioned for this
-local deployment. The signed-token/study-authorization behavior is covered by
-the isolated ingress proof; enabling synthetic mode is not an auth bypass.
-
-### Cloud deployment and cutover
-
-These steps are for a separately commissioned cloud environment. The current
-Azure resource inventory has no AKS cluster or ACR; they are not prerequisites
-for using the local deployment above:
-
-1. Select the intended Kubernetes context, with Flux source/Helm controllers,
-   an enforcing CNI and the project's existing platform dependencies installed.
-   Set `MEDW_KUBE_CONTEXT` to that context. Configure the actual hostname in
-   `deploy/flux/<environment>/environment-values.yaml` under gateway's
-   `spec.values.ingress.host`. Existing JWT settings and study membership stay
-   under the gateway identity.
-2. Install or upgrade the controller **before** releasing the application charts:
-
-   ```sh
-   kubectl --context "$MEDW_KUBE_CONTEXT" apply -f deploy/nginx-ingress.yaml
-   kubectl --context "$MEDW_KUBE_CONTEXT" -n nginx-ingress wait helmrelease/nginx-ingress \
-     --for=condition=Ready --timeout=5m
-   kubectl --context "$MEDW_KUBE_CONTEXT" wait crd/virtualservers.k8s.nginx.org \
-     crd/policies.k8s.nginx.org --for=condition=Established --timeout=60s
-   ```
-
-   The HelmRelease explicitly installs/upgrades CRDs. Gateway's Flux release
-   depends on this controller release. The controller watches `medw` and
-   `nginx-ingress`; its deployment and Kubernetes Service are named
-   `nginx-ingress-controller`.
-3. Provision a certificate for the chosen hostname as Secret `gateway-tls` in
-   namespace `medw`, either with your certificate automation or existing files:
-
-   ```sh
-   kubectl --context "$MEDW_KUBE_CONTEXT" -n medw create secret tls gateway-tls \
-     --cert=/path/to/fullchain.pem --key=/path/to/private-key.pem \
-     --dry-run=client -o yaml | kubectl --context "$MEDW_KUBE_CONTEXT" -n medw apply -f -
-   ```
-
-   Cloud routes terminate TLS at NGINX and redirect HTTP using 308; local uses
-   HTTP. Secrets/private keys do not belong in Git.
-4. Publish the reviewed code and release all five images plus the updated
-   charts through the [existing immutable release workflow](#releases-and-versioning).
-   Local `nginx-switch-20260915` images are verification builds, not published
-   releases. The application charts are 0.5.0 with medw-lib 0.10.0. Do not mix
-   an old gateway forwarding image with the new backend route paths.
-5. Before changing DNS, check the new route object and the external address:
-
-   ```sh
-   kubectl --context "$MEDW_KUBE_CONTEXT" -n medw get virtualserver gateway
-   kubectl --context "$MEDW_KUBE_CONTEXT" -n nginx-ingress get service nginx-ingress-controller
-   ```
-
-   The VirtualServer must report `Valid`. Point the hostname's DNS record at
-   that LoadBalancer address after checking it with the intended Host/SNI name,
-   a valid JWT and allowed/denied study IDs. Confirm job-status readback,
-   expected search/draft 501, internal-path 404 and HTTPS redirect/certificate.
-   Keep an existing ingress controller until traffic has moved successfully;
-   applying these manifests does not uninstall it. Helm removes the gateway's
-   previous Ingress on upgrade; remove any independently managed conflicting
-   route through its own source of truth. Rollback requires the matching
-   application images and charts, not only a DNS edit.
-
-### Repeatable local ingress proof
-
-The isolated test uses real app images, F5 NGINX and Calico, generated signing
-keys/certificates and synthetic durable jobs. It checks TLS/SNI/redirects,
-streaming, access decisions, backend/auth failures and actual caller denials.
-It does not commission a cloud LoadBalancer, public DNS, a publicly trusted
-certificate or an Azure identity provider.
-
-```sh
-python scripts/build_images.py --tag nginx-switch-20260915
-KUBECONFIG=/tmp/medw-nginx-proof.kubeconfig minikube start -p medw-nginx-proof \
-  --driver=docker --cpus=3 --memory=4096 --kubernetes-version=v1.35.1 --cni=calico
-python scripts/verify_ingress.py --image-tag nginx-switch-20260915
-# Remove only this disposable profile after inspecting the result:
-KUBECONFIG=/tmp/medw-nginx-proof.kubeconfig minikube delete -p medw-nginx-proof
-```
-
-The verification script requires fresh `medw`/`nginx-ingress` namespaces and
-removes the namespaces it creates. Its default evidence path is
-`/tmp/medw-ingress-evidence.json`. The earlier completion evidence in
-`docs/verification.json` predates this switchover and is not proof of it.
+| Extraction | `placeholder-text-1`: bytes preserved; bounded UTF-8 decoding or binary fallback |
+| Classification/annotation | Explicit stand-ins, no medical validation or entities |
+| Embeddings | `token-hash`, version `1`, deployment/compatibility `hash-1`, 64 dimensions |
+| Fusion/reranking | Reciprocal rank fusion and deterministic lexical overlap |
+| Generation | `scripted-placeholder`, version `1`, deployment `scripted-chat` |
+| Verification | Explicit `not_performed`; no clinical correctness claim |
+
+Extraction processes at most 64,000 decoded characters, split into 1,000-character
+chunks. This is an intentional parsing limit, recorded in the artifact; all
+original bytes remain preserved. Filename and SHA-256 appear in chunk text, so
+arbitrary binary inputs also influence retrieval and output. Document type is a
+placeholder label. Prompt content affects the emitted input/prompt hash.
+Extraction and classification call their installed interfaces. The classifier
+receives an explicitly synthetic envelope with no table cells and returns
+`other`, confidence zero. The legacy `tfl` document category is a temporary
+storage label, not a predicted document type. Checkpoints record the classifier
+actually called; older checkpoints without that call are marked `not-run`.
+
+Airflow batch ingestion and reindexing come next, reusing
+[ingestion.py](libs/medw_core/ingestion.py) operations. Real model implementations
+can then replace placeholders one at a time behind the existing interfaces.
+Medical parsing, numerical fidelity, clinical evaluation/golden datasets, a
+frontend, client rules, automatic evidence-retention policy and multi-node
+availability are outside this increment. The older implementation branch
+`implementation/retrieval-slice` (`089dd50`) is reference material, not code to copy
+wholesale over the current durability and provenance contracts.
+
+## Major decisions and corrected errors
+
+- One `Settings` class remains. Optional Azure settings use `str | None`; clients
+  require only fields they use. The earlier subclasses added validation without
+  separating attributes and were removed. Configuration selects infrastructure,
+  while installed model identities are checked against packaged code.
+- NGINX owns forwarding and streaming. The gateway supplies small body-free
+  authorization subrequests and writer operations. The five-service boundary is
+  retained; streaming alone is not an argument for a separate generation service.
+- Real Azure stores and local adapters share ports. Protocols describe contracts;
+  service composition wires only needed dependencies. Readiness proves reachability
+  and installed implementation availability rather than object construction.
+- Immutable source evidence is independent of serving indexes. Revision identity
+  includes study, logical document and content hash. Reindexing cannot discard
+  citations or rewrite historical audit provenance.
+- One conditional manifest coordinates Qdrant and Search; there is no cross-store
+  transaction. Readback verifies content, not just IDs. Stable generation plans,
+  expiring leases and idempotent audit writes resolve restart/publication gaps.
+- Cosmos holds changing state; SQL holds relational registry, membership, drafts
+  and append-only audit. Evidence retention precedes audit insertion; a failed SQL
+  write can leave conservative references, but cannot remove cited evidence.
+- Generation derives the actor from a validated JWT. Correlation IDs propagate
+  through HTTP, queued work, traces and audit. Client-supplied actor fields are
+  rejected. Release A audit rows retain A's identity after B is deployed.
+- Runtime identities receive narrowly scoped data permissions; migration identity
+  alone has DDL authority. Migration 0005 adds draft/acceptance persistence and
+  narrows generation audit grants without rewriting migrations 0001–0004.
+- Python forwarding, in-memory-only jobs, placeholder 501 handlers and required
+  unused Azure AI services were removed from the active workflow. False medical
+  verification and attribution to Azure OpenAI are not used for placeholder output.
 
 ## Azure commissioning
 
-This is a separate environment-validation phase. Review
-[infra/bootstrap.sh](infra/bootstrap.sh) before executing it: it provisions
-resources and changes local kubeconfig. No current cloud access, quota, cost,
-region suitability or production readiness is established by the local proofs.
+Install Azure CLI, Docker, kubectl, Helm, Flux and OpenSSL, then run `az login`
+and select the intended subscription with `az account set --subscription ID`.
+The operator needs resource creation and role-assignment permissions, plus
+permission to register Entra applications. Preflight reports missing access.
 
-1. Select subscription, resource group, region/residency boundary and operators.
-   Configure hosted pipeline connections, destination ACR and scoped Git write
-   identity. Fill environment endpoints and service-account client IDs.
-2. Provide AKS/Flux, an enforcing CNI, [F5 NGINX ingress](#ingress-controller), StorageClasses, KEDA, Prometheus
-   Operator/server and sufficient independent nodes/storage. Private endpoints
-   need explicit `networkPolicy.additionalEgress` CIDRs. Verify actual allow/deny
-   behavior from pods, not just successful manifest rendering.
-3. Configure fixed JWT tenant/audience/issuer/JWKS, SQL Entra administration,
-   separate migration/runtime users and administrative study membership.
-   Provision Cosmos containers, Search schema and Blob destinations. Assign
-   each identity only its declared data/metadata operations; validate both
-   allowed and denied actions under the real identity.
-4. Create `qdrant-auth` with its writer/reader keys and `medw-telemetry` with
-   `connection-string` in namespace `medw`. All five cloud services reference
-   telemetry and enable ServiceMonitors; ensure Prometheus selects them.
-5. Pin actual model names/versions, dimensions and deployment type/quota, disable
-   automatic upgrades, and retain the real reranker's unready state until its
-   implementation exists. Run artifact/model checks before activation:
+For a fresh Azure DevOps setup, create an organization/project, then open
+**Project settings → Service connections → New service connection → GitHub**.
+Use OAuth to authorize the repository and save the connection as `medw-github`.
+Copy its connection ID from its settings URL into `devops.github_service_connection_id`;
+set `devops.organization` and `devops.project` in the same configuration. Setup
+creates the Azure federation connection and pipeline. Browser authorization and
+the later API browser sign-in are the interactive steps; no password or token is
+needed in chat or the configuration file.
+
+Use one ignored configuration file, initially copied from
+[infra/azure.example.json](infra/azure.example.json):
 
 ```sh
-az account show --query '{subscription:id,tenant:tenantId}'
-az aks show --resource-group "$MEDW_RESOURCE_GROUP" --name "$MEDW_AKS_NAME" \
-  --query '{oidc:oidcIssuerProfile.issuerUrl,identity:securityProfile.workloadIdentity}'
-az sql server conn-policy show --resource-group "$MEDW_RESOURCE_GROUP" \
-  --server "$MEDW_SQL_SERVER_NAME" --query connectionType
-python scripts/verify_release.py candidate-release.json --registry REGISTRY --environment dev
-python scripts/check_model_deployments.py candidate-release.json --environment dev
+mkdir -p data/azure
+cp infra/azure.example.json data/azure/config.json
+# Fill configuration once; commands below reuse it.
+make azure-preflight
+make azure-up
+make demo-run FILE=/absolute/path/to/a/file
+make azure-verify
+make azure-down
 ```
 
-Model verification reads ARM metadata, checks successful provisioning and
-`NoAutoUpgrade`, and makes no inference request. SQL policy must report `Proxy`,
-matching TCP 1433 egress; switching to Redirect requires a corresponding network
-change and pod connectivity proof. Proxy trades some throughput/latency for
-that simpler path; see [Microsoft's connectivity guidance](https://learn.microsoft.com/en-us/azure/azure-sql/database/connectivity-architecture?view=azuresql).
+`AZURE_CONFIG=/path/to/config.json` overrides the same file for every command.
+The configuration identifies subscription, location, dedicated owned resource
+group, optional borrowed Search/Cosmos resource IDs, separate application
+index/database names, study membership and Azure DevOps organization/project.
+The current project is `https://dev.azure.com/gzwhbosons/medwriter-assist`.
+Passwords, SAS tokens and service credentials do not belong in that file or Git.
 
-Then exercise synthetic Cosmos ETag conflicts, Search publication/readback,
-evidence resolution and actual SQL INSERT/denied mutation. Verify reconnect
-after token expiry and readiness failure/recovery. Successful migrations must
-precede the release commit. Observe image/chart rollout and rollback through
-Flux, real metrics/traces and autoscaling, then backup to the actual Blob
-destination and restore into isolated fresh storage. Agree evidence-retention
-and all-store recovery policies before client-data use. Record results and
-limitations without secrets; local proofs do not replace these checks.
+| Command | Behavior |
+|---|---|
+| `azure-preflight` | Access, provider registration, VM capacity/quota, borrowed resource compatibility, nonbillable build-access proof and current price estimate; blocks paid creation on failure |
+| `azure-up` | Journalled resource creation, schema/membership setup, Entra/workload identities, controller/TLS/telemetry, pipeline and initial Flux release |
+| `demo-run FILE=…` | Normal authenticated upload-to-acceptance API workflow; verifies stream completion and saves evidence |
+| `azure-verify` | Actual deployment/recovery/observability/delivery checks, evidence export and teardown on success or failure; unperformed checks cannot count as passed |
+| `azure-down` | Deletes journalled owned resources and application test data; preserves borrowed accounts and unrelated experiments |
 
-## File walkthrough
+The initial sizing is AKS Free, one `Standard_D4s_v5` node without node autoscaling,
+ACR Basic, a small SQL database, one Qdrant replica and small disks. Application
+scaling is capped at two replicas. Pinned NGINX, Flux, KEDA and Prometheus are
+installed; bounded telemetry goes to Application Insights. Azure OpenAI, Document
+Intelligence, Language, Azure ML and Container Apps are omitted.
 
-1. This README, then [settings.py](libs/medw_core/settings.py).
-2. [schemas.py](libs/medw_core/schemas.py), [ports.py](libs/medw_core/ports.py),
-   [composition.py](libs/medw_core/composition.py), [service.py](libs/medw_core/service.py)
-   and [telemetry.py](libs/medw_core/telemetry.py).
-3. Authentication, source retention, durable jobs, indexing and audit modules in
-   `libs/medw_core/`, alongside their failure-path tests.
-4. The five `services/` shells, retained retrieval adapters and `pipelines/` sinks.
-5. `db/` migrations/container definitions; `scripts/` build/release/verification;
-   `deploy/` pipelines, charts and Flux; `infra/` provisioning and schemas.
-6. Telemetry/recovery tests, then the deliberately held-back `ml/`, `evals/` and
-   medical implementations when that later phase begins.
+Compatible free Search/Cosmos accounts can be borrowed through resource IDs,
+including another accessible subscription. Their account-wide settings and
+existing experiments are preserved. Newly created paid infrastructure belongs in
+the dedicated resource group. The ownership journal supports reruns and teardown;
+do not delete it before removing resources. A$20 is a planning target managed
+through current estimates, short sessions and teardown, not a guaranteed cap.
+Budget alerts do not stop all charges. Teardown and any remaining resources must
+be recorded even when verification fails.
+
+Azure SQL uses an Entra administrator for initial schema/principal setup. The
+pipeline uses a separate federated deployment identity; workloads use separate
+managed identities. SQL Proxy policy matches allowed TCP 1433 egress.
+For this initial exercise, the SQL firewall permits Azure-origin connections
+using `AllowAzureServices`; Entra authentication and SQL grants still control
+access. This is broader than a private endpoint or a fixed outbound-IP allowlist.
+Setup creates the API registration and seeds explicit study membership as an
+administrative operation. The API client uses browser sign-in with PKCE and a
+localhost callback. It keeps a private MSAL cache in the ignored deployment
+directory; teardown removes that cache. A locally supplied `MEDW_DEMO_TOKEN` is
+also supported. Optional `api_login_method: "device"` suits headless clients when
+tenant policy permits it. This tenant rejected device sign-in with error 530035;
+normal browser sign-in passed without changing security settings.
+
+The load balancer uses an Azure-provided DNS label. Setup generates a certificate
+for that hostname and stores its trust certificate under the private deployment
+state directory. The client explicitly trusts that certificate and still verifies
+hostnames; TLS verification is never disabled. Public Azure Blob uploads use the
+normal certificate trust store.
+
+The GitHub service connection requires browser authorization for the existing
+repository. Azure Resource Manager uses workload identity federation, avoiding a
+stored deployment password. Hosted build capacity is checked; configuration also
+supports an explicit local agent pool. Never silently purchase hosted capacity.
+The initial capacity check runs a temporary pipeline that proves checkout and
+push access on a disposable branch. It may send Azure DevOps build notifications;
+its pipeline and branch are then removed, while the result remains in the local
+build-capacity evidence file. The real delivery pipeline is created during setup.
+
+## Releases and versioning
+
+A complete release contains all five image digests and full source SHAs, immutable
+chart source revision, model names/versions, embedding compatibility/dimensions,
+content-derived prompt hash and canonical bundle hash. Runtime
+`deployment_revision` hashes effective Helm values, including secret references;
+it is not another claimed Git revision. Changing a prompt changes the packaged
+prompt hash and resulting output. Models are checked against the installed code;
+ARM deployment checks become relevant when remote Azure adapters are wired in.
+
+Register `deploy/azure-pipelines/delivery.yml` as the automatic pipeline. It checks
+code/charts, builds and smokes five images, publishes to ACR, verifies packaged
+identity, applies migrations and commits the release selection. Code, prompts,
+charts and behavior changes trigger work. Selection commits only touch release
+records/Flux configuration and do not trigger a build loop.
+
+Cloud overlays separate `environment-values.yaml` (infrastructure) from
+`release-values.yaml` (selected artifacts). Flux owns application Helm releases.
+`medwriter-release-charts` pins chart Git source. Promotion and rollback reuse
+existing images; do not manually `helm upgrade` Flux-owned applications.
+
+```sh
+python scripts/verify_release.py bundle.json --registry REGISTRY --environment dev
+python scripts/check_model_deployments.py bundle.json --environment dev
+# Preview or select locally:
+python scripts/release.py select bundle.json --environment dev
+# Intentional Git release selection; existing artifacts, no rebuild:
+python scripts/commit_release.py bundle.json --environment dev --branch main --push --allow-rollback
+```
+
+`commit_release.py` uses an isolated checkout, retries concurrent Git updates,
+rejects stale promotions and records bundles under `deploy/releases/`. SQL
+migrations are ordered, checksummed, serialized and transactional; append new
+migrations rather than editing historical files. Token-based migration execution
+uses `MEDW_SQL_ACCESS_TOKEN`, `MEDW_SQL_SERVER` and `MEDW_SQL_DATABASE`; the existing
+connection-string option remains available for isolated SQL verification.
+
+Python locks are per service and installed with `--require-hashes --no-deps`.
+Refresh deliberately with the pinned lock tool. After a `medw-lib` version change,
+update all consumers and regenerate `Chart.lock` using `helm dependency update`.
+Routine checks use `helm dependency build`.
+
+## Ingress and operational signals
+
+The maintained F5 NGINX OSS controller is pinned in `deploy/nginx-ingress.yaml`
+(controller 5.6.1, chart 2.7.1), with class `medw-nginx`. This is distinct from the
+retired community ingress-nginx controller. Gateway's chart owns VirtualServer
+routes and external-auth Policies. The controller overwrites `X-Original-URI`
+and `X-Original-Method`; gateway rejects ambiguous encodings before membership
+checks. Auth subrequests cover jobs, ingestion, search and drafting.
+
+Unknown paths, internal `/search`, authorization routes, OpenAPI, probes and
+metrics are private. Buffering and automatic upstream POST retries are disabled.
+Terminating application pods wait five seconds before Uvicorn receives its stop
+signal, allowing NGINX to remove the old endpoint before connections are refused.
+The read timeout is 300 seconds between upstream reads. TLS terminates at NGINX.
+Only trusted operators may edit snippet-enabled controller resources.
+
+NetworkPolicies select controller namespace and pod labels together. Generation
+may call retrieval, retrieval may call reranker, and ingestion/retrieval may call
+Qdrant. The monitoring namespace is trusted for scraping. AKS uses an enforcing
+Cilium overlay; private Azure endpoints need explicit additional egress rules.
+
+Prometheus exports request counts/durations/in-flight work. KEDA uses the actual
+in-flight gauge. OpenTelemetry propagates trace and correlation IDs and attaches
+release provenance. A failed probe withdraws a backend, while `/healthz` remains
+available for diagnosis. Qdrant snapshots belong in Blob and must be restored to
+separate storage for verification; replicas alone are not a backup.
+
+The existing local cluster is `medw`, at `http://192.168.49.2:30080/version`, with
+Calico and NGINX NodePorts 30080/30443. Its original state and Qdrant PVC bindings
+are retained. Dedicated verification harnesses must never target this installation.
+
+## Verification and file walkthrough
+
+`make check` runs Ruff, mypy, import contracts, tests, six chart renders, five Flux
+configurations and the pinned NGINX controller contract. It needs network access
+to fetch the official controller chart. Tests include signed JWTs, forged identity
+rejection, lease/checkpoint races, interrupted dual-index publication, immutable
+evidence, audit failure, specific draft acceptance and retained revisions.
+
+[docs/verification.json](docs/verification.json) retains historical real SQL,
+Qdrant backup/restore, enforced NetworkPolicy, Flux rollout/rollback and KEDA
+proofs. Those historical exercises use their recorded versions and are not a
+substitute for current Azure acceptance. New evidence excludes credentials and
+SAS URLs, and records resource references, hashes, job/audit IDs, release identity,
+cleanup and explicit failed or unverified checks.
+
+For a code walkthrough, start with settings, schemas and ports, then composition
+and service lifespan. Follow gateway authentication/upload, `uploads.py`,
+`durable_jobs.py`, `ingestion.py`, `sources.py` and `indexing.py`. Continue through
+retrieval, reranker, generation, audit and `drafts.py`. Finish with database
+migrations, image/release scripts, Helm/Flux/NGINX and the Azure operator scripts.

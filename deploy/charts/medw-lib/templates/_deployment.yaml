@@ -37,6 +37,7 @@ spec:
         {{- end }}
     spec:
       serviceAccountName: {{ .Values.name }}
+      terminationGracePeriodSeconds: 30
       containers:
         - name: app
           # Always a git SHA. Never :latest - :latest makes "what is running"
@@ -48,6 +49,13 @@ spec:
           {{- end }}
           imagePullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" }}
           ports: [{ containerPort: 8000 }]
+          # Give endpoint watchers time to remove the terminating pod before
+          # Uvicorn stops accepting connections. Existing requests then drain
+          # within the remaining termination grace period.
+          lifecycle:
+            preStop:
+              exec:
+                command: ["python", "-c", "import time; time.sleep(5)"]
           env:
             - name: MEDW_ENV
               value: {{ .Values.env }}
@@ -76,12 +84,8 @@ spec:
                   key: {{ .secretKeyRef.key }}
             {{- end }}
           {{- if .Values.startupProbe }}
-          # For services that load something slow at boot. While a startup
-          # probe is failing, Kubernetes suppresses the liveness probe - which
-          # is the whole point. Without it the reranker (tens of seconds to
-          # load its weights) fails liveness three times at 10s intervals and
-          # gets killed before it ever finishes loading. That is an infinite
-          # crash loop caused entirely by probe configuration.
+          # Allow initial dependency connections before liveness can restart
+          # the container. The installed reranker has no weights to download.
           startupProbe:
             httpGet: { path: /readyz, port: 8000 }
             periodSeconds: 5

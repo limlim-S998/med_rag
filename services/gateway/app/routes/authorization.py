@@ -17,12 +17,13 @@ ROUTES = {
     "jobs": ("GET", r"/studies/([^/]+)/jobs/[^/]+"),
     "search": ("POST", r"/studies/([^/]+)/search"),
     "draft": ("POST", r"/studies/([^/]+)/sections/[^/]+/draft"),
+    "ingest": ("POST", r"/studies/([^/]+)/documents/[^/]+/ingest"),
 }
 
 
 @router.get("/{operation}", status_code=204)
 async def authorize(
-    operation: Literal["jobs", "search", "draft"], request: Request,
+    operation: Literal["jobs", "search", "draft", "ingest"], request: Request,
     user: Principal = Depends(current_user),
 ) -> Response:
     method, pattern = ROUTES[operation]

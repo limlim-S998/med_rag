@@ -9,9 +9,8 @@
 -r services/ingestion_worker/requirements.in
 -r services/reranker/requirements.in
 
-# The learned reranker is intentionally held back. Its local double and real
-# unready shell need neither torch nor downloaded weights. Restoring inference
-# requires a separate dependency/weight revision decision and new locks.
+# The installed lexical placeholder needs neither torch nor downloaded weights.
+# Replacing it with a learned reranker requires new dependency and model locks.
 # Airflow remains an optional scheduler environment: install its exact release
 # against its own official Python/version constraints, not into this host union.
 import-linter

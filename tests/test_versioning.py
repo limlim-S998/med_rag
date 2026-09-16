@@ -156,7 +156,8 @@ def test_azure_delivery_checks_charts_before_publishing():
     assert any(step.get("task") == "HelmInstaller@1" for step in steps)
     assert any(step.get("task") == "KubectlInstaller@0" for step in steps)
     checks = next(i for i, step in enumerate(steps) if "make lint arch types test charts" in step.get("script", ""))
-    publish = next(i for i, step in enumerate(steps) if "scripts/build_images.py" in step.get("script", ""))
+    publish = next(i for i, step in enumerate(steps) if "scripts/build_images.py" in
+                   step.get("inputs", {}).get("inlineScript", step.get("script", "")))
     assert checks < publish
 
 

@@ -1,5 +1,6 @@
 """Startup exporters and HTTP provenance must agree on actual packaged content."""
 
+import logging
 from unittest.mock import Mock
 
 from fastapi import FastAPI
@@ -9,6 +10,14 @@ from medw_core import metrics, tracing
 from medw_core.content import prompt_hash
 from medw_core.service import add_platform_routes, attach_request_instrumentation, lifespan_for
 from medw_core.settings import Settings
+
+
+def test_upload_capability_is_not_written_to_access_logs():
+    record = logging.LogRecord("uvicorn.access", logging.INFO, "", 0, '%s - "%s %s HTTP/%s" %d',
+                               ("127.0.0.1", "PUT", "/studies/S/uploads/abc?token=secret", "1.1", 201), None)
+    assert tracing.RedactAccessQuery().filter(record)
+    assert "token" not in record.getMessage() and "secret" not in record.getMessage()
+    assert "/studies/S/uploads/abc" in record.getMessage()
 
 
 def test_lifespan_exports_the_same_effective_identity_as_version(monkeypatch, tmp_path):

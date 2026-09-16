@@ -1,0 +1,32 @@
+{
+  "subscription_id": "",
+  "location": "australiaeast",
+  "resource_group": "rg-medw-dev",
+  "name_prefix": "medwdev",
+  "environment": "dev",
+  "hours": 4,
+  "budget_aud": 20,
+  "borrowed_search_id": "",
+  "borrowed_cosmos_id": "",
+  "search_index": "medw-dev-chunks",
+  "cosmos_database": "medw-dev",
+  "sql_database": "medw",
+  "study_id": "ABC-101",
+  "section_path": "11.4.2",
+  "writer_object_id": "",
+  "sql_admin_object_id": "",
+  "sql_admin_name": "",
+  "sql_admin_type": "User",
+  "git_url": "https://github.com/limlim-S998/med_rag",
+  "git_branch": "main",
+  "devops": {
+    "organization": "",
+    "project": "",
+    "github_service_connection_id": "",
+    "pipeline_name": "medwriter-delivery",
+    "azure_service_connection_name": "medw-azure",
+    "agent_pool": ""
+  },
+  "search_subscription_id": "",
+  "cosmos_subscription_id": ""
+}

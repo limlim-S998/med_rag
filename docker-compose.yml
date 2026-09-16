@@ -9,10 +9,15 @@ x-local: &local
   MEDW_LOCAL_ARTIFACT_DIR: /data/artifacts
   MEDW_QDRANT_URL: http://qdrant:6333
   MEDW_RERANKER_URL: http://reranker:8000
+  MEDW_RETRIEVAL_URL: http://retrieval:8000
+  MEDW_AUTH_TENANT_ID: ${MEDW_AUTH_TENANT_ID:-}
+  MEDW_AUTH_AUDIENCE: ${MEDW_AUTH_AUDIENCE:-}
+  MEDW_AUTH_ISSUER: ${MEDW_AUTH_ISSUER:-}
+  MEDW_AUTH_JWKS_URL: ${MEDW_AUTH_JWKS_URL:-}
 
 services:
   qdrant:
-    image: qdrant/qdrant:v1.12.1
+    image: qdrant/qdrant:v1.19.0@sha256:057ee3a8da769fe7310dd3537b4dc7583bf87a95ce8ac43c0af5a46bc580d1fc
     ports: ["127.0.0.1:${MEDW_QDRANT_PORT:-6333}:6333"]
     volumes: ["qdrant_data:/qdrant/storage"]
   reranker:

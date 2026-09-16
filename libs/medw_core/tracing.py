@@ -88,6 +88,16 @@ class CorrelationFilter(logging.Filter):
         return True
 
 
+class RedactAccessQuery(logging.Filter):
+    """Uvicorn's access target may contain a local upload capability."""
+
+    def filter(self, record):
+        if isinstance(record.args, tuple) and len(record.args) == 5:
+            client, method, target, version, status = record.args
+            record.args = (client, method, str(target).split("?", 1)[0], version, status)
+        return True
+
+
 class JsonFormatter(logging.Formatter):
     def __init__(self, service: str):
         super().__init__()
@@ -109,3 +119,6 @@ def configure_logging(level: str, service: str) -> None:
     root = logging.getLogger()
     root.handlers = [handler]
     root.setLevel(level)
+    access = logging.getLogger("uvicorn.access")
+    if not any(isinstance(item, RedactAccessQuery) for item in access.filters):
+        access.addFilter(RedactAccessQuery())

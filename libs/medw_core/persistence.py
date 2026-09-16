@@ -29,7 +29,7 @@ class StateStore(Protocol):
     async def put(self, kind: str, study_id: str, key: str, value: dict, *,
                   expected_revision: str | None) -> Record: ...
 
-    async def list(self, kind: str, study_id: str) -> list[Record]: ...
+    async def list(self, kind: str, study_id: str | None = None) -> list[Record]: ...
 
 
 class SQLiteStateStore:
@@ -77,9 +77,11 @@ class SQLiteStateStore:
             raise Conflict("state record already exists") from exc
         return Record(json.loads(body), revision)
 
-    async def list(self, kind: str, study_id: str) -> list[Record]:
+    async def list(self, kind: str, study_id: str | None = None) -> list[Record]:
+        query = "SELECT value,revision FROM platform_state WHERE kind=?"
+        args = (kind,) if study_id is None else (kind, study_id)
+        if study_id is not None:
+            query += " AND study_id=?"
         return [Record(json.loads(body), str(revision)) for body, revision in
-                self.connection.execute(
-                    "SELECT value,revision FROM platform_state WHERE kind=? AND study_id=?",
-                    (kind, study_id)).fetchall()]
+                self.connection.execute(query, args).fetchall()]
 

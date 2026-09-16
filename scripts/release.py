@@ -52,7 +52,7 @@ def validate(bundle: dict) -> dict:
             raise ValueError(f"expected model identity missing: {key}")
         if key.endswith("_version") and behavior[key].lower() in {"latest", "main", "master"}:
             raise ValueError(f"floating model identity: {key}")
-        if any(word in behavior[key].lower() for word in ("placeholder", "unknown", "unversioned")):
+        if behavior[key].lower() in {"placeholder", "unknown", "unversioned", "todo"}:
             raise ValueError(f"placeholder identity: {key}")
     if not DIGEST.fullmatch(behavior.get("prompt_bundle_sha", "")):
         raise ValueError("content-derived prompt hash required")

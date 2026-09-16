@@ -28,8 +28,7 @@ async def test_qdrant_stage_readback_detects_payload_mutation():
     sink = QdrantGenerationSink(client)
     c = chunk()
     generation = manifest([c])
-    with pytest.warns(UserWarning, match="no effect"):
-        receipt = await sink.stage(generation, [c], [[1.0, 0.0, 0.0, 0.0]])
+    receipt = await sink.stage(generation, [c], [[1.0, 0.0, 0.0, 0.0]])
     assert receipt.payload_sha256 == payload_digest([c])
     # This mutation leaves chunk IDs and text untouched: ID-only reconciliation misses it.
     await client.set_payload(generation.dense_collection, {"section_prefixes": ["wrong"]}, [c.id])

@@ -46,7 +46,12 @@ class CosmosStateStore:
             raise
         return Record(result["value"], result["_etag"])
 
-    async def list(self, kind: str, study_id: str) -> list[Record]:
+    async def list(self, kind: str, study_id: str | None = None) -> list[Record]:
+        if study_id is None:
+            rows = self.container.query_items(
+                query="SELECT * FROM c WHERE c.kind=@kind",
+                parameters=[{"name": "@kind", "value": kind}])
+            return [Record(row["value"], row["_etag"]) async for row in rows]
         rows = self.container.query_items(
             query="SELECT * FROM c WHERE c.kind=@kind AND c.study_id=@study",
             parameters=[{"name": "@kind", "value": kind},

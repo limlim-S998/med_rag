@@ -21,13 +21,15 @@ class DurableJobStore:
 
     async def create(self, study_id: str, doc_id: str, *,
                      source_revision: str | None = None,
-                     idempotency_key: str | None = None) -> dict:
+                     idempotency_key: str | None = None,
+                     correlation_id: str | None = None) -> dict:
         job_id = (hashlib.sha256(idempotency_key.encode()).hexdigest()
                   if idempotency_key else str(uuid.uuid4()))
         body: dict = {"id": job_id, "study_id": study_id, "doc_id": doc_id,
                 "source_revision": source_revision, "state": "queued", "history": ["queued"],
                 "checkpoints": {}, "lease_owner": None, "lease_until": 0,
-                "updated_at": self.clock()}
+                "created_at": self.clock(), "updated_at": self.clock(), "correlation_id": correlation_id or uuid.uuid4().hex,
+                "attempts": 0, "next_attempt_at": 0}
         try:
             return self._job(await self.state.put("job", study_id, job_id, body,
                                                  expected_revision=None))
@@ -94,10 +96,11 @@ class DurableJobStore:
         return await self._save(job, state="failed", failed_at_state=state, error=error,
                                 history=[*job["history"], "failed"])
 
-    async def recoverable(self, study_id: str) -> list[dict]:
+    async def recoverable(self, study_id: str | None = None) -> list[dict]:
         return [self._job(r) for r in await self.state.list("job", study_id)
                 if JobState(r.value["state"]) not in TERMINAL
-                and r.value["lease_until"] <= self.clock()]
+                and r.value["lease_until"] <= self.clock()
+                and r.value.get("next_attempt_at", 0) <= self.clock()]
 
 
 async def run_stages(store: DurableJobStore, job: dict, worker_id: str,

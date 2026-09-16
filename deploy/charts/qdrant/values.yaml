@@ -2,8 +2,8 @@ name: qdrant
 replicas: 3
 image:
   repository: qdrant/qdrant
-  tag: v1.12.1
-  digest: sha256:d774e7bb65744454984c6021637a0da89271f30df15e48601a9fafc926d26b1f
+  tag: v1.19.0
+  digest: sha256:057ee3a8da769fe7310dd3537b4dc7583bf87a95ce8ac43c0af5a46bc580d1fc
 persistence:
   storageClass: managed-csi-premium
   size: 100Gi
