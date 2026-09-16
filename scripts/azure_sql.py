@@ -16,6 +16,19 @@ import uuid
 from migrate import apply
 
 
+def provision_delivery_user(cursor, client_id: str):
+    # SQL external application SIDs use the application/client ID, whereas ARM
+    # role assignments use the different service-principal object ID.
+    sid = "0x" + uuid.UUID(client_id).bytes_le.hex()
+    cursor.execute("IF DATABASE_PRINCIPAL_ID('id-medw-delivery') IS NOT NULL "
+                   "AND (SELECT sid FROM sys.database_principals WHERE name='id-medw-delivery') <> "
+                   f"{sid} BEGIN ALTER ROLE db_owner DROP MEMBER [id-medw-delivery]; "
+                   "DROP USER [id-medw-delivery]; END;")
+    cursor.execute("IF DATABASE_PRINCIPAL_ID('id-medw-delivery') IS NULL "
+                   f"CREATE USER [id-medw-delivery] WITH SID={sid}, TYPE=E;")
+    cursor.execute("ALTER ROLE db_owner ADD MEMBER [id-medw-delivery];")
+
+
 def main():
     import pyodbc
     config = json.loads(os.environ["MEDW_AZURE_BOOTSTRAP"])
@@ -30,10 +43,7 @@ def main():
     try:
         apply(connection, pathlib.Path(__file__).resolve().parents[1] / "db/sql")
         cursor = connection.cursor()
-        sid = "0x" + uuid.UUID(config["migration_object_id"]).bytes_le.hex()
-        cursor.execute("IF DATABASE_PRINCIPAL_ID('id-medw-delivery') IS NULL "
-                       f"CREATE USER [id-medw-delivery] WITH SID={sid}, TYPE=E;")
-        cursor.execute("ALTER ROLE db_owner ADD MEMBER [id-medw-delivery];")
+        provision_delivery_user(cursor, config["migration_client_id"])
         cursor.execute("IF NOT EXISTS (SELECT 1 FROM core.study WHERE study_id=?) "
                        "INSERT INTO core.study(study_id,sponsor,data_region) VALUES(?,?,?)",
                        config["study_id"], config["study_id"], "Operations verification", config["location"])

@@ -29,6 +29,22 @@ def test_platform_helm_reruns_preserve_aks_owned_fields_without_force():
         azure.helm_apply_options("unknown")
 
 
+def test_delivery_sql_sid_uses_client_guid_and_repairs_only_mismatches(monkeypatch):
+    monkeypatch.syspath_prepend(str(ROOT / "scripts"))
+    import azure_sql
+    statements = []
+
+    class Cursor:
+        def execute(self, statement):
+            statements.append(statement)
+
+    azure_sql.provision_delivery_user(Cursor(), "00112233-4455-6677-8899-aabbccddeeff")
+    expected_sid = "0x33221100554477668899aabbccddeeff"
+    assert "WHERE name='id-medw-delivery') <> " + expected_sid in statements[0]
+    assert "CREATE USER [id-medw-delivery] WITH SID=" + expected_sid + ", TYPE=E" in statements[1]
+    assert statements[2] == "ALTER ROLE db_owner ADD MEMBER [id-medw-delivery];"
+
+
 def test_permissions_account_for_not_actions_and_combined_roles():
     entries = [{"actions": ["*"], "notActions": ["Microsoft.Authorization/*"]}]
     assert not azure.permission_allows(entries, "Microsoft.Authorization/roleAssignments/write")

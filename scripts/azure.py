@@ -973,7 +973,7 @@ class Deployment:
             env = {"MEDW_SQL_ACCESS_TOKEN": token, "MEDW_SQL_SERVER": resources["sql_server"],
                    "MEDW_SQL_DATABASE": c["sql_database"],
                    "MEDW_AZURE_BOOTSTRAP": json.dumps({
-                       "migration_object_id": self.state["identities"]["delivery"]["principalId"],
+                       "migration_client_id": self.state["identities"]["delivery"]["clientId"],
                        "study_id": c["study_id"], "section_path": c["section_path"],
                        "writer_object_id": c["writer_object_id"], "location": c["location"]})}
             run(["docker", "run", "--rm", *(item for name in env for item in ("--env", name)),
@@ -1252,7 +1252,9 @@ class Deployment:
         self._resources()
         self._workload_access()
         self.checkpoint("search-index", self._search_index)
-        self.checkpoint("sql-bootstrap", self._sql_bootstrap)
+        # New operation key reruns the idempotent bootstrap on journals created
+        # before delivery users were correctly bound to their client-ID SID.
+        self.checkpoint("sql-bootstrap-client-sid", self._sql_bootstrap)
         self._cluster_platform()
         self._publish_configuration()
         self._pipeline()
