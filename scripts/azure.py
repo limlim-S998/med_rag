@@ -1387,11 +1387,11 @@ class Deployment:
                 if key.startswith("cosmos-assignment-"):
                     attempt(key, lambda value=value: cosmos_az("cosmosdb", "sql", "role", "assignment", "delete",
                         "-g", group, "-a", name, "--role-assignment-id", value["id"].rsplit("/", 1)[-1],
-                        missing_ok=True))
+                        "--yes", missing_ok=True))
                 if key.startswith("cosmos-role-"):
                     attempt(key, lambda value=value: cosmos_az("cosmosdb", "sql", "role", "definition", "delete",
-                        "-g", group, "-a", name, "--role-definition-id", value["id"].rsplit("/", 1)[-1],
-                        missing_ok=True))
+                        "-g", group, "-a", name, "--id", value["id"].rsplit("/", 1)[-1],
+                        "--yes", missing_ok=True))
             if "cosmos-database" in completed or "cosmos-database" in self.state.get("claimed", {}):
                 attempt("borrowed-cosmos-database", lambda: cosmos_az("cosmosdb", "sql", "database", "delete",
                     "-g", group, "-a", name, "-n", self.config["cosmos_database"], "--yes"))
@@ -1402,8 +1402,9 @@ class Deployment:
             attempt("pipeline", lambda: self.devops("build/definitions/" + str(self.state["pipeline_id"])
                     + "?api-version=7.1", method="DELETE"))
         if self.state.get("service_connection"):
-            attempt("azure-service-connection", lambda: self.devops("serviceendpoint/endpoints/"
-                    + self.state["service_connection"]["id"] + "?api-version=7.1", method="DELETE"))
+            attempt("azure-service-connection", lambda: az("devops", "service-endpoint", "delete",
+                "--id", self.state["service_connection"]["id"], "--organization", self.config["devops"]["organization"],
+                "--project", self.config["devops"]["project"], "--yes", missing_ok=True))
         for kind, app in self.state.get("applications", {}).items():
             attempt("application-" + kind, lambda app=app: az("ad", "app", "delete", "--id", app["id"]))
         group = az("group", "show", "-n", self.config["resource_group"], missing_ok=True)

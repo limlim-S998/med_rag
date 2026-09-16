@@ -524,10 +524,10 @@
       "scope": "Disposable minikube with enforced Calico and F5 NGINX, unversioned development images before the final extraction/classifier interface wiring. Routing, authentication and SQL contracts are unchanged by that later wiring, which has separate final Docker proof. Original medw installation preserved; not Azure."
     },
     "application-workflow-checks": {
-      "recorded_at": "2026-09-16T02:45:32.028291+00:00",
-      "scope": "Application and Azure commissioning source including Qdrant 1.19 recovery, expiring-token refresh, current-release readiness and interrupted cleanup fixes; actual container/SQL/NGINX proofs identify their artifacts.",
+      "recorded_at": "2026-09-16T03:52:34.622983+00:00",
+      "scope": "Commissioned Azure values and retrieval telemetry packaging working tree, subsequently committed as ac50c49; later cleanup CLI corrections passed 29 focused provisioning tests, Ruff and mypy.",
       "result": "passed",
-      "pytest_passed": 328,
+      "pytest_passed": 334,
       "ruff": "passed",
       "mypy_files": 49,
       "import_contracts_kept": 6,
@@ -759,6 +759,776 @@
       ],
       "recorded_at": "2026-09-16T02:35:38.621030+00:00",
       "scope": "Real pinned Qdrant 1.19.0 with repository snapshot engine and quota fault-injection helper; Docker and Azurite, not Azure Blob or AKS."
+    },
+    "azure-initial-commissioning": {
+      "timestamp": "2026-09-16T04:07:13.346404+00:00",
+      "scope": "Current commissioning run only; remaining acceptance stopped by user",
+      "resources": {
+        "storage": "/subscriptions/f60eae2b-d738-4d0e-8096-9f3f952e0cea/resourceGroups/rg-medw-dev/providers/Microsoft.Storage/storageAccounts/medwdev9528fa20sa",
+        "blob_url": "https://medwdev9528fa20sa.blob.core.windows.net",
+        "search": "/subscriptions/f60eae2b-d738-4d0e-8096-9f3f952e0cea/resourceGroups/med-rag-tester/providers/Microsoft.Search/searchServices/medrag325744d5search",
+        "search_url": "https://medrag325744d5search.search.windows.net",
+        "cosmos": "/subscriptions/f60eae2b-d738-4d0e-8096-9f3f952e0cea/resourceGroups/med-rag-tester/providers/Microsoft.DocumentDB/databaseAccounts/medrag325744d5cosmos",
+        "cosmos_url": "https://medrag325744d5cosmos.documents.azure.com:443/",
+        "sql": "/subscriptions/f60eae2b-d738-4d0e-8096-9f3f952e0cea/resourceGroups/rg-medw-dev/providers/Microsoft.Sql/servers/medwdev9528fa20sql",
+        "sql_server": "medwdev9528fa20sql.database.windows.net",
+        "registry": "/subscriptions/f60eae2b-d738-4d0e-8096-9f3f952e0cea/resourceGroups/rg-medw-dev/providers/Microsoft.ContainerRegistry/registries/medwdev9528fa20acr",
+        "registry_host": "medwdev9528fa20acr.azurecr.io",
+        "cluster": "/subscriptions/f60eae2b-d738-4d0e-8096-9f3f952e0cea/resourcegroups/rg-medw-dev/providers/Microsoft.ContainerService/managedClusters/medwdev9528fa20aks",
+        "oidc_issuer": "https://australiaeast.oic.prod-aks.azure.com/721342f3-ed34-4553-93ea-4fbe8f7149eb/37f57101-c6ea-47f8-8398-7424d43a361c/",
+        "insights": "/subscriptions/f60eae2b-d738-4d0e-8096-9f3f952e0cea/resourceGroups/rg-medw-dev/providers/Microsoft.Insights/components/medwdev9528fa20ai"
+      },
+      "managed_node_resource_group": "MC_rg-medw-dev_medwdev9528fa20aks_australiaeast",
+      "runs": [
+        {
+          "id": 3,
+          "status": "completed",
+          "result": "failed",
+          "sourceVersion": "73dbf26fa22aa6f08d740a4c77f7c6d781f4c533",
+          "startTime": "2026-09-16T03:08:01.178461+00:00",
+          "finishTime": "2026-09-16T03:10:26.213912+00:00"
+        },
+        {
+          "id": 4,
+          "status": "completed",
+          "result": "failed",
+          "sourceVersion": "7eac41ae0fc7f81b05132672fef24ba6353efdd9",
+          "startTime": "2026-09-16T03:24:03.754183+00:00",
+          "finishTime": "2026-09-16T03:33:36.852793+00:00"
+        },
+        {
+          "id": 5,
+          "status": "completed",
+          "result": "succeeded",
+          "sourceVersion": "5a5044a16b7982af5f792da331a7f5d8744463cd",
+          "startTime": "2026-09-16T03:37:50.959807+00:00",
+          "finishTime": "2026-09-16T03:46:40.849329+00:00"
+        },
+        {
+          "id": 6,
+          "status": "completed",
+          "result": "succeeded",
+          "sourceVersion": "ac50c49d72e93ff94e6d6120512053aabae6cd13",
+          "startTime": "2026-09-16T03:55:21.000360+00:00",
+          "finishTime": "2026-09-16T04:03:37.533031+00:00"
+        }
+      ],
+      "readiness": {
+        "services": {
+          "gateway": {
+            "pods": [
+              {
+                "pod": "gateway-7d56f5f8cd-h6lcf",
+                "uid": "4f5b0311-94e0-4957-a90a-46d211d718b3",
+                "version": {
+                  "env": "dev",
+                  "service": "gateway",
+                  "image_sha": "ac50c49d72e93ff94e6d6120512053aabae6cd13",
+                  "chat_deployment": "scripted-chat",
+                  "embed_version": "hash-1",
+                  "prompt_bundle_sha": "sha256:500b813e155a44de5f1b2a229bdea7043c86f03f1baa9b4779bb5e6873279048",
+                  "classifier_version": "placeholder-1",
+                  "image_digest": "sha256:b501d01a08a937e65b45e178d032de1a02373e8054a5f93524271404c08f44a0",
+                  "release_bundle_sha": "sha256:061a3f4bbbe1e70fa4e6fe1c13cdda30d5d3e8a9e8988178970140f50f0fd139",
+                  "chat_model_name": "scripted-placeholder",
+                  "chat_model_version": "1",
+                  "embed_model_name": "token-hash",
+                  "embed_model_version": "1",
+                  "deployment_revision": "values-sha256:7086a1e086209b5fd986a16564396bf560822b6055e403a3edf276e564232428",
+                  "backend": "azure",
+                  "medical_handlers": "placeholders"
+                },
+                "images": [
+                  "medwdev9528fa20acr.azurecr.io/gateway@sha256:b501d01a08a937e65b45e178d032de1a02373e8054a5f93524271404c08f44a0"
+                ]
+              }
+            ],
+            "helm_history": [
+              {
+                "action": "upgrade",
+                "apiVersion": "v2",
+                "appVersion": "0.1.0",
+                "chartName": "gateway",
+                "chartVersion": "0.6.0+ac50c49d72e9",
+                "configDigest": "sha256:49062c88978bc77f327163571b206ebbf6dbd252ab1cd8492b796108daa9d542",
+                "digest": "sha256:465f0b634a0a17b30c4abfa268a79542cf8ecd0fe531d03885ab445b5b925534",
+                "firstDeployed": "2026-09-16T03:47:28Z",
+                "lastDeployed": "2026-09-16T04:04:25Z",
+                "name": "gateway",
+                "namespace": "medw",
+                "status": "deployed",
+                "version": 4
+              },
+              {
+                "apiVersion": "v2",
+                "appVersion": "0.1.0",
+                "chartName": "gateway",
+                "chartVersion": "0.6.0+5a5044a16b79",
+                "configDigest": "sha256:49062c88978bc77f327163571b206ebbf6dbd252ab1cd8492b796108daa9d542",
+                "digest": "sha256:2a466d62840ccef71248b9c31413fd3c2b9a16107e31e339783549fd16a1de24",
+                "firstDeployed": "2026-09-16T03:47:28Z",
+                "lastDeployed": "2026-09-16T04:04:07Z",
+                "name": "gateway",
+                "namespace": "medw",
+                "status": "superseded",
+                "version": 3
+              }
+            ],
+            "source_sha": "ac50c49d72e93ff94e6d6120512053aabae6cd13",
+            "bundle_sha": "sha256:061a3f4bbbe1e70fa4e6fe1c13cdda30d5d3e8a9e8988178970140f50f0fd139"
+          },
+          "retrieval": {
+            "pods": [
+              {
+                "pod": "retrieval-7fb7588f9-27rw8",
+                "uid": "f34efb81-f93c-492c-a208-3765175808c8",
+                "version": {
+                  "env": "dev",
+                  "service": "retrieval",
+                  "image_sha": "ac50c49d72e93ff94e6d6120512053aabae6cd13",
+                  "chat_deployment": "scripted-chat",
+                  "embed_version": "hash-1",
+                  "prompt_bundle_sha": "sha256:500b813e155a44de5f1b2a229bdea7043c86f03f1baa9b4779bb5e6873279048",
+                  "classifier_version": "placeholder-1",
+                  "image_digest": "sha256:eb2017384bfc6095d73370c282a236046301d7f096a151561215cacb2ded8198",
+                  "release_bundle_sha": "sha256:061a3f4bbbe1e70fa4e6fe1c13cdda30d5d3e8a9e8988178970140f50f0fd139",
+                  "chat_model_name": "scripted-placeholder",
+                  "chat_model_version": "1",
+                  "embed_model_name": "token-hash",
+                  "embed_model_version": "1",
+                  "deployment_revision": "values-sha256:8fca6fe62a001439bb435209dfbe8748b5a6957a89b956a880757e9cd4a8e86d",
+                  "backend": "azure",
+                  "medical_handlers": "placeholders"
+                },
+                "images": [
+                  "medwdev9528fa20acr.azurecr.io/retrieval@sha256:eb2017384bfc6095d73370c282a236046301d7f096a151561215cacb2ded8198"
+                ]
+              }
+            ],
+            "helm_history": [
+              {
+                "action": "install",
+                "apiVersion": "v2",
+                "appVersion": "0.1.0",
+                "chartName": "retrieval",
+                "chartVersion": "0.6.0+ac50c49d72e9",
+                "configDigest": "sha256:80ce4d5fc6cf8fe382da04309f5a9ef295c8150017436731ffafe0c9cd0e7690",
+                "digest": "sha256:2981405310f8a36ad86bbd1aea28bc5a2dddd2b9bd0e13e47ae6a30fd12a56bf",
+                "firstDeployed": "2026-09-16T04:08:09Z",
+                "lastDeployed": "2026-09-16T04:08:09Z",
+                "name": "retrieval",
+                "namespace": "medw",
+                "status": "deployed",
+                "version": 1
+              }
+            ],
+            "source_sha": "ac50c49d72e93ff94e6d6120512053aabae6cd13",
+            "bundle_sha": "sha256:061a3f4bbbe1e70fa4e6fe1c13cdda30d5d3e8a9e8988178970140f50f0fd139"
+          },
+          "generation": {
+            "pods": [
+              {
+                "pod": "generation-ff98986ff-v7674",
+                "uid": "d31f230f-d216-43e7-9be5-d4ac48602396",
+                "version": {
+                  "env": "dev",
+                  "service": "generation",
+                  "image_sha": "ac50c49d72e93ff94e6d6120512053aabae6cd13",
+                  "chat_deployment": "scripted-chat",
+                  "embed_version": "hash-1",
+                  "prompt_bundle_sha": "sha256:500b813e155a44de5f1b2a229bdea7043c86f03f1baa9b4779bb5e6873279048",
+                  "classifier_version": "placeholder-1",
+                  "image_digest": "sha256:73e38bb330171534b7ffd8aad63ade99c0e998e9a0366d66d7ba38a3091f372d",
+                  "release_bundle_sha": "sha256:061a3f4bbbe1e70fa4e6fe1c13cdda30d5d3e8a9e8988178970140f50f0fd139",
+                  "chat_model_name": "scripted-placeholder",
+                  "chat_model_version": "1",
+                  "embed_model_name": "token-hash",
+                  "embed_model_version": "1",
+                  "deployment_revision": "values-sha256:a8aa35343bb8e01d06aecf318f57e7ad397e66b1e8f2fbcfa6a9196098810659",
+                  "backend": "azure",
+                  "medical_handlers": "placeholders"
+                },
+                "images": [
+                  "medwdev9528fa20acr.azurecr.io/generation@sha256:73e38bb330171534b7ffd8aad63ade99c0e998e9a0366d66d7ba38a3091f372d"
+                ]
+              }
+            ],
+            "helm_history": [
+              {
+                "action": "install",
+                "apiVersion": "v2",
+                "appVersion": "0.1.0",
+                "chartName": "generation",
+                "chartVersion": "0.6.0+ac50c49d72e9",
+                "configDigest": "sha256:43fe92154222601802e07860b1e91efa5399fa81501c49dc610209bc6328be8b",
+                "digest": "sha256:479ac7cda5139619ce248c7adfe1cc0397290bcfe6063312dda5805abf1e5f8c",
+                "firstDeployed": "2026-09-16T04:07:58Z",
+                "lastDeployed": "2026-09-16T04:07:58Z",
+                "name": "generation",
+                "namespace": "medw",
+                "status": "deployed",
+                "version": 1
+              }
+            ],
+            "source_sha": "ac50c49d72e93ff94e6d6120512053aabae6cd13",
+            "bundle_sha": "sha256:061a3f4bbbe1e70fa4e6fe1c13cdda30d5d3e8a9e8988178970140f50f0fd139"
+          },
+          "ingestion-worker": {
+            "pods": [
+              {
+                "pod": "ingestion-worker-775f5f5797-zss9b",
+                "uid": "8c0403f4-e4bc-4c49-8c38-e2560f985403",
+                "version": {
+                  "env": "dev",
+                  "service": "ingestion-worker",
+                  "image_sha": "ac50c49d72e93ff94e6d6120512053aabae6cd13",
+                  "chat_deployment": "scripted-chat",
+                  "embed_version": "hash-1",
+                  "prompt_bundle_sha": "sha256:500b813e155a44de5f1b2a229bdea7043c86f03f1baa9b4779bb5e6873279048",
+                  "classifier_version": "placeholder-1",
+                  "image_digest": "sha256:3a08789480eeb488ba06ddacc16e501d3df2682916028fe8e26df5d67efc3558",
+                  "release_bundle_sha": "sha256:061a3f4bbbe1e70fa4e6fe1c13cdda30d5d3e8a9e8988178970140f50f0fd139",
+                  "chat_model_name": "scripted-placeholder",
+                  "chat_model_version": "1",
+                  "embed_model_name": "token-hash",
+                  "embed_model_version": "1",
+                  "deployment_revision": "values-sha256:fe5678c147dd3d84cf3b613f8959c79a0fc47c7c699e24810afc218b9d3cb0e5",
+                  "backend": "azure",
+                  "medical_handlers": "placeholders"
+                },
+                "images": [
+                  "medwdev9528fa20acr.azurecr.io/ingestion-worker@sha256:3a08789480eeb488ba06ddacc16e501d3df2682916028fe8e26df5d67efc3558"
+                ]
+              }
+            ],
+            "helm_history": [
+              {
+                "action": "upgrade",
+                "apiVersion": "v2",
+                "appVersion": "0.1.0",
+                "chartName": "ingestion-worker",
+                "chartVersion": "0.6.0+ac50c49d72e9",
+                "configDigest": "sha256:4bbe9fa3c82820334b8393eaaeba9b26051fddbc191611ffeaa6a9ba863a5246",
+                "digest": "sha256:453ea643def6c91e25afc8ed033d3e1a769edce1564d1e34198330ffcf66c23d",
+                "firstDeployed": "2026-09-16T03:52:22Z",
+                "lastDeployed": "2026-09-16T04:04:24Z",
+                "name": "ingestion-worker",
+                "namespace": "medw",
+                "status": "deployed",
+                "version": 3
+              },
+              {
+                "apiVersion": "v2",
+                "appVersion": "0.1.0",
+                "chartName": "ingestion-worker",
+                "chartVersion": "0.6.0+5a5044a16b79",
+                "configDigest": "sha256:4bbe9fa3c82820334b8393eaaeba9b26051fddbc191611ffeaa6a9ba863a5246",
+                "digest": "sha256:f7eec92f49cfe89343b7018b353422366235affa73d343ecd1e3f8b3e6d53c1b",
+                "firstDeployed": "2026-09-16T03:52:22Z",
+                "lastDeployed": "2026-09-16T04:04:07Z",
+                "name": "ingestion-worker",
+                "namespace": "medw",
+                "status": "superseded",
+                "version": 2
+              }
+            ],
+            "source_sha": "ac50c49d72e93ff94e6d6120512053aabae6cd13",
+            "bundle_sha": "sha256:061a3f4bbbe1e70fa4e6fe1c13cdda30d5d3e8a9e8988178970140f50f0fd139"
+          },
+          "reranker": {
+            "pods": [
+              {
+                "pod": "reranker-66d478b78c-jrlll",
+                "uid": "5fc2ff11-07c0-4d43-878e-beb0fe2c2a36",
+                "version": {
+                  "env": "dev",
+                  "service": "reranker",
+                  "image_sha": "ac50c49d72e93ff94e6d6120512053aabae6cd13",
+                  "chat_deployment": "scripted-chat",
+                  "embed_version": "hash-1",
+                  "prompt_bundle_sha": "sha256:500b813e155a44de5f1b2a229bdea7043c86f03f1baa9b4779bb5e6873279048",
+                  "classifier_version": "placeholder-1",
+                  "image_digest": "sha256:c2844a487b3b3ba718d07833155ff12b553ecbe0460e52011dbcdaefb968c1e8",
+                  "release_bundle_sha": "sha256:061a3f4bbbe1e70fa4e6fe1c13cdda30d5d3e8a9e8988178970140f50f0fd139",
+                  "chat_model_name": "scripted-placeholder",
+                  "chat_model_version": "1",
+                  "embed_model_name": "token-hash",
+                  "embed_model_version": "1",
+                  "deployment_revision": "values-sha256:9c1fa013c7a933ef1f090bb84ed1eee720a19b8bfc60daa361c7b8d10987df40",
+                  "backend": "azure",
+                  "medical_handlers": "placeholders"
+                },
+                "images": [
+                  "medwdev9528fa20acr.azurecr.io/reranker@sha256:c2844a487b3b3ba718d07833155ff12b553ecbe0460e52011dbcdaefb968c1e8"
+                ]
+              }
+            ],
+            "helm_history": [
+              {
+                "action": "upgrade",
+                "apiVersion": "v2",
+                "appVersion": "0.1.0",
+                "chartName": "reranker",
+                "chartVersion": "0.6.0+ac50c49d72e9",
+                "configDigest": "sha256:89c6599d64622d7e235de3f5cff011f91b3a811538c5a142ba05795e58f278ba",
+                "digest": "sha256:8d5dc3c91916f72ec745cb3c329ed5e77bc64df7e455da9dd0403c0330a7b191",
+                "firstDeployed": "2026-09-16T03:47:02Z",
+                "lastDeployed": "2026-09-16T04:04:21Z",
+                "name": "reranker",
+                "namespace": "medw",
+                "status": "deployed",
+                "version": 3
+              },
+              {
+                "apiVersion": "v2",
+                "appVersion": "0.1.0",
+                "chartName": "reranker",
+                "chartVersion": "0.6.0+5a5044a16b79",
+                "configDigest": "sha256:15106a1a2b48e973cac698ca4555959c0b8b7cbc8a5cc0c8e33f875d180937a0",
+                "digest": "sha256:57281752b6219ea315c10d5c52aab2696f96472a951a3c28f347f5a08f2f4f42",
+                "firstDeployed": "2026-09-16T03:47:02Z",
+                "lastDeployed": "2026-09-16T03:52:13Z",
+                "name": "reranker",
+                "namespace": "medw",
+                "status": "superseded",
+                "version": 2
+              }
+            ],
+            "source_sha": "ac50c49d72e93ff94e6d6120512053aabae6cd13",
+            "bundle_sha": "sha256:061a3f4bbbe1e70fa4e6fe1c13cdda30d5d3e8a9e8988178970140f50f0fd139"
+          }
+        },
+        "flux": [
+          {
+            "name": "medwriter-assist",
+            "kind": "GitRepository",
+            "status": {
+              "artifact": {
+                "digest": "sha256:7d368164558af33a6521f839a885d743b0d7b0d4137489e01eba2f00d62f41ba",
+                "lastUpdateTime": "2026-09-16T04:04:06Z",
+                "path": "gitrepository/flux-system/medwriter-assist/d9a6737a05c89b92777876d7fafb4aebd3e3dbd6.tar.gz",
+                "revision": "main@sha1:d9a6737a05c89b92777876d7fafb4aebd3e3dbd6",
+                "size": 709551,
+                "url": "http://source-controller.flux-system.svc.cluster.local./gitrepository/flux-system/medwriter-assist/d9a6737a05c89b92777876d7fafb4aebd3e3dbd6.tar.gz"
+              },
+              "conditions": [
+                {
+                  "lastTransitionTime": "2026-09-16T04:04:06Z",
+                  "message": "stored artifact for revision 'main@sha1:d9a6737a05c89b92777876d7fafb4aebd3e3dbd6'",
+                  "observedGeneration": 1,
+                  "reason": "Succeeded",
+                  "status": "True",
+                  "type": "Ready"
+                },
+                {
+                  "lastTransitionTime": "2026-09-16T04:04:06Z",
+                  "message": "stored artifact for revision 'main@sha1:d9a6737a05c89b92777876d7fafb4aebd3e3dbd6'",
+                  "observedGeneration": 1,
+                  "reason": "Succeeded",
+                  "status": "True",
+                  "type": "ArtifactInStorage"
+                }
+              ],
+              "observedGeneration": 1
+            }
+          },
+          {
+            "name": "medwriter-release-charts",
+            "kind": "GitRepository",
+            "status": {
+              "artifact": {
+                "digest": "sha256:097d419f397ebea491b990f34cb40a07b61daa633230f6c2964f071d817dbdff",
+                "lastUpdateTime": "2026-09-16T04:04:08Z",
+                "path": "gitrepository/flux-system/medwriter-release-charts/ac50c49d72e93ff94e6d6120512053aabae6cd13.tar.gz",
+                "revision": "sha1:ac50c49d72e93ff94e6d6120512053aabae6cd13",
+                "size": 709164,
+                "url": "http://source-controller.flux-system.svc.cluster.local./gitrepository/flux-system/medwriter-release-charts/ac50c49d72e93ff94e6d6120512053aabae6cd13.tar.gz"
+              },
+              "conditions": [
+                {
+                  "lastTransitionTime": "2026-09-16T04:04:08Z",
+                  "message": "stored artifact for revision 'sha1:ac50c49d72e93ff94e6d6120512053aabae6cd13'",
+                  "observedGeneration": 2,
+                  "reason": "Succeeded",
+                  "status": "True",
+                  "type": "Ready"
+                },
+                {
+                  "lastTransitionTime": "2026-09-16T04:04:08Z",
+                  "message": "stored artifact for revision 'sha1:ac50c49d72e93ff94e6d6120512053aabae6cd13'",
+                  "observedGeneration": 2,
+                  "reason": "Succeeded",
+                  "status": "True",
+                  "type": "ArtifactInStorage"
+                }
+              ],
+              "observedGeneration": 2
+            }
+          },
+          {
+            "name": "medw-dev",
+            "kind": "Kustomization",
+            "status": {
+              "conditions": [
+                {
+                  "lastTransitionTime": "2026-09-16T04:09:06Z",
+                  "message": "Applied revision: main@sha1:d9a6737a05c89b92777876d7fafb4aebd3e3dbd6",
+                  "observedGeneration": 1,
+                  "reason": "ReconciliationSucceeded",
+                  "status": "True",
+                  "type": "Ready"
+                }
+              ],
+              "history": [
+                {
+                  "digest": "sha256:88628df2ad0e3b8ee93b91b5353e191550e037834b7d00cbf8f170d19af1b48a",
+                  "firstReconciled": "2026-09-16T04:04:07Z",
+                  "lastReconciled": "2026-09-16T04:09:06Z",
+                  "lastReconciledDuration": "339.810463ms",
+                  "lastReconciledStatus": "ReconciliationSucceeded",
+                  "metadata": {
+                    "revision": "main@sha1:d9a6737a05c89b92777876d7fafb4aebd3e3dbd6"
+                  },
+                  "totalReconciliations": 6
+                },
+                {
+                  "digest": "sha256:f7c3d404aa7a20e6a6cbd5d9df919e346de324f28c9c6e3bc182c0c5c8990c31",
+                  "firstReconciled": "2026-09-16T03:51:04Z",
+                  "lastReconciled": "2026-09-16T04:03:07Z",
+                  "lastReconciledDuration": "336.443563ms",
+                  "lastReconciledStatus": "ReconciliationSucceeded",
+                  "metadata": {
+                    "revision": "main@sha1:ac50c49d72e93ff94e6d6120512053aabae6cd13"
+                  },
+                  "totalReconciliations": 13
+                },
+                {
+                  "digest": "sha256:4dc883bd339daae216f7bb60f078b69a932be4c40638c252fa1720ef3f0d0cb4",
+                  "firstReconciled": "2026-09-16T03:47:00Z",
+                  "lastReconciled": "2026-09-16T03:50:56Z",
+                  "lastReconciledDuration": "345.979048ms",
+                  "lastReconciledStatus": "ReconciliationSucceeded",
+                  "metadata": {
+                    "revision": "main@sha1:cda5f540b2bac76d96d968a9c02d28f6bda8c4fd"
+                  },
+                  "totalReconciliations": 5
+                }
+              ],
+              "inventory": {
+                "entries": [
+                  {
+                    "id": "_medw__Namespace",
+                    "v": "v1"
+                  },
+                  {
+                    "id": "medw_gateway_helm.toolkit.fluxcd.io_HelmRelease",
+                    "v": "v2"
+                  },
+                  {
+                    "id": "medw_generation_helm.toolkit.fluxcd.io_HelmRelease",
+                    "v": "v2"
+                  },
+                  {
+                    "id": "medw_ingestion-worker_helm.toolkit.fluxcd.io_HelmRelease",
+                    "v": "v2"
+                  },
+                  {
+                    "id": "medw_qdrant_helm.toolkit.fluxcd.io_HelmRelease",
+                    "v": "v2"
+                  },
+                  {
+                    "id": "medw_reranker_helm.toolkit.fluxcd.io_HelmRelease",
+                    "v": "v2"
+                  },
+                  {
+                    "id": "medw_retrieval_helm.toolkit.fluxcd.io_HelmRelease",
+                    "v": "v2"
+                  },
+                  {
+                    "id": "flux-system_medwriter-assist_source.toolkit.fluxcd.io_GitRepository",
+                    "v": "v1"
+                  },
+                  {
+                    "id": "flux-system_medwriter-release-charts_source.toolkit.fluxcd.io_GitRepository",
+                    "v": "v1"
+                  }
+                ]
+              },
+              "lastAppliedRevision": "main@sha1:d9a6737a05c89b92777876d7fafb4aebd3e3dbd6",
+              "lastAttemptedRevision": "main@sha1:d9a6737a05c89b92777876d7fafb4aebd3e3dbd6",
+              "observedGeneration": 1
+            }
+          }
+        ]
+      },
+      "ready_at": "2026-09-16T04:09:53.740833+00:00",
+      "initial_release_ready": true,
+      "qdrant": {
+        "helm_conditions": [
+          {
+            "lastTransitionTime": "2026-09-16T04:04:21Z",
+            "message": "Helm upgrade succeeded for release medw/qdrant.v2 with chart qdrant@0.3.1+ac50c49d72e9",
+            "observedGeneration": 2,
+            "reason": "UpgradeSucceeded",
+            "status": "True",
+            "type": "Ready"
+          },
+          {
+            "lastTransitionTime": "2026-09-16T04:04:21Z",
+            "message": "Helm upgrade succeeded for release medw/qdrant.v2 with chart qdrant@0.3.1+ac50c49d72e9",
+            "observedGeneration": 2,
+            "reason": "UpgradeSucceeded",
+            "status": "True",
+            "type": "Released"
+          }
+        ],
+        "history": [
+          {
+            "action": "upgrade",
+            "apiVersion": "v2",
+            "appVersion": "1.19.0",
+            "chartName": "qdrant",
+            "chartVersion": "0.3.1+ac50c49d72e9",
+            "configDigest": "sha256:61e514019755b2bf808d7fc80f2d26a2752421d95c03ec997c04f31a7d9cbab7",
+            "digest": "sha256:7ce67d11817405d109a6f17b9762c1f58b52160b983d331e30912d9228191057",
+            "firstDeployed": "2026-09-16T03:47:54Z",
+            "lastDeployed": "2026-09-16T04:04:20Z",
+            "name": "qdrant",
+            "namespace": "medw",
+            "status": "deployed",
+            "version": 2
+          },
+          {
+            "apiVersion": "v2",
+            "appVersion": "1.19.0",
+            "chartName": "qdrant",
+            "chartVersion": "0.3.1+5a5044a16b79",
+            "configDigest": "sha256:622ebb7ddd4790adbc6de9ab17ac21e5c713d9f298b885300bdff33903373673",
+            "digest": "sha256:796c7a60fa766562fe7b26087848b69517572e773c4af7bfbeb70be211bf11a7",
+            "firstDeployed": "2026-09-16T03:47:54Z",
+            "lastDeployed": "2026-09-16T03:47:54Z",
+            "name": "qdrant",
+            "namespace": "medw",
+            "status": "superseded",
+            "version": 1
+          }
+        ],
+        "pvc": {
+          "name": "storage-qdrant-0",
+          "uid": "5c9c5f50-17ea-4d4d-bb37-0eb5fa9a4ba5",
+          "volume_name": "pvc-5c9c5f50-17ea-4d4d-bb37-0eb5fa9a4ba5",
+          "storage_class": "managed-csi",
+          "status": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "capacity": {
+              "storage": "8Gi"
+            },
+            "phase": "Bound"
+          }
+        }
+      },
+      "public_access": {
+        "version": {
+          "status": 200,
+          "identity": {
+            "env": "dev",
+            "service": "gateway",
+            "image_sha": "5a5044a16b7982af5f792da331a7f5d8744463cd",
+            "chat_deployment": "scripted-chat",
+            "embed_version": "hash-1",
+            "prompt_bundle_sha": "sha256:500b813e155a44de5f1b2a229bdea7043c86f03f1baa9b4779bb5e6873279048",
+            "classifier_version": "placeholder-1",
+            "image_digest": "sha256:da125f13b75c291fcb2fbcf4e6346bab49621a1304a81c4e18081bf12a5a201a",
+            "release_bundle_sha": "sha256:18035473e8ff9918c73243625f86be595d6ce28ed85bdfc9b26a498766a268b1",
+            "chat_model_name": "scripted-placeholder",
+            "chat_model_version": "1",
+            "embed_model_name": "token-hash",
+            "embed_model_version": "1",
+            "deployment_revision": "values-sha256:b97d995b4ea71d47356577c57f3b5a363375cf80688057c997dde75a7d6eafe9",
+            "backend": "azure",
+            "medical_handlers": "placeholders"
+          }
+        },
+        "missing_auth": {
+          "status": 401
+        },
+        "authenticated_documents": {
+          "status": 200,
+          "document_count": 0
+        }
+      },
+      "binary_upload_ingestion": {
+        "correlation_id": "50e30ae66922458eb7e0f4e24b47fb1d",
+        "input": {
+          "sha256": "7086df7831377b0641f0c784a6271782c4fd0cc8c8c37ccbae06d59bf2853288",
+          "size_bytes": 1093
+        },
+        "passed": true,
+        "registration_status": 201,
+        "upload_id": "dbdbd46f135a4a4882a43bdc0507fef5",
+        "doc_id": "azure-binary-source",
+        "blob_upload_status": 201,
+        "submission_status": 202,
+        "job_id": "c9a16d863fb7498c4d8fd4447f05be7ac843168805e3bb5e7a9d38fae35c3590",
+        "job_state": "done",
+        "checkpoints": {
+          "extracting": "sha256:e466d9f356c2455b7fabb85163581c7d2c15f1f6901b62ae11ee4e0cae40e7bf",
+          "classifying": "sha256:9601f59744922fd2430686a40237a0cc8f0b09c0471f0e29e7e3ca303e4a7b33",
+          "chunking": "sha256:b6cfcabfc28c2872a5bd22d0707796b38504fa3b40c0bf4ca4d0bee5b18df593",
+          "annotating": "sha256:e4acaad639a0fbb4b33ba1c28f68e0be6c3f0eb2d8fd1b2ed876e42fefa8559c",
+          "embedding": "sha256:f9b31ebb9c7023e6db2216303b0232263227fb216807a02109f74ff67d079431",
+          "indexing": "sha256:99e2cc1bf8711f8c1bd56aebbc8b2564b353f45495c956fb69cf76c7dd1eb1a9"
+        },
+        "last_error": "Conflict",
+        "source_revision": "599061637fa41ca61dd19dddd7857e212e0de289fbf50de1f46df0940bc81847"
+      },
+      "preservation": {
+        "timestamp": "2026-09-16T04:18:44.647140+00:00",
+        "borrowed": {
+          "search": {
+            "settings_unchanged": true,
+            "settings": {
+              "id": "/subscriptions/f60eae2b-d738-4d0e-8096-9f3f952e0cea/resourceGroups/med-rag-tester/providers/Microsoft.Search/searchServices/medrag325744d5search",
+              "location": "Australia East",
+              "sku": {
+                "capacity": null,
+                "family": null,
+                "model": null,
+                "name": "free",
+                "size": null,
+                "tier": null
+              },
+              "properties": {
+                "authOptions": {
+                  "aadOrApiKey": {
+                    "aadAuthFailureMode": "http401WithBearerChallenge"
+                  }
+                },
+                "disableLocalAuth": false,
+                "networkRuleSet": {
+                  "bypass": "None",
+                  "ipRules": []
+                },
+                "publicNetworkAccess": "Enabled"
+              }
+            },
+            "indexes": [],
+            "namespaces_unchanged": true
+          },
+          "cosmos": {
+            "settings_unchanged": true,
+            "settings": {
+              "id": "/subscriptions/f60eae2b-d738-4d0e-8096-9f3f952e0cea/resourceGroups/med-rag-tester/providers/Microsoft.DocumentDB/databaseAccounts/medrag325744d5cosmos",
+              "location": "Australia East",
+              "sku": null,
+              "properties": {
+                "capabilities": [],
+                "consistencyPolicy": {
+                  "defaultConsistencyLevel": "Session",
+                  "maxIntervalInSeconds": 5,
+                  "maxStalenessPrefix": 100
+                },
+                "databaseAccountOfferType": "Standard",
+                "disableLocalAuth": false,
+                "enableFreeTier": true,
+                "ipRules": [],
+                "isVirtualNetworkFilterEnabled": false,
+                "locations": [
+                  {
+                    "documentEndpoint": "https://medrag325744d5cosmos-australiaeast.documents.azure.com:443/",
+                    "failoverPriority": 0,
+                    "id": "medrag325744d5cosmos-australiaeast",
+                    "isZoneRedundant": false,
+                    "locationName": "Australia East",
+                    "provisioningState": "Succeeded"
+                  }
+                ],
+                "minimalTlsVersion": "Tls12",
+                "publicNetworkAccess": "Enabled"
+              }
+            },
+            "databases": [],
+            "namespaces_unchanged": true,
+            "owned_roles_remaining": []
+          }
+        },
+        "local": {
+          "profile": "medw",
+          "status": {
+            "Name": "medw",
+            "Host": "Stopped",
+            "Kubelet": "Stopped",
+            "APIServer": "Stopped",
+            "Kubeconfig": "Stopped",
+            "Worker": false
+          },
+          "driver": "docker",
+          "cpus": 4,
+          "memory_mb": 8192
+        }
+      },
+      "full_cloud_acceptance": "not_run_user_requested_stop_after_initial_deployment",
+      "outstanding_cloud_checks": [
+        "full retrieval/reranking/streamed draft/SQL acceptance workflow",
+        "worker restart and interrupted publication recovery",
+        "Qdrant pod replacement and Blob snapshot restore",
+        "correlated Application Insights traces and request-driven scaling",
+        "release B, rollback, and deliberate failed-deployment remediation"
+      ],
+      "cleanup": {
+        "remaining_or_failed": [],
+        "complete": true,
+        "borrowed_accounts_preserved": true
+      },
+      "cleanup_remediation": {
+        "operations": [
+          {
+            "resource": "cosmos-assignment-gateway-documents",
+            "deleted": true
+          },
+          {
+            "resource": "cosmos-assignment-gateway-sessions",
+            "deleted": true
+          },
+          {
+            "resource": "cosmos-assignment-retrieval-platform-state",
+            "deleted": true
+          },
+          {
+            "resource": "cosmos-assignment-generation-platform-state",
+            "deleted": true
+          },
+          {
+            "resource": "cosmos-assignment-ingestion-worker-platform-state",
+            "deleted": true
+          },
+          {
+            "resource": "cosmos-assignment-ingestion-worker-documents",
+            "deleted": true
+          },
+          {
+            "resource": "cosmos-role-evidence-appender",
+            "deleted": true
+          },
+          {
+            "resource": "cosmos-role-platform-writer",
+            "deleted": true
+          },
+          {
+            "resource": "azure-service-connection",
+            "deleted": true
+          }
+        ]
+      },
+      "resource_removal": {
+        "timestamp": "2026-09-16T04:20:39.184138+00:00",
+        "owned_group_exists": false,
+        "owned_group_state": null,
+        "managed_node_group_exists": false,
+        "remaining_resources": []
+      }
     }
   },
   "documentation_cleanup": {

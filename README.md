@@ -27,14 +27,22 @@ test JWTs. It does not establish Azure storage, Entra, SQL, pipeline or AKS beha
 
 A separate real SQL Server container exercise passed the five migrations,
 idempotent indexing audit, draft persistence and acceptance. Runtime principals
-were denied audit updates and deletes. Azure SQL authentication remains part of
-cloud commissioning.
+were denied audit updates and deletes. Azure SQL authentication was subsequently
+exercised during cloud commissioning.
 
-Azure commissioning uses the normal `dev` configuration and the deployment tools
-below. A successful cloud acceptance report must demonstrate the actual Azure
-services and release transitions; an implemented command or rendered manifest
-alone does not meet that requirement. Current run results and outstanding
-commissioning checks are recorded in the verification JSON.
+Initial Azure commissioning succeeded on 16 September 2026. Azure Pipelines run 6
+built, tested, published and selected the release; Flux brought all five services
+and Qdrant to Ready. Real Entra-authenticated HTTPS requests passed, an
+unauthenticated request was rejected, and a binary file uploaded directly to Blob
+completed durable ingestion and indexing. Azure SQL initialization and federated
+pipeline migrations also passed. The latest local checks passed 334 tests.
+
+Work stopped at the user's request after that initial deployment, followed by
+teardown. Full cloud acceptance is still outstanding: the complete streamed
+draft/acceptance workflow, recovery, backup restore, correlated traces, scaling,
+release B, rollback and deliberate failed-deployment remediation were not run.
+Local proofs do not substitute for those Azure checks. Recorded resource and
+release identities, observed checks and cleanup results are in the verification JSON.
 
 The existing `medw` minikube installation and its persistent volumes are preserved.
 Its application images remain pinned to the earlier NGINX cutover release
@@ -289,6 +297,9 @@ ACR Basic, a small SQL database, one Qdrant replica and small disks. Application
 scaling is capped at two replicas. Pinned NGINX, Flux, KEDA and Prometheus are
 installed; bounded telemetry goes to Application Insights. Azure OpenAI, Document
 Intelligence, Language, Azure ML and Container Apps are omitted.
+Application CPU reservations total 700 millicores for the installed placeholders,
+leaving room for platform components, rollout and recovery jobs on the one node.
+Real models will need their own resource sizing.
 
 Compatible free Search/Cosmos accounts can be borrowed through resource IDs,
 including another accessible subscription. Their account-wide settings and
@@ -305,6 +316,9 @@ retries; missing or stale prices block provisioning.
 Azure SQL uses an Entra administrator for initial schema/principal setup. The
 pipeline uses a separate federated deployment identity; workloads use separate
 managed identities. SQL Proxy policy matches allowed TCP 1433 egress.
+The delivery user's explicit SQL SID uses its application/client ID; runtime
+users are resolved with `FROM EXTERNAL PROVIDER`. Commissioning corrected an
+object-ID/client-ID mismatch in the former, with a rerunnable repair checkpoint.
 For this initial exercise, the SQL firewall permits Azure-origin connections
 using `AllowAzureServices`; Entra authentication and SQL grants still control
 access. This is broader than a private endpoint or a fixed outbound-IP allowlist.
@@ -411,6 +425,8 @@ configurations and the pinned NGINX controller contract. It needs network access
 to fetch the official controller chart. Tests include signed JWTs, forged identity
 rejection, lease/checkpoint races, interrupted dual-index publication, immutable
 evidence, audit failure, specific draft acceptance and retained revisions.
+Image smoke tests also enable telemetry against loopback endpoints; this catches
+missing Azure Monitor packages without sending test telemetry to Azure.
 
 [docs/verification.json](docs/verification.json) retains historical real SQL,
 Qdrant backup/restore, enforced NetworkPolicy, Flux rollout/rollback and KEDA

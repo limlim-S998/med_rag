@@ -291,8 +291,10 @@ def test_lost_cosmos_create_response_is_cleaned_without_secret_evidence(monkeypa
 
     def command(*args, **kwargs):
         calls.append(args)
-        if args[:5] == ("cosmosdb", "sql", "role", "assignment", "delete") and cleanup_fails:
-            raise azure.SetupError("Bearer secret-token-was-echoed")
+        if args[:5] == ("cosmosdb", "sql", "role", "assignment", "delete"):
+            assert "--yes" in args
+            if cleanup_fails:
+                raise azure.SetupError("Bearer secret-token-was-echoed")
 
     monkeypatch.setattr(deployment, "account", lambda: None)
     monkeypatch.setattr(azure, "az", command)
