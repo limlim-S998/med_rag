@@ -209,3 +209,36 @@ def test_preflight_does_not_probe_incomplete_devops_configuration(monkeypatch, t
     monkeypatch.setattr(deployment, "probe_build", lambda: pytest.fail("must not queue CI"))
     with pytest.raises(azure.SetupError, match="organization"):
         deployment._devops_preflight()
+
+
+def test_recent_same_region_price_quote_is_reused(monkeypatch, tmp_path):
+    deployment = azure.Deployment(config(), root=tmp_path)
+    quote = {kind: {"hourly_aud": 0.1} for kind in
+             ("node", "registry", "sql", "disk", "load_balancer", "public_ip")}
+    azure.write_private(deployment.directory / "retail-prices.json", json.dumps({
+        "location": deployment.config["location"], "currency": "AUD",
+        "source": "https://prices.azure.com/api/retail/prices",
+        "fetched_at": azure.dt.datetime.now(azure.dt.UTC).isoformat(), "quotes": quote}))
+    monkeypatch.setattr(azure, "retail_prices", lambda _: pytest.fail("unnecessary retail API request"))
+    assert deployment._cost()["estimated_aud"] == 8.2
+
+
+def test_retail_rate_limit_retries_get_without_repeating_mutations(monkeypatch):
+    import io
+    attempts = []
+
+    def request(*args, **kwargs):
+        attempts.append(True)
+        if len(attempts) < 2:
+            raise azure.urllib.error.HTTPError("https://prices.example", 429, "slow down",
+                                               {"Retry-After": "1"}, None)
+        return io.BytesIO(b'{"Items": []}')
+
+    monkeypatch.setattr(azure.urllib.request, "urlopen", request)
+    monkeypatch.setattr(azure.time, "sleep", lambda _: None)
+    assert azure.http_json("https://prices.example") == {"Items": []}
+    assert len(attempts) == 2
+    attempts.clear()
+    with pytest.raises(azure.SetupError, match="HTTP 429"):
+        azure.http_json("https://prices.example", method="POST", body={})
+    assert len(attempts) == 1

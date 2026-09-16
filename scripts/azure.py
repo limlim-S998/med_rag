@@ -15,6 +15,7 @@ import datetime as dt
 import fnmatch
 import hashlib
 import json
+import math
 import os
 import pathlib
 import re
@@ -90,13 +91,22 @@ def http_json(url: str, *, token: str = "", method: str = "GET", body: Any = Non
         headers["Authorization"] = ("Basic " if basic else "Bearer ") + token
     request = urllib.request.Request(url, headers=headers, method=method,
                                      data=None if body is None else json.dumps(body).encode())
-    try:
-        with urllib.request.urlopen(request, timeout=45) as response:
-            raw = response.read()
-            return json.loads(raw) if raw else {}
-    except urllib.error.HTTPError as exc:
-        # Do not leak HTTP request headers, tokens, or secret-bearing responses.
-        raise SetupError(f"{method} {urllib.parse.urlsplit(url).path}: HTTP {exc.code}") from exc
+    for attempt in range(4):
+        try:
+            with urllib.request.urlopen(request, timeout=45) as response:
+                raw = response.read()
+                return json.loads(raw) if raw else {}
+        except urllib.error.HTTPError as exc:
+            if method == "GET" and exc.code == 429 and attempt < 3:
+                try:
+                    delay = float(exc.headers.get("Retry-After", 5 * 2 ** attempt))
+                except (TypeError, ValueError):
+                    delay = 5 * 2 ** attempt
+                time.sleep(max(1, min(delay, 60)))
+                continue
+            # Do not leak HTTP request headers, tokens, or secret-bearing responses.
+            raise SetupError(f"{method} {urllib.parse.urlsplit(url).path}: HTTP {exc.code}") from exc
+    raise SetupError("HTTP retry budget exhausted")
 
 
 def write_private(path: pathlib.Path, content: str) -> None:
@@ -606,7 +616,28 @@ class Deployment:
                         run(["git", "-C", str(checkout), "push", "origin", "--delete", branch])
 
     def _cost(self):
-        cost = estimate_cost(retail_prices(self.config["location"]), self.config["hours"])
+        path = self.directory / "retail-prices.json"
+        source = "https://prices.azure.com/api/retail/prices"
+        try:
+            cache = json.loads(path.read_text()) if path.exists() else {}
+            fetched_at = dt.datetime.fromisoformat(cache["fetched_at"]) if cache.get("fetched_at") else None
+            age = (dt.datetime.now(dt.UTC) - fetched_at).total_seconds() if fetched_at else -1
+            valid_quotes = all(math.isfinite(float(cache["quotes"][key]["hourly_aud"]))
+                               and float(cache["quotes"][key]["hourly_aud"]) > 0
+                               for key in ("node", "registry", "sql", "disk", "load_balancer", "public_ip"))
+        except (KeyError, TypeError, ValueError):
+            cache, age, valid_quotes = {}, -1, False
+        if (cache.get("location") != self.config["location"] or cache.get("currency") != "AUD"
+                or cache.get("source") != source or not valid_quotes or not 0 <= age <= 86400):
+            quotes = retail_prices(self.config["location"])
+            if not all(math.isfinite(row["hourly_aud"]) and row["hourly_aud"] > 0 for row in quotes.values()):
+                raise SetupError("Retail price response contains an invalid/nonpositive hourly quote")
+            cache = {"location": self.config["location"], "currency": "AUD", "source": source,
+                     "fetched_at": dt.datetime.now(dt.UTC).isoformat(), "quotes": quotes}
+            write_private(path, json.dumps(cache, indent=2))
+            age = 0
+        cost = estimate_cost(cache["quotes"], self.config["hours"])
+        cost.update(quoted_at=cache["fetched_at"], quote_age_seconds=round(age), price_source=source)
         if cost["estimated_aud"] > self.config["budget_aud"]:
             raise SetupError(f"Estimated AUD {cost['estimated_aud']} exceeds configured "
                              f"AUD {self.config['budget_aud']}; shorten the exercise")
