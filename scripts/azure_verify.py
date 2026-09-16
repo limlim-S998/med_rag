@@ -94,10 +94,11 @@ def complete_trace_rows(table):
 
 
 class Acceptance:
-    def __init__(self, deployment, *, file=None, token=None, workflow=None):
+    def __init__(self, deployment, *, file=None, token=None, token_provider=None, workflow=None):
         self.d = deployment
         self.file = pathlib.Path(file) if file else self.d.directory / "acceptance-source.txt"
         self.token = token or os.getenv("MEDW_DEMO_TOKEN", "")
+        self.token_provider = token_provider
         self.workflow = workflow
         self.base = "https://" + self.d.state["hostname"]
         self.ca = self.d.directory / "tls/server.crt"
@@ -118,6 +119,7 @@ class Acceptance:
         print(f"Azure acceptance: {name}", flush=True)
         started = time.monotonic()
         try:
+            self.refresh_token()
             result = action()
             self.report["checks"][name] = {"status": "passed", "evidence": result}
             return result
@@ -129,6 +131,12 @@ class Acceptance:
         finally:
             self.report["checks"][name]["elapsed_seconds"] = round(time.monotonic() - started, 2)
             self.save()
+
+    def refresh_token(self):
+        if self.token_provider:
+            self.token = self.token_provider()
+            if not self.token:
+                raise RuntimeError("API token refresh returned no credential")
 
     @contextlib.contextmanager
     def forward(self, namespace, resource, remote_port):
@@ -159,10 +167,24 @@ class Acceptance:
         return self.d.kube("-n", "medw", "get", "pods", "-l", "app=" + service,
                            "-o", "json", json_result=True)["items"]
 
-    def ready_releases(self):
-        self.d.kube("-n", "medw", "wait", "helmrelease", "--all",
-                    "--for=condition=Ready", "--timeout=15m")
-        releases = self.d.kube("-n", "medw", "get", "helmreleases", "-o", "json", json_result=True)
+    def ready_releases(self, expected_bundle=None):
+        def settled():
+            releases = self.d.kube("-n", "medw", "get", "helmreleases", "-o", "json", json_result=True)
+            names = {item["metadata"]["name"] for item in releases["items"]}
+            if not set(SERVICES) <= names:
+                return None
+            for release in releases["items"]:
+                if not any(c["type"] == "Ready" and c["status"] == "True" and
+                           c.get("observedGeneration") == release["metadata"]["generation"]
+                           for c in release.get("status", {}).get("conditions", [])):
+                    return None
+                if expected_bundle and release["metadata"]["name"] in SERVICES:
+                    bundle = release["spec"].get("values", {}).get("config", {}).get("release_bundle_sha")
+                    if bundle != expected_bundle:
+                        return None
+            return releases
+        releases = await_value(settled, timeout=900, interval=5,
+                               label="all Helm releases ready at their selected revisions")
         evidence = {}
         for service in SERVICES:
             pods = self.pods(service)
@@ -211,6 +233,8 @@ class Acceptance:
         return statuses
 
     def application(self, *, on_submitted=None):
+        # A release build can take longer than the previous access token's life.
+        self.refresh_token()
         if not self.token:
             raise NotVerified("MEDW_DEMO_TOKEN is required for real authenticated API verification")
         if self.workflow is None:
@@ -718,7 +742,7 @@ asyncio.run(read())
                 c.get("observedGeneration") == release["metadata"]["generation"]
                 for c in release.get("status", {}).get("conditions", []))
         await_value(selected, timeout=900, interval=15, label="Flux/Helm release selection " + expected[:18])
-        return self.ready_releases()
+        return self.ready_releases(expected_bundle=expected)
 
     def failed_deployment(self):
         original = {}
@@ -815,8 +839,6 @@ asyncio.run(read())
             return {"initial": initial, "release_b": upgraded, "pipeline_run": pipeline,
                     "marker_source_sha": changed, "audits": after, "failed_deployment": failure}
         finally:
-            self.select_release(bundle)
-            self.report["rollback"] = self.await_release(bundle_sha)
             # Keep normal source at the pre-exercise prompt; the following source
             # release should not inadvertently reintroduce a verification marker.
             def restore_prompt(work):
@@ -824,9 +846,15 @@ asyncio.run(read())
                 content = target.read_text()
                 target.write_text(content.replace("\n" + marker + "\n", ""))
                 return [target]
-            self.publish_change(restore_prompt, "verify: remove acceptance prompt marker [skip ci]")
-            if self.audit_rows([first["draft"]["draft_id"]]) != before:
-                raise AssertionError("release A audit changed during rollback")
+            try:
+                self.select_release(bundle)
+                self.report["rollback"] = self.await_release(bundle_sha)
+            finally:
+                try:
+                    self.publish_change(restore_prompt, "verify: remove acceptance prompt marker [skip ci]")
+                finally:
+                    if self.audit_rows([first["draft"]["draft_id"]]) != before:
+                        raise AssertionError("release A audit changed during rollback")
 
     def run(self):
         self.check("release_readiness", self.ready_releases)
@@ -846,5 +874,5 @@ asyncio.run(read())
         return self.report
 
 
-def verify(deployment, file=None, token=None, *, workflow=None):
-    return Acceptance(deployment, file=file, token=token, workflow=workflow).run()
+def verify(deployment, file=None, token=None, *, token_provider=None, workflow=None):
+    return Acceptance(deployment, file=file, token=token, token_provider=token_provider, workflow=workflow).run()

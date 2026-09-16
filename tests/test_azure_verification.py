@@ -22,7 +22,92 @@ def collector(tmp_path):
     value.report = {"checks": {}, "passed": False}
     value.run_id = "1234567890"
     value.completed_workflows = []
+    value.token_provider = None
     return value
+
+
+def test_authentication_refreshes_between_checks_and_after_release_build(tmp_path):
+    value = collector(tmp_path)
+    credentials = iter(["first-private-token", "refreshed-private-token"])
+    value.token_provider = lambda: next(credentials)
+    value.check("before_build", lambda: {"observed": True})
+    assert value.token == "first-private-token"
+    value.base, value.ca, value.file = "https://api.invalid", tmp_path / "ca", tmp_path / "input"
+    value.d.config = {"study_id": "study", "section_path": "section"}
+
+    def workflow(**kwargs):
+        assert kwargs["token"] == "refreshed-private-token"
+        return {"checks": {"completed": True}}
+
+    value.workflow = workflow
+    value.application()
+    assert "private-token" not in (tmp_path / "acceptance.json").read_text()
+
+
+@pytest.mark.parametrize("rollback_failure", ["selection", "readiness"])
+def test_release_prompt_cleanup_survives_failed_rollback(tmp_path, monkeypatch, rollback_failure):
+    import contextlib
+
+    value = collector(tmp_path)
+    bundle = {"bundle_sha": "sha256:original"}
+    selected = tmp_path / "deploy/releases/original.json"
+    selected.parent.mkdir(parents=True)
+    selected.write_text(json.dumps(bundle))
+    prompt = tmp_path / "services/generation/app/prompts/section_draft.md"
+    prompt.parent.mkdir(parents=True)
+    prompt.write_text("Original prompt\n")
+    value.completed_workflows = [{"draft": {"draft_id": "first"}}]
+    monkeypatch.setattr(value, "ready_releases", lambda: {
+        "services": {"generation": {"bundle_sha": bundle["bundle_sha"]}}})
+    monkeypatch.setattr(value, "checkout", lambda: contextlib.nullcontext(tmp_path))
+    monkeypatch.setattr(value, "application", lambda: value.completed_workflows[0])
+    audit_reads = []
+
+    def audit(events):
+        audit_reads.append(events)
+        return [{"event_id": "first"}]
+
+    monkeypatch.setattr(value, "audit_rows", audit)
+    monkeypatch.setattr(value, "publish_change", lambda transform, message: transform(tmp_path) and "source")
+
+    def fail(*args):
+        raise RuntimeError("simulated operational failure")
+
+    value.d.queue_release = fail
+    monkeypatch.setattr(value, "select_release", fail if rollback_failure == "selection" else lambda _: None)
+    monkeypatch.setattr(value, "await_release", fail)
+    with pytest.raises(RuntimeError):
+        value.release_cycle()
+    assert prompt.read_text() == "Original prompt\n"
+    assert len(audit_reads) == 2
+
+
+def test_all_release_revisions_must_settle_before_reading_pod_identities(tmp_path, monkeypatch):
+    value = collector(tmp_path)
+    snapshots = 0
+
+    def kube(*args, **kwargs):
+        nonlocal snapshots
+        if "helmreleases" in args:
+            snapshots += 1
+            return {"items": [{"metadata": {"name": name, "generation": 2},
+                "spec": {"values": {"image": {"digest": "sha256:image", "sourceSha": "source"},
+                                    "config": {"release_bundle_sha": "selected"}}},
+                "status": {"conditions": [{"type": "Ready", "status": "True", "observedGeneration":
+                    1 if snapshots == 1 and name == "retrieval" else 2}]}}
+                for name in SERVICES]}
+        if "exec" in args:
+            assert snapshots == 2
+            return json.dumps({"image_digest": "sha256:image", "image_sha": "source"})
+        return {"items": []}
+
+    value.d.kube = kube
+    monkeypatch.setattr("scripts.azure_verify.time.sleep", lambda _: None)
+    monkeypatch.setattr(value, "pods", lambda name: [{"metadata": {"name": name, "uid": name},
+        "status": {"conditions": [{"type": "Ready", "status": "True"}],
+                   "containerStatuses": [{"imageID": "registry@sha256:image"}]}}])
+    result = value.ready_releases(expected_bundle="selected")
+    assert set(result["services"]) == set(SERVICES)
 
 
 def test_failed_and_missing_observations_never_pass_or_leak_credentials(tmp_path):

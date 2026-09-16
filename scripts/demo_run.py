@@ -114,9 +114,26 @@ def workflow(base_url: str, file: str | pathlib.Path, study: str, section: str,
     return evidence
 
 
-def acquire_token(state: dict, cache_file: pathlib.Path | None = None) -> str:
-    """Public-client login with an optional private, local MSAL token cache."""
+def acquire_token(state: dict, cache_file: pathlib.Path | None = None, *,
+                  minimum_validity_seconds: int = 900) -> str:
+    """Return an API token with enough lifetime for the next bounded operation.
+
+    MSAL reports remaining lifetime, including for cache hits. Refresh an
+    almost-expired token before starting work; never expose credentials in
+    diagnostics or treat a locally decoded JWT as authentication evidence.
+    """
     import msal
+    if minimum_validity_seconds < 0:
+        raise ValueError("minimum token validity must not be negative")
+
+    def valid_for_operation(result):
+        if not result or not result.get("access_token"):
+            return False
+        try:
+            return int(result["expires_in"]) >= minimum_validity_seconds
+        except (KeyError, TypeError, ValueError):
+            return False
+
     applications = state["applications"]
     cache = msal.SerializableTokenCache()
     if cache_file and cache_file.exists():
@@ -132,7 +149,9 @@ def acquire_token(state: dict, cache_file: pathlib.Path | None = None) -> str:
             if expected_user and account.get("local_account_id") != expected_user:
                 continue
             result = client.acquire_token_silent(scopes, account=account)
-            if result and "access_token" in result:
+            if result and "access_token" in result and not valid_for_operation(result):
+                result = client.acquire_token_silent(scopes, account=account, force_refresh=True)
+            if valid_for_operation(result):
                 return result["access_token"]
         method = state["config"].get("api_login_method", "browser")
         if method == "browser":
@@ -155,6 +174,8 @@ def acquire_token(state: dict, cache_file: pathlib.Path | None = None) -> str:
             raise ValueError("api_login_method must be browser or device")
         if "access_token" not in result:
             raise RuntimeError("API sign-in failed: " + result.get("error", "unknown"))
+        if not valid_for_operation(result):
+            raise RuntimeError("API token lifetime is insufficient for the requested operation")
         return result["access_token"]
     finally:
         if cache_file and cache.has_state_changed:

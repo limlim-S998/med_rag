@@ -524,10 +524,10 @@
       "scope": "Disposable minikube with enforced Calico and F5 NGINX, unversioned development images before the final extraction/classifier interface wiring. Routing, authentication and SQL contracts are unchanged by that later wiring, which has separate final Docker proof. Original medw installation preserved; not Azure."
     },
     "application-workflow-checks": {
-      "recorded_at": "2026-09-16T02:39:33.873027+00:00",
-      "scope": "Application and Azure commissioning source including the Qdrant 1.19 snapshot/recovery fix; separate actual container/SQL/NGINX proofs identify their artifacts.",
+      "recorded_at": "2026-09-16T02:45:32.028291+00:00",
+      "scope": "Application and Azure commissioning source including Qdrant 1.19 recovery, expiring-token refresh, current-release readiness and interrupted cleanup fixes; actual container/SQL/NGINX proofs identify their artifacts.",
       "result": "passed",
-      "pytest_passed": 314,
+      "pytest_passed": 328,
       "ruff": "passed",
       "mypy_files": 49,
       "import_contracts_kept": 6,
