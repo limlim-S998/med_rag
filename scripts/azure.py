@@ -56,6 +56,16 @@ def evidence_error(exc: Exception) -> dict:
     return result
 
 
+def helm_apply_options(version: str) -> list[str]:
+    """Preserve AKS-injected webhook selectors when rerunning platform setup."""
+    match = re.match(r"v?(\d+)\.", version.strip())
+    if not match:
+        raise SetupError("Cannot determine Helm major version")
+    # Helm 3 uses a three-way client merge. Helm 4 defaults to server apply,
+    # which conflicts with fields owned by AKS admissionsenforcer on reruns.
+    return ["--server-side=false"] if int(match[1]) >= 4 else []
+
+
 def run(args: list[str], *, payload: str | None = None, env: dict | None = None,
         json_result: bool = False, missing_ok: bool = False) -> Any:
     result = subprocess.run(args, input=payload, text=True, capture_output=True,
@@ -1000,7 +1010,8 @@ class Deployment:
         for name, url in repos.items():
             run(["helm", "repo", "add", name, url, "--force-update"])
         run(["helm", "repo", "update"])
-        run(["helm", "upgrade", "--install", "keda", "kedacore/keda", "--namespace", "keda",
+        apply_options = helm_apply_options(run(["helm", "version", "--short"]))
+        run(["helm", "upgrade", "--install", *apply_options, "keda", "kedacore/keda", "--namespace", "keda",
              "--version", "2.20.2", "--wait", "--timeout", "10m"], env=kube_env)
         prom_values = {"grafana": {"enabled": False}, "alertmanager": {"enabled": False},
                        "prometheus": {"prometheusSpec": {"retention": "6h",
@@ -1010,7 +1021,7 @@ class Deployment:
         with tempfile.TemporaryDirectory() as temp:
             path = pathlib.Path(temp) / "prometheus.yaml"
             path.write_text(yaml.safe_dump(prom_values))
-            run(["helm", "upgrade", "--install", "kps", "prometheus-community/kube-prometheus-stack",
+            run(["helm", "upgrade", "--install", *apply_options, "kps", "prometheus-community/kube-prometheus-stack",
                  "--namespace", "monitoring", "--version", "90.0.0", "-f", str(path),
                  "--wait", "--timeout", "10m"], env=kube_env)
         nginx = list(yaml.safe_load_all((ROOT / "deploy/nginx-ingress.yaml").read_text()))

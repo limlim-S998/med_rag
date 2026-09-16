@@ -22,6 +22,13 @@ def test_unknown_quota_is_not_treated_as_available():
                                    "currentValue": 4}], "cores")
 
 
+def test_platform_helm_reruns_preserve_aks_owned_fields_without_force():
+    assert azure.helm_apply_options("v3.19.0+abc") == []
+    assert azure.helm_apply_options("v4.3.0+bec5b06") == ["--server-side=false"]
+    with pytest.raises(azure.SetupError, match="Helm major"):
+        azure.helm_apply_options("unknown")
+
+
 def test_permissions_account_for_not_actions_and_combined_roles():
     entries = [{"actions": ["*"], "notActions": ["Microsoft.Authorization/*"]}]
     assert not azure.permission_allows(entries, "Microsoft.Authorization/roleAssignments/write")
