@@ -248,24 +248,7 @@ class Acceptance:
                              headers={"Authorization": "Bearer " + self.token}) as client:
             recovery_file = pathlib.Path(temporary) / original_file.name
             recovery_file.write_bytes(original_file.read_bytes() + ("\nRecovery " + self.run_id).encode())
-            lock = {"write": True, "error_message": "medw-acceptance:" + self.run_id}
-            previous = qdrant.get("/locks").raise_for_status().json()["result"]
-            if previous.get("write"):
-                raise NotVerified("Qdrant is already write-locked; another operation owns the lock")
-            previous = qdrant.post("/locks", json=lock).raise_for_status().json()["result"]
-            locked = True
-
-            def release_lock():
-                nonlocal locked
-                if not locked:
-                    return
-                current = qdrant.get("/locks").raise_for_status().json()["result"]
-                if current != lock:
-                    raise RuntimeError("Qdrant lock changed concurrently; refusing to overwrite")
-                qdrant.post("/locks", json=previous).raise_for_status()
-                locked = False
-
-            def restart(job):
+            def restart(job, restore_quota):
                 path = self.base + f"/studies/{quote(self.d.config['study_id'])}/jobs/{job['id']}"
                 def interrupted_publication():
                     current = client.get(path).raise_for_status().json()
@@ -284,33 +267,82 @@ class Acceptance:
                                 attempts_before=current["attempts"], publication=state["plan"],
                                 prior_active_generation=state["active"],
                                 old_uids=[pod["metadata"]["uid"] for pod in pods])
-                # The dependency is still write-locked while the old process
-                # exits. Release immediately afterwards, before replica startup,
+                # Upserts still fail under the quota while the old process
+                # exits. Restore immediately afterwards, before replica startup,
                 # so the bounded retry budget is not consumed by deployment waits.
                 for pod in pods:
                     self.d.kube("-n", "medw", "delete", "pod", pod["metadata"]["name"],
                                 "--grace-period=5", "--wait=true", "--timeout=20s")
-                release_lock()
+                restore_quota()
                 self.d.kube("-n", "medw", "rollout", "status", "deployment/ingestion-worker", "--timeout=5m")
                 observed["new_uids"] = [pod["metadata"]["uid"] for pod in self.pods("ingestion-worker")]
                 if set(observed["old_uids"]) & set(observed["new_uids"]):
                     raise AssertionError("worker UID did not change")
+            with self.quota_outage(qdrant) as (restore_quota, quota_evidence):
+                try:
+                    self.file = recovery_file
+                    result = self.application(on_submitted=lambda job: restart(job, restore_quota))
+                    if not observed:
+                        raise NotVerified("workflow did not invoke its submission callback")
+                    for stage, artifact in observed["checkpoints_before"].items():
+                        if result["job_checkpoints"].get(stage) != artifact:
+                            raise AssertionError("restart rewrote a durable checkpoint")
+                    if result["index_generation"]["generation_id"] != observed["publication"]["generation_id"]:
+                        raise AssertionError("retry changed the persisted generation identity")
+                    return {"recovery": observed, "quota_outage": quota_evidence, "workflow": result}
+                finally:
+                    self.file = original_file
+
+    @contextlib.contextmanager
+    def quota_outage(self, qdrant):
+        """Induce a measured resource outage; this is not a snapshot write freeze."""
+        status = qdrant.get("/quotas").raise_for_status().json()["result"]
+        previous = status["config"]
+        if previous.get("enabled"):
+            raise NotVerified("preserving an already enabled Qdrant resource quota")
+        candidates = (("resident_memory_percent", "max_resident_memory_percent"),
+                      ("disk_usage_percent", "max_disk_usage_percent"))
+        field = next((limit for usage, limit in candidates if (status["usage"].get(usage) or 0) > 1), None)
+        if field is None:
+            raise NotVerified("Qdrant usage is too low to induce a measured quota outage")
+        limited = {**previous, "enabled": True, field: 1, "release_margin_percent": 0}
+        active = True
+        probe = "/collections/medw-quota-check-" + self.run_id
+        created = False
+
+        def restore():
+            nonlocal active
+            if not active:
+                return
+            current = qdrant.get("/quotas").raise_for_status().json()["result"]["config"]
+            if current != previous:
+                if current != limited:
+                    raise RuntimeError("Qdrant quota changed concurrently; refusing to overwrite")
+                qdrant.put("/quotas?wait=true", json=previous).raise_for_status()
+                if qdrant.get("/quotas").raise_for_status().json()["result"]["config"] != previous:
+                    raise RuntimeError("original Qdrant quota was not restored")
+            active = False
+
+        try:
+            qdrant.put("/quotas?wait=true", json=limited).raise_for_status()
+            creation = qdrant.put(probe, json={"vectors": {"size": 2, "distance": "Dot"}})
+            creation.raise_for_status()
+            created = True
+            rejected = qdrant.put(probe + "/points?wait=true", json={"points": [{
+                "id": 1, "vector": [1.0, 0.0], "payload": {"purpose": "operational quota check"}}]})
+            if rejected.status_code != 507:
+                raise NotVerified("measured Qdrant quota did not reject an actual upsert with HTTP507")
+            qdrant.get("/readyz").raise_for_status()
+            qdrant.get("/collections").raise_for_status()
+            yield restore, {"usage_before": status["usage"], "limited_resource": field,
+                            "upsert_status": rejected.status_code, "collection_creation_status": creation.status_code,
+                            "readiness_and_reads_available": True}
+        finally:
             try:
-                self.file = recovery_file
-                if previous.get("write"):
-                    raise NotVerified("another Qdrant operation acquired the lock concurrently")
-                result = self.application(on_submitted=restart)
-                if not observed:
-                    raise NotVerified("workflow did not invoke its submission callback")
-                for stage, artifact in observed["checkpoints_before"].items():
-                    if result["job_checkpoints"].get(stage) != artifact:
-                        raise AssertionError("restart rewrote a durable checkpoint")
-                if result["index_generation"]["generation_id"] != observed["publication"]["generation_id"]:
-                    raise AssertionError("retry changed the persisted generation identity")
-                return {"recovery": observed, "workflow": result}
+                restore()
             finally:
-                self.file = original_file
-                release_lock()
+                if created:
+                    qdrant.delete(probe).raise_for_status()
 
     def publication_state(self, job_id):
         """Read persisted state through the worker's existing workload identity."""

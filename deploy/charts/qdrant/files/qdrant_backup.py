@@ -1,9 +1,10 @@
-"""Per-peer Qdrant snapshots, atomic Blob manifests, same-topology restoration.
+"""Qdrant snapshots, atomic Blob manifests, same-topology restoration.
 
-Only a completed manifest is a backup. Each peer is write-locked for capture;
-locks are restored on success/error/SIGTERM. A killed host can leave locks;
-``unlock`` removes only locks explicitly marked by this tool. Restore requires
-empty peers of the exact server version and count recorded in the manifest.
+Only a completed manifest is a backup. Legacy servers support a write freeze;
+modern single-peer servers use native snapshots and verify the complete content
+set before/after capture. Modern multi-peer capture fails closed until coordinated
+quiescence is implemented. Restore requires empty peers of the exact captured
+version and count. ``unlock`` only removes this tool's legacy write locks.
 """
 
 import argparse
@@ -69,6 +70,29 @@ def frozen(client, nodes, backup_id):
             raise RuntimeError(f"Could not restore write locks; run unlock: {failures}")
 
 
+@contextmanager
+def capture_strategy(client, nodes, backup_id):
+    response = client.get(nodes[0].rstrip("/") + "/locks")
+    if response.status_code == 404:
+        if len(nodes) != 1:
+            raise ValueError("Modern multi-peer backup requires coordinated write quiescence")
+        yield "native-single-peer-verified-content"
+    else:
+        # A permission failure must not silently weaken consistency guarantees.
+        response.raise_for_status()
+        with frozen(client, nodes, backup_id):
+            yield "legacy-write-freeze"
+
+
+def collection_names(client, node):
+    return sorted(item["name"] for item in request(client, node, "GET", "/collections")["collections"])
+
+
+def alias_state(client, node):
+    return sorted(request(client, node, "GET", "/aliases")["aliases"],
+                  key=lambda alias: (alias["alias_name"], alias["collection_name"]))
+
+
 def backup(client, nodes, directory):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
@@ -79,18 +103,19 @@ def backup(client, nodes, directory):
     if len(set(versions)) != 1:
         raise ValueError("Cannot snapshot mixed Qdrant server versions")
     manifest = {"format": 1, "id": backup_id, "created_at": datetime.now(UTC).isoformat(),
-                "version": versions[0], "peer_count": len(nodes), "collections": [],
-                "aliases": request(client, nodes[0], "GET", "/aliases")["aliases"]}
-    with frozen(client, nodes, backup_id):
-        collections = request(client, nodes[0], "GET", "/collections")["collections"]
-        for item in sorted(collections, key=lambda c: c["name"]):
-            name = item["name"]
+                "version": versions[0], "peer_count": len(nodes), "collections": []}
+    with capture_strategy(client, nodes, backup_id) as strategy:
+        manifest["consistency_strategy"] = strategy
+        names = collection_names(client, nodes[0])
+        manifest["aliases"] = alias_state(client, nodes[0])
+        initial_identities = {name: identity(client, nodes[0], name) for name in names}
+        for name in names:
             path = f"/collections/{quote(name, safe='')}"
             info = request(client, nodes[0], "GET", path)
             if info["status"] != "green":
                 raise ValueError(f"Collection {name} is not green; refusing backup")
             record = {"name": name, "config": info["config"],
-                      "identity": identity(client, nodes[0], name), "snapshots": []}
+                      "identity": initial_identities[name], "snapshots": []}
             for ordinal, node in enumerate(nodes):
                 shards = []
                 if len(nodes) > 1:
@@ -116,6 +141,15 @@ def backup(client, nodes, directory):
             if identity(client, nodes[0], name) != record["identity"]:
                 raise ValueError(f"Collection {name} changed during snapshot")
             manifest["collections"].append(record)
+        # Check the complete set after *all* snapshots. A change to an earlier
+        # collection while a later collection is captured must abort the commit.
+        if collection_names(client, nodes[0]) != names:
+            raise ValueError("Collection set changed during snapshot capture")
+        if alias_state(client, nodes[0]) != manifest["aliases"]:
+            raise ValueError("Aliases changed during snapshot capture")
+        for name in names:
+            if identity(client, nodes[0], name) != initial_identities[name]:
+                raise ValueError(f"Collection {name} changed before backup commit")
     # Rename is the local commit point. Upload uses the same manifest-last rule.
     (directory / "manifest.pending").write_text(json.dumps(manifest, indent=2) + "\n")
     (directory / "manifest.pending").replace(directory / "manifest.json")
@@ -293,7 +327,11 @@ def main():
         directory = args.directory or temporary
         if args.operation == "unlock":
             for node in nodes:
-                locks = request(client, node, "GET", "/locks")
+                response = client.get(node.rstrip("/") + "/locks")
+                if response.status_code == 404:
+                    continue
+                response.raise_for_status()
+                locks = response.json()["result"]
                 if locks.get("error_message", "").startswith("medw-backup:"):
                     request(client, node, "POST", "/locks", json={"write": False})
             return
@@ -308,7 +346,8 @@ def main():
                 download(blob_container(), args.blob_key, directory)
             manifest = restore(client, nodes, directory)
         print(json.dumps({"event": args.operation + "_succeeded", "backup_id": manifest["id"],
-                          "collections": len(manifest["collections"])}))
+                          "collections": len(manifest["collections"]),
+                          "consistency_strategy": manifest.get("consistency_strategy", "legacy-write-freeze")}))
 
 
 if __name__ == "__main__":

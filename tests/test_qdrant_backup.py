@@ -120,3 +120,59 @@ def test_backup_does_not_overwrite_a_completed_archive(tmp_path):
     with pytest.raises(ValueError, match="must be empty"):
         backup.backup(None, ["http://unused"], tmp_path)
     assert json.loads((tmp_path / "manifest.json").read_text()) == manifest
+
+
+@pytest.mark.parametrize("changed", [None, "content", "collections", "aliases"])
+def test_native_single_peer_capture_verifies_entire_set_before_manifest_commit(tmp_path, changed):
+    later_snapshot_captured = False
+
+    def respond(req):
+        nonlocal later_snapshot_captured
+        path = req.url.path
+        if path == "/":
+            return httpx.Response(200, json={"version": "1.19.0"})
+        if path == "/locks":
+            return httpx.Response(404)
+        if path == "/collections":
+            names = ["a", "b"] + (["new"] if changed == "collections" and later_snapshot_captured else [])
+            result = {"collections": [{"name": name} for name in names]}
+        elif path == "/aliases":
+            result = {"aliases": [{"alias_name": "new", "collection_name": "a"}]
+                      if changed == "aliases" and later_snapshot_captured else []}
+        elif path.endswith("/points/scroll"):
+            modified = changed == "content" and later_snapshot_captured and path.startswith("/collections/a/")
+            result = {"points": [{"id": 1, "vector": [2.0 if modified else 1.0], "payload": {}}],
+                      "next_page_offset": None}
+        elif path.endswith("/snapshots"):
+            result = {"name": "capture.snapshot"}
+        elif path.endswith("capture.snapshot"):
+            if req.method == "GET":
+                if path.startswith("/collections/b/"):
+                    later_snapshot_captured = True
+                return httpx.Response(200, content=b"native atomic snapshot bytes")
+            result = True
+        else:
+            result = {"status": "green", "config": {}}
+        return httpx.Response(200, json={"result": result})
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        if changed:
+            with pytest.raises(ValueError, match="changed"):
+                backup.backup(client, ["http://source"], tmp_path)
+            assert not (tmp_path / "manifest.json").exists()
+            assert not (tmp_path / "manifest.pending").exists()
+        else:
+            manifest = backup.backup(client, ["http://source"], tmp_path)
+            assert manifest["consistency_strategy"] == "native-single-peer-verified-content"
+            assert len(manifest["collections"]) == 2
+            assert backup.validate_archive(tmp_path) == manifest
+
+
+def test_modern_multi_peer_capture_fails_closed_and_permission_failure_is_not_a_fallback():
+    with (httpx.Client(transport=httpx.MockTransport(lambda req: httpx.Response(404))) as client,
+          pytest.raises(ValueError, match="coordinated write quiescence"),
+          backup.capture_strategy(client, ["http://a", "http://b"], "proof")):
+        pytest.fail("must not capture modern distributed peers without coordination")
+    with (httpx.Client(transport=httpx.MockTransport(lambda req: httpx.Response(403))) as client,
+          pytest.raises(httpx.HTTPStatusError), backup.capture_strategy(client, ["http://a"], "proof")):
+        pytest.fail("a rejected freeze must not silently weaken consistency")

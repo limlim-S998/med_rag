@@ -267,7 +267,7 @@ def test_restore_working_repository_runs_after_failed_deployment_timeout(tmp_pat
 
 
 @pytest.mark.parametrize("fail_before_restart", [False, True])
-def test_interrupted_publication_restores_lock_and_checks_persisted_generation(tmp_path, monkeypatch, fail_before_restart):
+def test_interrupted_publication_restores_quota_and_checks_persisted_generation(tmp_path, monkeypatch, fail_before_restart):
     import base64
     import contextlib
 
@@ -280,17 +280,22 @@ def test_interrupted_publication_restores_lock_and_checks_persisted_generation(t
     value.base, value.tls, value.token = "https://api.invalid", True, "API-TOKEN"
     value.d.config = {"study_id": "S1"}
     value.completed_workflows = [{"index_generation": {"generation_id": "old"}}]
-    old_lock = {"write": False, "error_message": "preserve existing metadata"}
-    state = {"lock": old_lock, "uid": "before"}
+    old_quota = {"enabled": False, "max_resident_memory_percent": None,
+                 "max_disk_usage_percent": 80, "release_margin_percent": 3}
+    state = {"quota": old_quota, "uid": "before", "probe_removed": False}
     checkpoints = {"extracting": "blob:extract", "embedding": "blob:embed"}
 
     def handle(request):
-        if request.url.path == "/locks":
+        if request.url.host == "qdrant.invalid":
             assert request.headers.get("authorization") is None
-            prior = state["lock"]
-            if request.method == "POST":
-                state["lock"] = json.loads(request.content)
-            return httpx.Response(200, json={"result": prior})
+            if request.url.path == "/quotas":
+                if request.method == "PUT":
+                    state["quota"] = json.loads(request.content)
+                return httpx.Response(200, json={"result": {
+                    "config": state["quota"], "usage": {"resident_memory_percent": 10}}})
+            if request.method == "DELETE":
+                state["probe_removed"] = True
+            return httpx.Response(507 if request.url.path.endswith("/points") else 200, json={})
         return httpx.Response(200, json={"state": "indexing", "attempts": 1, "checkpoints": checkpoints})
 
     real_client = httpx.Client
@@ -305,14 +310,14 @@ def test_interrupted_publication_restores_lock_and_checks_persisted_generation(t
         if "secret" in args:
             return {"data": {"api-key": base64.b64encode(b"QDRANT-SECRET").decode()}}
         if "delete" in args:
-            assert state["lock"]["write"] is True
+            assert state["quota"]["enabled"] is True
             state["uid"] = "after"
         return ""
 
     def application(*, on_submitted):
         assert value.file.read_bytes() != original_file.read_bytes()
         on_submitted({"id": "job"})
-        assert state["lock"] == old_lock
+        assert state["quota"] == old_quota
         return {"job_checkpoints": {**checkpoints, "indexing": "blob:index"},
                 "index_generation": {"generation_id": "planned"}}
 
@@ -329,7 +334,8 @@ def test_interrupted_publication_restores_lock_and_checks_persisted_generation(t
         result = value.worker_recovery()
         assert result["recovery"]["new_uids"] == ["after"]
         assert result["recovery"]["checkpoints_before"] == checkpoints
-    assert state["lock"] == old_lock
+    assert state["quota"] == old_quota
+    assert state["probe_removed"] is True
     assert value.file == original_file
     assert original_file.read_bytes() == b"original source"
 
@@ -365,6 +371,30 @@ def test_negative_api_checks_keep_jwt_out_of_blob_capability_request(tmp_path, m
     assert len(result) == 6
     assert "SECRET" not in json.dumps(result)
     assert any(request.url.host == "blob.invalid" for request in requests)
+
+
+def test_quota_recovery_preserves_concurrent_configuration_and_removes_own_probe(tmp_path):
+    import httpx
+
+    value = collector(tmp_path)
+    state = {"quota": {"enabled": False, "max_resident_memory_percent": None}, "deleted": False}
+
+    def handle(request):
+        if request.url.path == "/quotas":
+            if request.method == "PUT":
+                state["quota"] = json.loads(request.content)
+            return httpx.Response(200, json={"result": {"config": state["quota"],
+                "usage": {"resident_memory_percent": 20}}})
+        if request.method == "DELETE":
+            state["deleted"] = True
+        return httpx.Response(507 if request.url.path.endswith("/points") else 200)
+
+    concurrent = {"enabled": True, "max_resident_memory_percent": 50}
+    with (httpx.Client(base_url="http://qdrant", transport=httpx.MockTransport(handle)) as client,
+          pytest.raises(RuntimeError, match="changed concurrently"), value.quota_outage(client)):
+        state["quota"] = concurrent
+    assert state["quota"] == concurrent
+    assert state["deleted"] is True
 
 
 @pytest.mark.parametrize("sas_status", [403, 201])

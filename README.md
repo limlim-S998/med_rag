@@ -234,6 +234,10 @@ wholesale over the current durability and provenance contracts.
 - Python forwarding, in-memory-only jobs, placeholder 501 handlers and required
   unused Azure AI services were removed from the active workflow. False medical
   verification and attribution to Azure OpenAI are not used for placeholder output.
+- Qdrant 1.19 removed the older write-lock API. Single-node backups use native
+  snapshots and verify the collection set and content before and after capture.
+  Modern multi-peer backups require coordinated writer quiescence and currently
+  refuse to run; multi-node availability remains outside this increment.
 
 ## Azure commissioning
 
@@ -294,6 +298,9 @@ do not delete it before removing resources. A$20 is a planning target managed
 through current estimates, short sessions and teardown, not a guaranteed cap.
 Budget alerts do not stop all charges. Teardown and any remaining resources must
 be recorded even when verification fails.
+Successful public retail quotes are cached by region and currency for at most
+24 hours, with their original timestamp reported. Rate limiting triggers bounded
+retries; missing or stale prices block provisioning.
 
 Azure SQL uses an Entra administrator for initial schema/principal setup. The
 pipeline uses a separate federated deployment identity; workloads use separate

@@ -524,10 +524,10 @@
       "scope": "Disposable minikube with enforced Calico and F5 NGINX, unversioned development images before the final extraction/classifier interface wiring. Routing, authentication and SQL contracts are unchanged by that later wiring, which has separate final Docker proof. Original medw installation preserved; not Azure."
     },
     "application-workflow-checks": {
-      "recorded_at": "2026-09-16T02:20:44.065247+00:00",
-      "scope": "Final application and Azure commissioning source working tree before the first implementation commit; separate actual container/SQL/NGINX proofs identify their artifacts.",
+      "recorded_at": "2026-09-16T02:39:33.873027+00:00",
+      "scope": "Application and Azure commissioning source including the Qdrant 1.19 snapshot/recovery fix; separate actual container/SQL/NGINX proofs identify their artifacts.",
       "result": "passed",
-      "pytest_passed": 304,
+      "pytest_passed": 314,
       "ruff": "passed",
       "mypy_files": 49,
       "import_contracts_kept": 6,
@@ -670,6 +670,95 @@
       "method": "authorization_code_pkce",
       "signature_issuer_audience_tenant_validated": true,
       "actor_matches_configured_writer": true
+    },
+    "qdrant-119-snapshot-recovery": {
+      "passed": true,
+      "image": "qdrant/qdrant@sha256:057ee3a8da769fe7310dd3537b4dc7583bf87a95ce8ac43c0af5a46bc580d1fc",
+      "environment": "disposable Docker + Azurite; no Azure calls",
+      "checks": {
+        "indexed_content": {
+          "count": 60,
+          "sha256": "babeca6cde935a6f1f5f0aa9ac193f1da78cbdaeb995619b6efde26128157073"
+        },
+        "read_only_acl": {
+          "read": 200,
+          "write": 403
+        },
+        "quota_outage": {
+          "usage_before": {
+            "resident_memory_percent": 15,
+            "disk_usage_percent": 37
+          },
+          "limited_resource": "max_resident_memory_percent",
+          "upsert_status": 507,
+          "collection_creation_status": 200,
+          "readiness_and_reads_available": true
+        },
+        "quota_restored_writes": true,
+        "removed_legacy_lock_api": 404,
+        "source_volume_restart": true,
+        "snapshot": {
+          "id": "20260916T023319Z-3a92874c",
+          "peer_count": 1,
+          "version": "1.19.0",
+          "consistency_strategy": "native-single-peer-verified-content",
+          "snapshots": [
+            {
+              "peer": 0,
+              "file": "0-0.snapshot",
+              "sha256": "8ca53b0a318b6f4c03f974fe3164d6f21ac94830baa5d3c72efe590639eacd7d",
+              "shards": []
+            }
+          ]
+        },
+        "blob_roundtrip": {
+          "manifest": "qdrant/20260916T023319Z-3a92874c/manifest.json",
+          "blobs": 2,
+          "download_checksum_matches": true
+        },
+        "restored_content": {
+          "identity": {
+            "count": 60,
+            "sha256": "babeca6cde935a6f1f5f0aa9ac193f1da78cbdaeb995619b6efde26128157073"
+          },
+          "search_matches": true,
+          "aliases_match": true,
+          "source_volume": "medw-q119-7d53f638-source-data",
+          "target_volume": "medw-q119-7d53f638-restore-data",
+          "isolated_target": true
+        }
+      },
+      "temporary_resources": {
+        "prefix": "medw-q119-7d53f638"
+      },
+      "cleanup": [
+        {
+          "container": "medw-q119-7d53f638-restore",
+          "removed": true
+        },
+        {
+          "container": "medw-q119-7d53f638-blob",
+          "removed": true
+        },
+        {
+          "container": "medw-q119-7d53f638-source",
+          "removed": true
+        },
+        {
+          "volume": "medw-q119-7d53f638-restore-data",
+          "removed": true
+        },
+        {
+          "volume": "medw-q119-7d53f638-source-data",
+          "removed": true
+        },
+        {
+          "network": "medw-q119-7d53f638",
+          "removed": true
+        }
+      ],
+      "recorded_at": "2026-09-16T02:35:38.621030+00:00",
+      "scope": "Real pinned Qdrant 1.19.0 with repository snapshot engine and quota fault-injection helper; Docker and Azurite, not Azure Blob or AKS."
     }
   },
   "documentation_cleanup": {
