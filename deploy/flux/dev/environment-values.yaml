@@ -1,4 +1,3 @@
-# Infrastructure settings only. Configure and verify before activating.
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -9,23 +8,32 @@ spec:
     env: dev
     config:
       backend: azure
-      cosmos_endpoint: ''
-      cosmos_database: medw
-      blob_account_url: ''
-      sql_server: ''
+      cosmos_endpoint: https://medrag325744d5cosmos.documents.azure.com:443/
+      cosmos_database: medw-dev
+      blob_account_url: https://medwdev9528fa20sa.blob.core.windows.net
+      sql_server: medwdev9528fa20sql.database.windows.net
       sql_database: medw
       blob_container: raw
-      auth_tenant_id: ''
-      auth_audience: ''
-      auth_issuer: ''
-      auth_jwks_url: ''
+      auth_tenant_id: 721342f3-ed34-4553-93ea-4fbe8f7149eb
+      auth_audience: 8e5460c9-799d-47bc-86a2-3945df20a273
+      auth_issuer: https://login.microsoftonline.com/721342f3-ed34-4553-93ea-4fbe8f7149eb/v2.0
+      auth_jwks_url: https://login.microsoftonline.com/721342f3-ed34-4553-93ea-4fbe8f7149eb/discovery/v2.0/keys
+      cosmos_state_container: platform-state
+      search_endpoint: https://medrag325744d5search.search.windows.net
+      search_index: medw-dev-chunks
+      qdrant_url: http://qdrant:6333
+      qdrant_replication_factor: 1
+      qdrant_write_consistency_factor: 1
+      reranker_url: http://reranker:8000
+      retrieval_url: http://retrieval:8000
     image:
-      repository: medwdevacr.azurecr.io/gateway
+      repository: medwdev9528fa20acr.azurecr.io/gateway
     serviceAccount:
       annotations:
-        azure.workload.identity/client-id: ''
+        azure.workload.identity/client-id: b09872be-21f8-4772-955e-6fe491896cd6
     ingress:
-      host: medw-dev.example.invalid
+      host: medwdev9528fa20.australiaeast.cloudapp.azure.com
+      tls: true
     serviceMonitor:
       enabled: true
       interval: 15s
@@ -34,6 +42,10 @@ spec:
       secretKeyRef:
         name: medw-telemetry
         key: connection-string
+    replicas: 1
+    autoscaling:
+      minReplicas: 1
+      maxReplicas: 2
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -49,16 +61,27 @@ spec:
       embed_deployment: hash-1
       qdrant_url: http://qdrant:6333
       reranker_url: http://reranker:8000
-      search_endpoint: ''
-      search_index: csr-chunks
-      cosmos_endpoint: ''
-      cosmos_database: medw
+      search_endpoint: https://medrag325744d5search.search.windows.net
+      search_index: medw-dev-chunks
+      cosmos_endpoint: https://medrag325744d5cosmos.documents.azure.com:443/
+      cosmos_database: medw-dev
       cosmos_state_container: platform-state
+      blob_account_url: https://medwdev9528fa20sa.blob.core.windows.net
+      blob_container: raw
+      sql_server: medwdev9528fa20sql.database.windows.net
+      sql_database: medw
+      qdrant_replication_factor: 1
+      qdrant_write_consistency_factor: 1
+      retrieval_url: http://retrieval:8000
+      auth_tenant_id: 721342f3-ed34-4553-93ea-4fbe8f7149eb
+      auth_audience: 8e5460c9-799d-47bc-86a2-3945df20a273
+      auth_issuer: https://login.microsoftonline.com/721342f3-ed34-4553-93ea-4fbe8f7149eb/v2.0
+      auth_jwks_url: https://login.microsoftonline.com/721342f3-ed34-4553-93ea-4fbe8f7149eb/discovery/v2.0/keys
     image:
-      repository: medwdevacr.azurecr.io/retrieval
+      repository: medwdev9528fa20acr.azurecr.io/retrieval
     serviceAccount:
       annotations:
-        azure.workload.identity/client-id: ''
+        azure.workload.identity/client-id: ad0e3113-0421-4db6-9a18-4f133ea7fb1a
     secretEnv:
     - name: MEDW_QDRANT_API_KEY
       secretKeyRef:
@@ -71,6 +94,10 @@ spec:
     serviceMonitor:
       enabled: true
       interval: 15s
+    replicas: 1
+    autoscaling:
+      minReplicas: 1
+      maxReplicas: 2
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -83,18 +110,29 @@ spec:
     config:
       backend: azure
       chat_deployment: scripted-chat
-      sql_server: ''
+      sql_server: medwdev9528fa20sql.database.windows.net
       sql_database: medw
-      cosmos_endpoint: ''
-      cosmos_database: medw
+      cosmos_endpoint: https://medrag325744d5cosmos.documents.azure.com:443/
+      cosmos_database: medw-dev
       cosmos_state_container: platform-state
-      blob_account_url: ''
+      blob_account_url: https://medwdev9528fa20sa.blob.core.windows.net
       blob_container: raw
+      search_endpoint: https://medrag325744d5search.search.windows.net
+      search_index: medw-dev-chunks
+      qdrant_url: http://qdrant:6333
+      qdrant_replication_factor: 1
+      qdrant_write_consistency_factor: 1
+      reranker_url: http://reranker:8000
+      retrieval_url: http://retrieval:8000
+      auth_tenant_id: 721342f3-ed34-4553-93ea-4fbe8f7149eb
+      auth_audience: 8e5460c9-799d-47bc-86a2-3945df20a273
+      auth_issuer: https://login.microsoftonline.com/721342f3-ed34-4553-93ea-4fbe8f7149eb/v2.0
+      auth_jwks_url: https://login.microsoftonline.com/721342f3-ed34-4553-93ea-4fbe8f7149eb/discovery/v2.0/keys
     image:
-      repository: medwdevacr.azurecr.io/generation
+      repository: medwdev9528fa20acr.azurecr.io/generation
     serviceAccount:
       annotations:
-        azure.workload.identity/client-id: ''
+        azure.workload.identity/client-id: c6fdfaa3-5ea1-4157-935a-ee888aeb7955
     serviceMonitor:
       enabled: true
       interval: 15s
@@ -103,6 +141,13 @@ spec:
       secretKeyRef:
         name: medw-telemetry
         key: connection-string
+    replicas: 1
+    autoscaling:
+      minReplicas: 1
+      maxReplicas: 2
+      target: 1
+      cooldownPeriod: 30
+      stabilizationWindowSeconds: 30
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -115,21 +160,29 @@ spec:
     config:
       backend: azure
       embed_deployment: hash-1
-      search_endpoint: ''
-      search_index: csr-chunks
-      blob_account_url: ''
-      cosmos_endpoint: ''
-      cosmos_database: medw
+      search_endpoint: https://medrag325744d5search.search.windows.net
+      search_index: medw-dev-chunks
+      blob_account_url: https://medwdev9528fa20sa.blob.core.windows.net
+      cosmos_endpoint: https://medrag325744d5cosmos.documents.azure.com:443/
+      cosmos_database: medw-dev
       qdrant_url: http://qdrant:6333
       cosmos_state_container: platform-state
       blob_container: raw
-      sql_server: ''
+      sql_server: medwdev9528fa20sql.database.windows.net
       sql_database: medw
+      qdrant_replication_factor: 1
+      qdrant_write_consistency_factor: 1
+      reranker_url: http://reranker:8000
+      retrieval_url: http://retrieval:8000
+      auth_tenant_id: 721342f3-ed34-4553-93ea-4fbe8f7149eb
+      auth_audience: 8e5460c9-799d-47bc-86a2-3945df20a273
+      auth_issuer: https://login.microsoftonline.com/721342f3-ed34-4553-93ea-4fbe8f7149eb/v2.0
+      auth_jwks_url: https://login.microsoftonline.com/721342f3-ed34-4553-93ea-4fbe8f7149eb/discovery/v2.0/keys
     image:
-      repository: medwdevacr.azurecr.io/ingestion-worker
+      repository: medwdev9528fa20acr.azurecr.io/ingestion-worker
     serviceAccount:
       annotations:
-        azure.workload.identity/client-id: ''
+        azure.workload.identity/client-id: ff3f5ebc-40b0-4006-b892-c956b82b7fe9
     secretEnv:
     - name: MEDW_QDRANT_API_KEY
       secretKeyRef:
@@ -142,6 +195,10 @@ spec:
     serviceMonitor:
       enabled: true
       interval: 15s
+    replicas: 1
+    autoscaling:
+      minReplicas: 1
+      maxReplicas: 2
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -153,11 +210,29 @@ spec:
     env: dev
     config:
       backend: azure
+      cosmos_endpoint: https://medrag325744d5cosmos.documents.azure.com:443/
+      cosmos_database: medw-dev
+      cosmos_state_container: platform-state
+      blob_account_url: https://medwdev9528fa20sa.blob.core.windows.net
+      blob_container: raw
+      sql_server: medwdev9528fa20sql.database.windows.net
+      sql_database: medw
+      search_endpoint: https://medrag325744d5search.search.windows.net
+      search_index: medw-dev-chunks
+      qdrant_url: http://qdrant:6333
+      qdrant_replication_factor: 1
+      qdrant_write_consistency_factor: 1
+      reranker_url: http://reranker:8000
+      retrieval_url: http://retrieval:8000
+      auth_tenant_id: 721342f3-ed34-4553-93ea-4fbe8f7149eb
+      auth_audience: 8e5460c9-799d-47bc-86a2-3945df20a273
+      auth_issuer: https://login.microsoftonline.com/721342f3-ed34-4553-93ea-4fbe8f7149eb/v2.0
+      auth_jwks_url: https://login.microsoftonline.com/721342f3-ed34-4553-93ea-4fbe8f7149eb/discovery/v2.0/keys
     image:
-      repository: medwdevacr.azurecr.io/reranker
+      repository: medwdev9528fa20acr.azurecr.io/reranker
     serviceAccount:
       annotations:
-        azure.workload.identity/client-id: ''
+        azure.workload.identity/client-id: dec64e3e-090d-479d-96b9-b7e9b64b6679
     serviceMonitor:
       enabled: true
       interval: 15s
@@ -166,6 +241,10 @@ spec:
       secretKeyRef:
         name: medw-telemetry
         key: connection-string
+    replicas: 1
+    autoscaling:
+      minReplicas: 1
+      maxReplicas: 2
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -173,8 +252,28 @@ metadata:
   name: qdrant
   namespace: medw
 spec:
-  suspend: true
+  suspend: false
   values:
     snapshots:
       image:
-        repository: medwdevacr.azurecr.io/ingestion-worker
+        repository: medwdev9528fa20acr.azurecr.io/ingestion-worker
+      enabled: true
+      accountUrl: https://medwdev9528fa20sa.blob.core.windows.net
+      container: snapshots
+      clientId: ed6d80c9-7f63-46de-8370-434210221a78
+    replicas: 1
+    persistence:
+      storageClass: managed-csi
+      size: 8Gi
+    config:
+      replication_factor: 1
+      write_consistency_factor: 1
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: '1'
+        memory: 1Gi
+    podDisruptionBudget:
+      minAvailable: 0

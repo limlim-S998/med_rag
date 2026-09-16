@@ -1,21 +1,31 @@
-# Release-selection commits touch deploy/flux and cannot retrigger this pipeline.
 trigger:
-  branches: { include: [main] }
+  branches:
+    include:
+    - main
   paths:
-    include: [services, libs, db/sql, scripts, deploy/charts, deploy/azure-pipelines, deploy/release-behavior.json, requirements-dev.txt, pyproject.toml]
+    include:
+    - services
+    - libs
+    - db/sql
+    - scripts
+    - deploy/charts
+    - deploy/azure-pipelines
+    - deploy/release-behavior.json
+    - requirements-dev.txt
+    - pyproject.toml
 parameters:
-  - name: registryHost
-    type: string
-    default: medwdevacr.azurecr.io
-  - name: azureConnection
-    type: string
-    default: medw-deployment
-  - name: agentPool
-    type: string
-    default: ''
-  - name: releaseBranch
-    type: string
-    default: main
+- name: registryHost
+  type: string
+  default: medwdev9528fa20acr.azurecr.io
+- name: azureConnection
+  type: string
+  default: medw-azure
+- name: agentPool
+  type: string
+  default: ''
+- name: releaseBranch
+  type: string
+  default: main
 extends:
   template: _build-template.yml
   parameters:
