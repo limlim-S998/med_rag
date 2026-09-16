@@ -1095,6 +1095,13 @@ class Deployment:
                 old.pop(key, None)
             old.update(shared)
             values.update(env="dev", replicas=1)
+            # Installed placeholders need modest reservations. Keep headroom on
+            # the four-vCPU node for AKS, telemetry, one extra generation replica,
+            # rolling updates and the snapshot job.
+            cpu = "200m" if name in {"generation", "ingestion-worker"} else "100m"
+            memory = "256Mi" if name == "gateway" else "512Mi"
+            values["resources"] = {"requests": {"cpu": cpu, "memory": memory},
+                                   "limits": {"cpu": "1", "memory": "1Gi"}}
             values.setdefault("autoscaling", {}).update(minReplicas=1, maxReplicas=2)
             if name == "generation":
                 values["autoscaling"].update(target=1, cooldownPeriod=30, stabilizationWindowSeconds=30)

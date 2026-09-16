@@ -46,6 +46,13 @@ spec:
     autoscaling:
       minReplicas: 1
       maxReplicas: 2
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: '1'
+        memory: 1Gi
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -98,6 +105,13 @@ spec:
     autoscaling:
       minReplicas: 1
       maxReplicas: 2
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        cpu: '1'
+        memory: 1Gi
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -148,6 +162,13 @@ spec:
       target: 1
       cooldownPeriod: 30
       stabilizationWindowSeconds: 30
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: '1'
+        memory: 1Gi
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -199,6 +220,13 @@ spec:
     autoscaling:
       minReplicas: 1
       maxReplicas: 2
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: '1'
+        memory: 1Gi
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -245,6 +273,13 @@ spec:
     autoscaling:
       minReplicas: 1
       maxReplicas: 2
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        cpu: '1'
+        memory: 1Gi
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease

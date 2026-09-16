@@ -105,6 +105,7 @@ def test_environment_generation_uses_real_backends_and_bounded_resources(tmp_pat
         "applications": {"api": {"appId": "client"}}, "hostname": "writer.example",
         "identities": {service: {"clientId": service + "-id"} for service in (*azure.SERVICES, "qdrant-backup")}}
     manifests = deployment.environment_values()
+    application_cpu = 0
     for manifest in manifests:
         name, values = manifest["metadata"]["name"], manifest["spec"]["values"]
         if name == "qdrant":
@@ -113,8 +114,10 @@ def test_environment_generation_uses_real_backends_and_bounded_resources(tmp_pat
         else:
             assert values["config"]["backend"] == "azure"
             assert values["autoscaling"]["maxReplicas"] == 2
+            application_cpu += int(values["resources"]["requests"]["cpu"].removesuffix("m"))
             assert "demo_mode" not in values["config"]
             assert not values["config"].get("aoai_endpoint")
+    assert application_cpu == 700  # leaves AKS/platform, second replica and rollout headroom
 
 
 def test_invalid_borrowed_resource_type_is_rejected():
