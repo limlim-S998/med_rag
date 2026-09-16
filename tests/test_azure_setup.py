@@ -242,3 +242,54 @@ def test_retail_rate_limit_retries_get_without_repeating_mutations(monkeypatch):
     with pytest.raises(azure.SetupError, match="HTTP 429"):
         azure.http_json("https://prices.example", method="POST", body={})
     assert len(attempts) == 1
+
+
+@pytest.mark.parametrize("cleanup_fails", [False, True])
+def test_lost_cosmos_create_response_is_cleaned_without_secret_evidence(monkeypatch, tmp_path, cleanup_fails):
+    cfg = config()
+    cfg["borrowed_cosmos_id"] = (
+        "/subscriptions/sub/resourceGroups/shared/providers/Microsoft.DocumentDB/databaseAccounts/free")
+    deployment = azure.Deployment(cfg, root=tmp_path)
+    deployment.config["owner"] = "ours"
+    deployment.state.update(owner="ours", config=copy.deepcopy(deployment.config))
+    resource_id = cfg["borrowed_cosmos_id"] + "/sqlRoleAssignments/owned-assignment"
+
+    def lost_response():
+        assert json.loads(deployment.journal_path.read_text())["planned_cosmos_roles"][
+            "cosmos-assignment-generation-platform-state"]["id"] == resource_id
+        raise azure.SetupError("Bearer secret-token-was-echoed")
+
+    with pytest.raises(azure.SetupError):
+        deployment._cosmos_owned_operation("cosmos-assignment-generation-platform-state", resource_id, lost_response)
+    calls = []
+
+    def command(*args, **kwargs):
+        calls.append(args)
+        if args[:5] == ("cosmosdb", "sql", "role", "assignment", "delete") and cleanup_fails:
+            raise azure.SetupError("Bearer secret-token-was-echoed")
+
+    monkeypatch.setattr(deployment, "account", lambda: None)
+    monkeypatch.setattr(azure, "az", command)
+    if cleanup_fails:
+        with pytest.raises(azure.SetupError, match="Cleanup incomplete"):
+            deployment.down()
+    else:
+        assert deployment.down()["complete"]
+    assert any("owned-assignment" in call for call in calls)
+    evidence = (deployment.directory / "cleanup.json").read_text()
+    assert "secret-token" not in evidence
+    if cleanup_fails:
+        assert '"type": "SetupError"' in evidence
+
+
+def test_arm_role_is_journalled_before_lost_create_response(monkeypatch, tmp_path):
+    deployment = azure.Deployment(config(), root=tmp_path)
+
+    def lost_response(*args, **kwargs):
+        state = json.loads(deployment.journal_path.read_text())
+        assert len(state["role_assignments"]) == 1
+        raise azure.SetupError("lost response")
+
+    monkeypatch.setattr(azure, "az", lost_response)
+    with pytest.raises(azure.SetupError):
+        deployment._role("principal", "Search Index Data Reader", "/subscriptions/sub/resourceGroups/shared")

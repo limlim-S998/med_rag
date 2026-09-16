@@ -48,6 +48,14 @@ class SetupError(RuntimeError):
     pass
 
 
+def evidence_error(exc: Exception) -> dict:
+    """CLI stderr can include credentials; evidence stores only safe categories."""
+    result: dict = {"type": type(exc).__name__}
+    if isinstance(exc, urllib.error.HTTPError):
+        result["http_status"] = exc.code
+    return result
+
+
 def run(args: list[str], *, payload: str | None = None, env: dict | None = None,
         json_result: bool = False, missing_ok: bool = False) -> Any:
     result = subprocess.run(args, input=payload, text=True, capture_output=True,
@@ -679,12 +687,22 @@ class Deployment:
     def _role(self, principal: str, role: str, scope: str):
         # Deterministic names make retries after CLI/network errors idempotent.
         name = str(uuid.uuid5(uuid.NAMESPACE_URL, principal + role + scope.lower()))
+        self.state.setdefault("role_assignments", {})[name] = (
+            scope + "/providers/Microsoft.Authorization/roleAssignments/" + name)
+        self.save()
         result = az("role", "assignment", "create", "--name", name,
                     "--assignee-object-id", principal, "--assignee-principal-type", "ServicePrincipal",
                     "--role", role, "--scope", scope, subscription=scope.split("/")[2])
         self.state.setdefault("role_assignments", {})[name] = result["id"]
         self.save()
         return result
+
+    def _cosmos_owned_operation(self, key: str, resource_id: str, action):
+        # Persist deterministic ownership before ARM accepts the request. A lost
+        # create response must not leave privileges behind in a borrowed account.
+        self.state.setdefault("planned_cosmos_roles", {})[key] = {"id": resource_id}
+        self.save()
+        return self.checkpoint(key, action)
 
     def _applications(self):
         """Create owned API + public device-code client, with no client secret."""
@@ -878,7 +896,8 @@ class Deployment:
             body["Id"] = str(uuid.uuid5(uuid.NAMESPACE_URL, resources["cosmos"] + c["cosmos_database"] + role))
             body["RoleName"] = c["cosmos_database"] + "-" + role
             body["AssignableScopes"] = ["/dbs/" + c["cosmos_database"] + "/colls/platform-state"]
-            result = self.checkpoint("cosmos-role-" + role, lambda body=body: cosmos_az("cosmosdb", "sql",
+            result = self._cosmos_owned_operation("cosmos-role-" + role,
+                resources["cosmos"] + "/sqlRoleDefinitions/" + body["Id"], lambda body=body: cosmos_az("cosmosdb", "sql",
                 "role", "definition", "create", "-g", cosmos_group, "-a", cosmos_name,
                 "--body", json.dumps(body)))
             role_ids[role] = result["id"]
@@ -895,7 +914,8 @@ class Deployment:
             for role, container in cosmos_access.get(service, []):
                 scope = resources["cosmos"] + "/dbs/" + c["cosmos_database"] + "/colls/" + container
                 assignment_id = str(uuid.uuid5(uuid.NAMESPACE_URL, identity["principalId"] + role + scope))
-                self.checkpoint("cosmos-assignment-" + service + "-" + container,
+                self._cosmos_owned_operation("cosmos-assignment-" + service + "-" + container,
+                    resources["cosmos"] + "/sqlRoleAssignments/" + assignment_id,
                     lambda identity=identity, role=role, scope=scope, assignment_id=assignment_id:
                     cosmos_az("cosmosdb", "sql", "role", "assignment", "create", "-g", cosmos_group,
                        "-a", cosmos_name, "--role-assignment-id", assignment_id,
@@ -1254,19 +1274,19 @@ class Deployment:
         verification_error = None
         cleanup_error = None
         try:
-            token = os.environ.get("MEDW_DEMO_TOKEN") or acquire_token(
-                self.state, self.directory / "api-token-cache.json")
-            result = verify(self, token=token)
+            token = os.environ.get("MEDW_DEMO_TOKEN")
+            provider = None if token else lambda: acquire_token(self.state, self.directory / "api-token-cache.json")
+            result = verify(self, token=token, token_provider=provider)
         except (SetupError, OSError, ValueError, RuntimeError, AssertionError, KeyError) as exc:
-            verification_error = str(exc)
+            verification_error = evidence_error(exc)
         finally:
             # The collector writes each result before teardown. Cleanup failures
             # must not hide failed checks or claim that spending has stopped.
             try:
                 cleanup = self.down()
             except (SetupError, OSError, ValueError, KeyError) as exc:
-                cleanup = {"complete": False, "error": str(exc)}
-                cleanup_error = str(exc)
+                cleanup = {"complete": False, "error": evidence_error(exc)}
+                cleanup_error = evidence_error(exc)
             summary = {"passed": bool(result and result.get("passed")),
                        "evidence": str(self.directory / "acceptance.json"), "cleanup": cleanup}
             if verification_error:
@@ -1299,7 +1319,7 @@ class Deployment:
                 self.state.setdefault("deleted", []).append(label)
                 self.save()
             except (SetupError, OSError, ValueError, KeyError) as exc:
-                errors.append({"resource": label, "error": str(exc)})
+                errors.append({"resource": label, "error": evidence_error(exc)})
 
         completed = self.state.get("completed", {})
         if self.config.get("borrowed_search_id") and ("search-index" in completed
@@ -1320,14 +1340,17 @@ class Deployment:
         if self.config.get("borrowed_cosmos_id"):
             group, name = arm_parts(self.config["borrowed_cosmos_id"], "Microsoft.DocumentDB", "databaseAccounts")
             cosmos_az = partial(az, subscription=self.config["borrowed_cosmos_id"].split("/")[2])
-            for key, value in sorted(completed.items(), key=lambda item: (
+            cosmos_roles = {**self.state.get("planned_cosmos_roles", {}), **completed}
+            for key, value in sorted(cosmos_roles.items(), key=lambda item: (
                     0 if item[0].startswith("cosmos-assignment-") else 1, item[0])):
                 if key.startswith("cosmos-assignment-"):
                     attempt(key, lambda value=value: cosmos_az("cosmosdb", "sql", "role", "assignment", "delete",
-                        "-g", group, "-a", name, "--role-assignment-id", value["id"].rsplit("/", 1)[-1]))
+                        "-g", group, "-a", name, "--role-assignment-id", value["id"].rsplit("/", 1)[-1],
+                        missing_ok=True))
                 if key.startswith("cosmos-role-"):
                     attempt(key, lambda value=value: cosmos_az("cosmosdb", "sql", "role", "definition", "delete",
-                        "-g", group, "-a", name, "--role-definition-id", value["id"].rsplit("/", 1)[-1]))
+                        "-g", group, "-a", name, "--role-definition-id", value["id"].rsplit("/", 1)[-1],
+                        missing_ok=True))
             if "cosmos-database" in completed or "cosmos-database" in self.state.get("claimed", {}):
                 attempt("borrowed-cosmos-database", lambda: cosmos_az("cosmosdb", "sql", "database", "delete",
                     "-g", group, "-a", name, "-n", self.config["cosmos_database"], "--yes"))
