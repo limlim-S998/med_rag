@@ -1,4 +1,4 @@
-.PHONY: dev up up-full up-legacy down eval fmt test arch types lint check charts release migrate search-index seed
+.PHONY: dev up up-full up-legacy down eval fmt test arch types lint check chart-deps charts release migrate search-index seed
 
 dev:           ## create .venv and install everything needed for host-side work
 	python3 -m venv .venv
@@ -20,7 +20,7 @@ up-legacy:     ## + chroma, so the "we replaced it" story is runnable
 down:
 	docker compose --profile full --profile legacy down
 
-test:
+test: chart-deps
 	pytest tests services -q
 
 arch:          ## the boundaries, enforced. Fails on a violation.
@@ -32,10 +32,16 @@ types:
 lint:
 	ruff check .
 
-charts:        ## fail if any chart or Flux environment cannot render
+chart-deps:    ## prepare local library dependencies before tests render charts
+	@set -eu; for c in deploy/charts/*/; do \
+	  [ "$$(basename $$c)" = "medw-lib" ] && continue; \
+	  helm dependency build $$c >/dev/null; \
+	done
+
+charts: chart-deps ## fail if any chart or Flux environment cannot render
 	@set -eu; for c in deploy/charts/*/; do \
 	  n=$$(basename $$c); [ "$$n" = "medw-lib" ] && continue; \
-	  helm dependency build $$c >/dev/null; helm lint $$c >/dev/null; \
+	  helm lint $$c >/dev/null; \
 	  helm template $$n $$c >/dev/null; echo "  ok   $$n"; \
 	  if [ -f "$${c}values-local.yaml" ]; then \
 	    helm template $$n $$c -f "$${c}values-local.yaml" >/dev/null; \

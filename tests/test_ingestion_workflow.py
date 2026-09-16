@@ -373,11 +373,36 @@ async def test_recovery_at_index_validation_and_active_pointer_boundaries(tmp_pa
     await values["state"].close()
 
 
-async def test_concurrent_workers_renew_lease_and_serialize_study_publication(tmp_path):
+async def test_concurrent_workers_renew_lease_and_serialize_study_publication(tmp_path, monkeypatch):
+    from medw_core import ingestion
+
     values, first = workflow(tmp_path)
     second = IngestionRunner(first.settings, first.services, dense=first.dense, sparse=first.sparse)
-    first.lease_seconds = 0.09
+    # Local persistence performs real fsyncs. A 90ms wall-clock lease could
+    # expire during hosted-runner disk I/O before asyncio could run a heartbeat.
+    # Keep the production lease duration and control only time/timer wakeups.
+    now = [1000.0]
+    values["jobs"].clock = lambda: now[0]
+    monkeypatch.setattr(ingestion, "time", SimpleNamespace(time=lambda: now[0]))
+    heartbeat_waiting, tick, renewed_event = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+    async def heartbeat_timer(seconds):
+        assert seconds == first.lease_seconds / 3
+        heartbeat_waiting.set()
+        await tick.wait()
+        tick.clear()
+
+    monkeypatch.setattr(ingestion, "asyncio", SimpleNamespace(**{**vars(asyncio), "sleep": heartbeat_timer}))
+    renew = values["jobs"].renew
+
+    async def observe_renewal(current, **kwargs):
+        result = await renew(current, **kwargs)
+        renewed_event.set()
+        return result
+
+    values["jobs"].renew = observe_renewal
     _, _, job = await upload(values)
+    now[0] += 1
     _, _, later = await upload(values, doc="second", key="two")
     entered, released = asyncio.Event(), asyncio.Event()
     real_sink = first.dense
@@ -393,19 +418,34 @@ async def test_concurrent_workers_renew_lease_and_serialize_study_publication(tm
 
     first.dense = DelayedSink()
     running = asyncio.create_task(first.run_once())
-    await asyncio.wait_for(entered.wait(), 2)
-    await asyncio.sleep(0.15)
-    assert await second.run_once() == 0
-    renewed = await values["jobs"].get("S1", job["id"])
-    assert renewed["lease_owner"] == first.worker_id
-    released.set()
-    await running
-    assert await second.run_once() == 1
-    assert (await values["jobs"].get("S1", later["id"]))["state"] == "done"
-    generation, _ = await values["index_registry"].active("S1")
-    assert generation.chunk_count == 2
-    await values["audit"].close()
-    await values["state"].close()
+    try:
+        await asyncio.wait_for(entered.wait(), 10)
+        await asyncio.wait_for(heartbeat_waiting.wait(), 10)
+        initial = await values["jobs"].get("S1", job["id"])
+        now[0] += first.lease_seconds / 3
+        tick.set()
+        await asyncio.wait_for(renewed_event.wait(), 10)
+        # The original claim has now expired, but both renewed leases must
+        # still prevent another worker publishing this study concurrently.
+        now[0] = initial["lease_until"] + 1
+        assert await second.run_once() == 0
+        renewed = await values["jobs"].get("S1", job["id"])
+        study = await values["state"].get("ingestion_lease", "S1", "active")
+        assert renewed["lease_owner"] == first.worker_id
+        assert renewed["lease_until"] > now[0] > initial["lease_until"]
+        assert study.value["owner"] == first.worker_id and study.value["until"] > now[0]
+        released.set()
+        await running
+        assert await second.run_once() == 1
+        assert (await values["jobs"].get("S1", later["id"]))["state"] == "done"
+        generation, _ = await values["index_registry"].active("S1")
+        assert generation.chunk_count == 2
+    finally:
+        if not running.done():
+            running.cancel()
+        await asyncio.gather(running, return_exceptions=True)
+        await values["audit"].close()
+        await values["state"].close()
 
 
 async def test_azure_upload_sas_is_one_blob_create_only_and_read_is_etag_bound(monkeypatch):

@@ -180,8 +180,13 @@ def test_cloud_rendering_has_no_historical_endpoint_fallbacks(tmp_path):
             service = document["metadata"]["name"]
             if service not in SERVICES:
                 continue
+            # A commissioned environment contains real references. Exercise
+            # missing configuration explicitly, without depending on that state.
+            values = document["spec"]["values"]
+            for variable in targets:
+                values.get("config", {}).pop(variable.removeprefix("MEDW_").lower(), None)
             path = tmp_path / "values.yaml"
-            path.write_text(yaml.safe_dump(document["spec"]["values"]))
+            path.write_text(yaml.safe_dump(values))
             rendered = subprocess.check_output([
                 "helm", "template", service, str(CHARTS / service), "-f", str(path)
             ], text=True)

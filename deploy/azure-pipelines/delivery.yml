@@ -13,6 +13,7 @@ trigger:
     - deploy/release-behavior.json
     - requirements-dev.txt
     - pyproject.toml
+    - Makefile
 parameters:
 - name: registryHost
   type: string

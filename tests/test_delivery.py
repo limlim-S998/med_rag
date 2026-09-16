@@ -125,8 +125,11 @@ def test_target_preparation_requires_identity_and_both_telemetry_paths():
     from scripts.check_model_deployments import REQUIRED_TARGETS, validate_targets
 
     docs = list(yaml.safe_load_all((ROOT / "deploy/flux/dev/environment-values.yaml").read_text()))
-    with pytest.raises(ValueError, match="target setting"):
-        validate_targets(docs)
+    unprepared = copy.deepcopy(docs)
+    gateway = next(doc for doc in unprepared if doc["metadata"]["name"] == "gateway")
+    gateway["spec"]["values"]["config"]["cosmos_endpoint"] = ""
+    with pytest.raises(ValueError, match="gateway: target setting cosmos_endpoint must be configured"):
+        validate_targets(unprepared)
     for doc in docs:
         name = doc["metadata"]["name"]
         if name not in REQUIRED_TARGETS:
