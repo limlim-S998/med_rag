@@ -8,6 +8,7 @@ azure-search-documents
 azure-storage-blob
 pydantic-settings
 opentelemetry-exporter-prometheus
+azure-monitor-opentelemetry
 
 azure-cosmos
 

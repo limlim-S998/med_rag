@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Check that a built service starts and exposes honest process probes."""
+"""Check packaged startup, Azure telemetry imports and honest process probes.
+
+The synthetic telemetry destination is loopback inside an isolated container;
+the smoke run cannot send telemetry or credentials to any external service.
+"""
 from __future__ import annotations
 
 import argparse
@@ -18,10 +22,14 @@ def main() -> None:
     source = subprocess.run(["docker", "image", "inspect", args.image, "--format",
                              '{{index .Config.Labels "org.opencontainers.image.revision"}}'],
                             check=True, capture_output=True, text=True).stdout.strip()
-    subprocess.run(["docker", "run", "--detach", "--name", name,
+    subprocess.run(["docker", "run", "--detach", "--name", name, "--network", "none",
                     "--env", f"MEDW_BACKEND={args.backend}", "--env", "MEDW_ENV=local",
                     "--env", f"MEDW_SERVICE_NAME={args.service}",
                     "--env", f"MEDW_IMAGE_SHA={source}",
+                    "--env", ("MEDW_APPINSIGHTS_CONNECTION_STRING="
+                    "InstrumentationKey=00000000-0000-0000-0000-000000000001;"
+                    "IngestionEndpoint=http://127.0.0.1:9;LiveEndpoint=http://127.0.0.1:9"),
+                    "--env", "APPLICATIONINSIGHTS_STATSBEAT_DISABLED_ALL=true",
                     args.image], check=True, capture_output=True)
     probe = """import urllib.request, urllib.error, sys
 try:
