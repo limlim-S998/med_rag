@@ -388,6 +388,27 @@ class Deployment:
 
     def _quota(self):
         usage = az("vm", "list-usage", "-l", self.config["location"])
+        known = self.state.get("completed", {}).get("aks")
+        if known:
+            expected = (f"/subscriptions/{self.config['subscription_id']}/resourceGroups/"
+                        f"{self.config['resource_group']}/providers/Microsoft.ContainerService/managedClusters/"
+                        + self.config["prefix"] + "aks")
+            group = az("group", "show", "-n", self.config["resource_group"])
+            cluster = az("aks", "show", "-g", self.config["resource_group"],
+                         "-n", self.config["prefix"] + "aks")
+            if (known.get("id", "").lower() != expected.lower()
+                    or cluster.get("id", "").lower() != expected.lower()
+                    or group.get("tags", {}).get("medw-owner") != self.config["owner"]):
+                raise SetupError("Existing AKS allocation does not match journalled ownership")
+            pools = cluster.get("agentPoolProfiles", [])
+            if (len(pools) != 1 or pools[0].get("vmSize") != "Standard_D4s_v5"
+                    or pools[0].get("count") != 1 or pools[0].get("enableAutoScaling")
+                    or pools[0].get("osDiskSizeGb") != 64
+                    or cluster.get("sku", {}).get("tier", "").lower() != "free"):
+                raise SetupError("Owned AKS cluster no longer matches the approved bounded sizing")
+            if not quota_available(usage, "cores", 0) or not quota_available(usage, "standardDSv5Family", 0):
+                raise SetupError("Usage API did not prove quota covers the existing owned AKS node")
+            return "Owned one-node Standard_D4s_v5 cluster verified; no additional vCPUs required"
         if not quota_available(usage, "cores") or not quota_available(usage, "standardDSv5Family"):
             raise SetupError("Need 4 available regional and Standard DSv5 vCPUs; usage API "
                              "did not prove sufficient quota (no paid fallback is permitted)")

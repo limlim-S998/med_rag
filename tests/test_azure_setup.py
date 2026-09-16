@@ -293,3 +293,34 @@ def test_arm_role_is_journalled_before_lost_create_response(monkeypatch, tmp_pat
     monkeypatch.setattr(azure, "az", lost_response)
     with pytest.raises(azure.SetupError):
         deployment._role("principal", "Search Index Data Reader", "/subscriptions/sub/resourceGroups/shared")
+
+
+@pytest.mark.parametrize("change", [None, "foreign_owner", "larger_node", "autoscaling"])
+def test_quota_reuses_only_verified_owned_bounded_cluster(monkeypatch, tmp_path, change):
+    deployment = azure.Deployment(config(), root=tmp_path)
+    deployment.config.update(subscription_id="sub", owner="ours", prefix="test")
+    resource = ("/subscriptions/sub/resourceGroups/rg-medw-dev/providers/"
+                "Microsoft.ContainerService/managedClusters/testaks")
+    deployment.state["completed"] = {"aks": {"id": resource}}
+    pool = {"vmSize": "Standard_D4s_v5", "count": 1, "enableAutoScaling": False, "osDiskSizeGb": 64}
+    if change == "larger_node":
+        pool["vmSize"] = "Standard_D8s_v5"
+    if change == "autoscaling":
+        pool["enableAutoScaling"] = True
+
+    def command(*args, **kwargs):
+        if args[:2] == ("vm", "list-usage"):
+            return [{"name": {"value": name}, "currentValue": 4, "limit": 4}
+                    for name in ("cores", "standardDSv5Family")]
+        if args[:2] == ("group", "show"):
+            return {"tags": {"medw-owner": "other" if change == "foreign_owner" else "ours"}}
+        if args[:2] == ("aks", "show"):
+            return {"id": resource, "sku": {"tier": "Free"}, "agentPoolProfiles": [pool]}
+        pytest.fail("Existing owned capacity must not require another node or SKU search")
+
+    monkeypatch.setattr(azure, "az", command)
+    if change:
+        with pytest.raises(azure.SetupError):
+            deployment._quota()
+    else:
+        assert "no additional vCPUs" in deployment._quota()
