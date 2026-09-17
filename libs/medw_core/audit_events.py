@@ -75,12 +75,14 @@ def normalize_generation(event: dict) -> tuple[dict, list[Citation]]:
 INDEX_COLUMNS = (
     "event_id", "study_id", "doc_id", "parser_version", "embed_version",
     "collection", "chunks_upserted", "index_generation_id", "source_revision", "correlation_id",
+    "job_id", "batch_id", "requested_by_oid",
 )
 
 
 def normalize_index(event: dict) -> dict:
-    values = {"event_id": str(uuid.uuid4()), "correlation_id": None, **event}
-    if any(values.get(key) is None for key in INDEX_COLUMNS if key != "correlation_id"):
+    optional = {"correlation_id", "job_id", "batch_id", "requested_by_oid"}
+    values = {"event_id": str(uuid.uuid4()), **dict.fromkeys(optional), **event}
+    if any(values.get(key) is None for key in INDEX_COLUMNS if key not in optional):
         raise ValueError("complete source/index provenance required")
     row = {key: values[key] for key in INDEX_COLUMNS}
     row["event_id"] = str(uuid.UUID(row["event_id"]))

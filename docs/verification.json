@@ -3101,6 +3101,212 @@
         "The bounded scaling proof does not establish production throughput or connection continuity during every rollout.",
         "Models, parsing and medical verification remain placeholders; Airflow and real model integration are subsequent work."
       ]
+    },
+    "airflow-nightly-ingestion-20260917": {
+      "verified_at": "2026-09-17T04:32:28.289014+00:00",
+      "scope": "Uncommitted nightly-ingestion implementation; offline application tests, real PostgreSQL-backed Airflow execution and image/chart checks. No Azure deployment or Git push.",
+      "source_base": "9155496a0caeaa461c9472f821ba0406b5b6ca05",
+      "implementation_files": 62,
+      "implementation_sha256": "6ed9bb484645c6607dd2f18dd86a7607ca95ec5469f26fb1a4aef7ef1672f15d",
+      "file_sha256": {
+        "Makefile": "060690377ce5f0cdf866a381d96eeafc7de6b2aaaf56d1735d39af391b568cd1",
+        "db/sql/0006_batch_ingestion.sql": "656cee3a5f672fc1464747d419cb1d4bd68288747dfda6d89de814d01e8026fd",
+        "deploy/azure-pipelines/_build-template.yml": "8c48afe1cf4bc3ac16a0821a9cc51308662144879a588a2572741c1ce5fcbabf",
+        "deploy/azure-pipelines/delivery.yml": "dcd1f0de087fe8759bbb871d3c5b1ced05b0f58a88b53cf227407f9b6f64ea18",
+        "deploy/charts/airflow/Chart.lock": "579ac7823c17fdd7e52f1e06c81e17097ebbc8283bfa58ad7507654f89100db2",
+        "deploy/charts/airflow/Chart.yaml": "015e2d3af2e1e288c931376b7cd90ea6ba58933a44c841e4ce43657a55c2d2fc",
+        "deploy/charts/airflow/templates/platform.yaml": "f77fb224ff6ffdb18a65c6d12fd3e0bc15ef11f78a2554d2b9330a32474d7d19",
+        "deploy/charts/airflow/values.yaml": "b5d511fcee3791c5f7c9c959d3314b89fdf94e34372db70d31f47f9e781b87a7",
+        "deploy/charts/gateway/Chart.lock": "54c80054e125a4bc360e90b8afa1b1a33d30d91adf032ab94737e2eb3af49c06",
+        "deploy/charts/gateway/Chart.yaml": "49f1c95842783261c70005ce88e869386674552df956bf1bfd070516f5f679c0",
+        "deploy/charts/generation/Chart.lock": "4948b535eb6015d9f38d4a99b3da6bb7f46dde6f481039a728ce8ba2e82bae02",
+        "deploy/charts/generation/Chart.yaml": "7a7208f6dc9251d440042a1d2483791052cc451b7b24a95f91d519aae3fa3d91",
+        "deploy/charts/ingestion-worker/Chart.lock": "fd39f0b350a84aebe0a22ecc3f6858a58b3a44f3a43191393b34de0678fbaf55",
+        "deploy/charts/ingestion-worker/Chart.yaml": "e8168e2543f0f9197288368108a49ba0a47e6909bf45f10e3d525b8906712f7b",
+        "deploy/charts/medw-lib/Chart.yaml": "84852e3f9dd319e51994b2294f3c8231d5a731cbd4cb0fe32d2f26f1fb5beee4",
+        "deploy/charts/medw-lib/templates/_ingress.yaml": "20243048cbed339bfc8ac42028dbcfb9a8707dc6d3b3a4cfd5b6327fd8e1ac46",
+        "deploy/charts/medw-lib/templates/_networkpolicy.yaml": "50b0154dd34b5e169b02a80b8a9909533930232a3f64f361b5b43599c2dafc4e",
+        "deploy/charts/reranker/Chart.lock": "d6ad65fbdc35661df9e0916139ace3d6affa19fd322eee9f44d5a3214a357126",
+        "deploy/charts/reranker/Chart.yaml": "f120b2811dfd086e3bf660a791308e728a23b8d24a90309bd4c83ca0d9f2a917",
+        "deploy/charts/retrieval/Chart.lock": "12d4c38d2c214f8e9b034aefc38e48e8671112d264d8191720c9847070463d97",
+        "deploy/charts/retrieval/Chart.yaml": "5129da0772576ccb04b6132fed819ee624784d79b6a8c435b7bee8e59e4c0af1",
+        "deploy/flux/base/airflow.yaml": "a0719d9b88656513228832e63a63b5686d06d85c76bb6d977e8474038eeb0e22",
+        "deploy/flux/base/kustomization.yaml": "89dfc614ba4f1ccba0d8ab76529427733df03a5db35d3ba01054d14b47f10eaf",
+        "deploy/flux/dev/environment-values.yaml": "7a53b75742b7ac70514b64fcb6938e236835a9212fc5e723437184af723cfbc5",
+        "deploy/flux/prod/environment-values.yaml": "8d10a1e5cb9e51a145264902b6af339ba90e2980407de615fde81ddd7257dc35",
+        "deploy/flux/staging/environment-values.yaml": "70bf1f26d36070fee5d598312e64f5c5dc033f268ce6ad532ff75659623528a9",
+        "infra/azure.example.json": "590af4e5ac75f081a35472c9a5f8bb2c68742105dc26439db705765f18f27ff0",
+        "libs/medw_core/audit_events.py": "97a7bd8c6768ab6a15e9685eaa26f2dc435bdaba5880f361d00b62f6e4c135a7",
+        "libs/medw_core/auth.py": "d1cb4aaae7ba4bda1dac2067d2d5a3cdb85510e1ab77246f2fbff0e5f8268ea1",
+        "libs/medw_core/batches.py": "3085851e41d7e7b28ea10b539270219e9f2f1776ab375fd48e46f8de67726778",
+        "libs/medw_core/composition.py": "fe7ffd315744044608b1ec37c1e4dbdec4552fd8b7feae712ab4b78f63994f7c",
+        "libs/medw_core/durable_jobs.py": "d88d3721a147e156c44fe72d636d1f2d8def0d1b7bd3cad0201cbe3f14316609",
+        "libs/medw_core/ingestion.py": "d5c7cb1e46bfbb4fae59ac54ad4971ac7102668907e0cfe39ec840882d6b8585",
+        "libs/medw_core/jobs.py": "34377d5803adf7c171c3710f2c06a3bad8b45222d3438ed3187e479a2661152c",
+        "libs/medw_core/ports.py": "a2977040c8da95cc42b6a8c869fce030dee59c7c00374d7699e58f153dc0901b",
+        "libs/medw_core/service.py": "b2c7644b3ef4e631cdeada9180e33724eecc26b59cb5a631b34c7ae7e75e9c7a",
+        "libs/medw_core/settings.py": "79547e32b897a8887c1115c77f9e7f88393a713a3430e59143b5c768c139ba5c",
+        "libs/medw_core/uploads.py": "8c5ed774b55caf76e02c620e845f68f2a4625c7995e20a70d92dd1ce93ffbc05",
+        "pipelines/batch_client.py": "80b2f4b4c40ff78deea40a4b8954529c873b35bec7504cbf3a4b0be0158e8a16",
+        "pipelines/dags/ingest_study.py": "f45d8749a5d03c65f9e1cc14a2e4b9430abf9763174100b683fd8d4afc18d4b6",
+        "scripts/azure.py": "68d61d247653deac098362c66faecf6fe94a5952ee9fc0186fea7c7b18ddf93a",
+        "scripts/azure_verify.py": "eb4290006f830d6dbd47a6be592d18bed14485dc6ad6daf96fb1118120cf9194",
+        "scripts/build_images.py": "e08b788a8eda02b3776a16773986e35958ce8241c5865e2e2a54e22bdd5a3033",
+        "scripts/demo_run.py": "004488582e26c80a1514bde61a8208677211cd36f22c870eb3bfcb0acdd8ac3e",
+        "scripts/release.py": "8f08644b598decd9e3702bb566a5e71e27118a5240aff3c68d6dcc6208c66d57",
+        "scripts/smoke_image.py": "1d1ddb96d6d9ebd01032d8e93fc76888ed73241edaaf77637de08b987aa43c40",
+        "scripts/verify_release.py": "3be8800280499eab94e609295beab04259c13a0c4f6b93c7a16f5a0288139a52",
+        "services/airflow/Dockerfile": "7dc6f4dfa0d118db7de787ffe1bc85c8782d1ee592422da3f761cae4e5daa289",
+        "services/airflow/requirements.in": "0d9309a70c97fe2907292cbe6e268c654912b9ed1b34811bc5dd4c1d4d507953",
+        "services/airflow/requirements.txt": "42af60444ff34181a6dd3d24734749c51133942a810a7916b77919d13e2be522",
+        "services/gateway/app/routes/authorization.py": "07fa5f5c6ac96765714514ce73b8095dd19a415e8f0dceab84588481ff65bc41",
+        "services/ingestion_worker/app/main.py": "504431a6800a22708029d193947ca4e81594d2a242f8090f94df0fac9566749f",
+        "tests/support/airflow_smoke.py": "339e1f91e79835cf962a440b7627337823cb1cd87af3d57309bafbdd91fe777b",
+        "tests/test_application_workflow.py": "fb2f10e41540088d97b6c57d5c60a1ff902c528f39411b53b992d5e482f98028",
+        "tests/test_azure_setup.py": "b463332a6a41f22e6803d38a8de3cdfbbd05e60bd861290595e070631e00389d",
+        "tests/test_azure_verification.py": "e7950bbad55d1ae9934c7fd60403fc8c9612db8c47ca0868e381a4050676d587",
+        "tests/test_batch_ingestion.py": "edecad2f25cfe50c28c179d9cf6e71a2d48ded9ac896cdd8cb6e8a5623e6d4b9",
+        "tests/test_demo_client.py": "c74327717e9b271b46597320a43cb9c64222e7a5dbf6091607365fc5cb0f8e48",
+        "tests/test_ingestion_workflow.py": "df6792317dee63a9245311a8aa9608a90014f22d09561b4b0ae32344e551d9ec",
+        "tests/test_ingress.py": "0f9d78383bdbe6eccb80b147a0747373a14bcdbb9a2e1ee77b53eb24bbb9c38a",
+        "tests/test_jobs.py": "2b1ac87f1f8d7ee7e19f3eac2af48a3f7891b46efc1b708d8df9883ec10e1b5e",
+        "tests/test_versioning.py": "c3b60e00b17ff79fe5866eb7cdc5d74e090de1e6e6b40c12f709ff838fd59c8b"
+      },
+      "configuration": {
+        "processing": [
+          "immediate",
+          "nightly"
+        ],
+        "schedule": "0 2 * * *",
+        "timezone": "Australia/Brisbane",
+        "batch_max_documents": 500,
+        "airflow": "3.3.1",
+        "airflow_helm_chart": "1.22.0",
+        "executor": "LocalExecutor",
+        "metadata_database": "PostgreSQL 16",
+        "metadata_disk": "4Gi",
+        "log_disk": "4Gi",
+        "release_schema": 2,
+        "release_artifacts": 6
+      },
+      "make_check": {
+        "result": "passed",
+        "pytest_passed": 359,
+        "pytest_seconds": 21.32,
+        "warnings": 3,
+        "ruff": "passed",
+        "mypy_files": 40,
+        "import_contracts_kept": 4,
+        "deployable_charts": 7,
+        "flux_configurations": 4,
+        "nginx_controller_contract": "passed"
+      },
+      "application_checks": [
+        "Nightly sources captured before upload expiry and excluded from worker discovery until admission",
+        "Immediate submission remains available alongside deferred input",
+        "Frozen batch membership survives partial dispatch and retries",
+        "Cutoff and per-run limit defer later input to the next batch",
+        "Worker resumes interrupted publication before new work",
+        "Older deferred revision cannot replace a newer completed revision",
+        "Cross-study data and human/delegated/wrong-machine batch coordination rejected with signed JWTs",
+        "Batch failure and individual outcomes preserved; SQL adapter receives job/batch/requester audit fields",
+        "Complete release includes the Airflow image; chart-only upgrades recreate immutable Jobs; pre-Airflow downgrade rejected",
+        "Owned generated secrets preserved on rerun; foreign/incomplete secrets rejected"
+      ],
+      "images": {
+        "airflow": {
+          "tag": "medw-airflow:batch-check",
+          "image_id": "sha256:7c8b502246ec0063a25662736c4cd3f6fa9972bf524031b975d06d3391a14336",
+          "source_label": "unversioned"
+        },
+        "ingestion-worker": {
+          "tag": "medw-ingestion-worker:batch-check",
+          "image_id": "sha256:7e66d80a1570104b1fe88c81db4dd7dca546298a3327c6e4f7c74360855f986e",
+          "source_label": "unversioned"
+        }
+      },
+      "airflow_execution": {
+        "airflow": "3.3.1",
+        "dag": "ingest_study",
+        "executed_runs": 2,
+        "success_and_failure_propagation": true,
+        "workload_client": true,
+        "operator_account_rerun": true,
+        "metadata_database": "real disposable PostgreSQL container",
+        "identity_and_ingestion_endpoints": "loopback fixtures",
+        "dag_and_client_unmodified": true,
+        "manual_run_without_logical_date": "passed",
+        "network": "isolated Docker network",
+        "packaged_dag_matches_source": true,
+        "packaged_client_matches_source": true
+      },
+      "ingestion_image": {
+        "build": "passed",
+        "pip_check": "passed",
+        "liveness": 200,
+        "readiness_without_azure": 503
+      },
+      "sql_migration": {
+        "file": "db/sql/0006_batch_ingestion.sql",
+        "sha256": "656cee3a5f672fc1464747d419cb1d4bd68288747dfda6d89de814d01e8026fd",
+        "applied_to_sql_server_or_azure_sql": false,
+        "historical_migrations_modified": false
+      },
+      "cleanup": {
+        "temporary_containers_removed": true,
+        "temporary_networks_removed": true,
+        "paid_resources_created": false,
+        "local_application_started": false,
+        "cloud_deployed": false,
+        "git_pushed": false
+      },
+      "documentation": {
+        "project_documentation": "README.md",
+        "markdown_files": 3,
+        "links_checked": true
+      },
+      "not_verified": [
+        "Airflow Helm installation and enforcing NetworkPolicies on AKS",
+        "Real Entra workload token exchange for the new Airflow identity",
+        "Migration 0006 on SQL Server or Azure SQL",
+        "Scheduled overnight execution and end-to-end Airflow acceptance in Azure",
+        "Airflow release upgrades and rollback through live Azure Pipelines/Flux"
+      ],
+      "deliberate_gaps": [
+        "Single-node Airflow/PostgreSQL without HA or automated metadata backups",
+        "Backfill/reindex DAG remains an uninstalled future stub",
+        "Clinical models and parsing remain placeholders; no frontend",
+        "No automatic reset of terminal failed ingestion jobs; corrected input is resubmitted with a new idempotency key"
+      ]
+    },
+    "cloud-walkthrough-preparation-20260917": {
+      "verified_at": "2026-09-17T07:57:47.716623+00:00",
+      "scope": "Cloud-hosted API client and Airflow release preparation, before paid provisioning.",
+      "make_check": {
+        "result": "passed",
+        "pytest_passed": 365,
+        "ruff": "passed",
+        "mypy_files": 40,
+        "import_contracts_kept": 4,
+        "charts": 7,
+        "flux_configurations": 4,
+        "nginx_contract": "passed"
+      },
+      "preflight": {
+        "passed": true,
+        "estimated_aud": 6.92,
+        "hours": 4,
+        "is_hard_cap": false,
+        "quoted_at": "2026-09-17T02:10:14.176061+00:00"
+      },
+      "changes": [
+        "Ignore deleted AKS allocations during post-teardown quota checks",
+        "Temporary AKS API client uses separate workload identity and configured study membership",
+        "Client files enter normal SAS upload, ingestion, search and draft APIs; certificate validation remains enabled",
+        "Nightly demonstration requires matching batch membership and successful Airflow DAG state",
+        "Client Jobs are cleaned on success/failure; full application teardown remains an explicit separate operator command"
+      ],
+      "live_azure_execution": "not yet run at this record timestamp"
     }
   },
   "documentation_cleanup": {

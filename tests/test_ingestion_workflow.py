@@ -272,9 +272,13 @@ async def test_cancelled_worker_recovers_same_publication_after_lease_release(tm
     await values["state"].close()
 
 
-async def test_ingest_http_rejects_unregistered_input_and_is_idempotent_after_expiry(tmp_path):
+async def test_ingest_http_rejects_unregistered_input_and_is_idempotent_after_expiry(tmp_path, monkeypatch):
+    from medw_core.auth import Principal, study_user
     from services.ingestion_worker.app.main import app as worker_app
 
+    # This test isolates upload semantics; signed identity and study denials are
+    # exercised independently by the batch HTTP integration tests.
+    monkeypatch.setitem(worker_app.dependency_overrides, study_user, lambda: Principal("writer"))
     values, _ = workflow(tmp_path)
     registered, source, job = await upload(values)
     previous = getattr(worker_app.state, "services", None)

@@ -1,54 +1,58 @@
-# Bulk ingestion. Airflow owns the batch path; the synchronous FastAPI
-# ingestion worker owns the single-document path so a writer can query a doc
-# they are actively editing. Same functions underneath, two entry points.
+"""Nightly, finite batches of documents explicitly submitted for deferred work."""
 
-from datetime import UTC, datetime
+import os
+from datetime import timedelta
 
-from airflow.decorators import dag, task
+import pendulum
+from airflow.exceptions import AirflowException
+from airflow.providers.standard.sensors.python import PythonSensor
+from airflow.sdk import dag, get_current_context, task
+from airflow.timetables.trigger import CronTriggerTimetable
 
-from medw_core.settings import get_settings
+from pipelines.batch_client import BatchClient
+
+
+def finished(batch_id: str) -> bool:
+    with BatchClient() as client:
+        return client.status(batch_id)["status"] in {"completed", "failed"}
 
 
 @dag(
     dag_id="ingest_study",
-    schedule=None,                       # triggered per study with a conf payload
-    start_date=datetime(2025, 4, 1, tzinfo=UTC),   # Airflow compares against aware now()
+    schedule=CronTriggerTimetable(os.getenv("MEDW_BATCH_SCHEDULE", "0 2 * * *"),
+                                 timezone=os.getenv("MEDW_BATCH_TIMEZONE", "Australia/Brisbane")),
+    start_date=pendulum.datetime(2025, 1, 1, tz="Australia/Brisbane"),
     catchup=False,
-    max_active_runs=1,                   # one study at a time; AOAI quota is shared
-    tags=["ingestion"],
+    max_active_runs=1,
+    max_active_tasks=2,
+    dagrun_timeout=timedelta(hours=8),
+    default_args={"retries": 3, "retry_delay": timedelta(seconds=30)},
+    tags=["ingestion", "nightly"],
 )
 def ingest_study():
+    @task
+    def select_and_admit() -> str:
+        context = get_current_context()
+        # Logical time stays fixed across retries; missed nights have no lower cutoff.
+        boundary = context.get("data_interval_end") or context["dag_run"].run_after
+        with BatchClient() as client:
+            result = client.prepare(context["run_id"], boundary.timestamp())
+        return result["id"]
 
     @task
-    def list_blobs(study_id: str) -> list[str]:
-        ...
+    def report(batch_id: str) -> dict:
+        with BatchClient() as client:
+            result = client.status(batch_id)
+        if result["status"] != "completed":
+            raise AirflowException(f"Batch {batch_id} failed: {result['counts']}")
+        return {"id": batch_id, "counts": result["counts"],
+                "deferred_by_limit": result["deferred_by_limit"]}
 
-    @task
-    def extract(blob_path: str) -> dict:
-        # Document Intelligence layout model -> custom parsers
-        ...
-
-    @task
-    def classify(doc: dict) -> dict:
-        # sklearn doc-type classifier, loaded from the Azure ML registry by
-        # pinned version. Fast, deterministic, auditable.
-        ...
-
-    @task
-    def chunk(doc: dict) -> list[dict]:
-        ...
-
-    @task
-    def embed_and_upsert(chunks: list[dict]) -> int:
-        # Batched embeddings, then Qdrant upsert + Cognitive Search index.
-        # Idempotent because the IDs are deterministic - this is what lets you
-        # re-run the whole DAG after a parser fix instead of dropping the
-        # collection.
-        ...
-
-    s = get_settings()  # noqa: F841
-    docs = list_blobs.override(task_id="list")("{{ dag_run.conf['study_id'] }}")
-    embed_and_upsert(chunk(classify(extract.expand(blob_path=docs))))
+    batch_id = select_and_admit()
+    wait = PythonSensor(task_id="wait_for_documents", python_callable=finished,
+                        op_kwargs={"batch_id": batch_id}, mode="reschedule",
+                        poke_interval=30, timeout=7 * 60 * 60)
+    batch_id >> wait >> report(batch_id)
 
 
 ingest_study()

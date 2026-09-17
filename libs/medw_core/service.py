@@ -59,7 +59,7 @@ def lifespan_for(name: str, settings: Settings, *, vector_factory=None, sparse_f
                 logging.getLogger(__name__).exception("service dependency initialization failed")
                 monitor.add("configuration", unavailable_check("dependency initialization failed"))
 
-            if name in {"gateway", "generation"}:
+            if name in {"gateway", "generation", "ingestion-worker"}:
                 from medw_core.auth import TokenValidator
                 app.state.token_validator = TokenValidator(settings, http)
                 monitor.add("identity-provider", app.state.token_validator.check)

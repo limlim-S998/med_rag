@@ -122,3 +122,46 @@ def test_even_fresh_login_must_meet_required_lifetime(monkeypatch, tmp_path, cap
     with pytest.raises(RuntimeError, match="lifetime is insufficient"):
         acquire_token(identity_state(), tmp_path / "cache.json")
     assert "private-short-token" not in capsys.readouterr().out
+
+
+def test_nightly_client_preserves_input_and_returns_without_drafting(monkeypatch, tmp_path):
+    import hashlib
+    import json
+
+    import httpx
+
+    from scripts.demo_run import workflow
+
+    path = tmp_path / "input.bin"
+    path.write_bytes(b"\x00arbitrary bytes\xff")
+    checksum = hashlib.sha256(path.read_bytes()).hexdigest()
+    submitted = []
+
+    def handle(request):
+        if request.url.host == "storage.invalid":
+            assert "authorization" not in request.headers
+            assert request.content == path.read_bytes()
+            return httpx.Response(201)
+        assert request.headers["authorization"] == "Bearer offline-token"
+        if request.url.path == "/version":
+            return httpx.Response(200, json={"bundle_sha": "source-release"})
+        if request.url.path.endswith("documents:upload-url"):
+            assert json.loads(request.content)["sha256"] == checksum
+            return httpx.Response(200, json={"upload_id": "upload", "doc_id": "doc",
+                "upload_url": "https://storage.invalid/blob?sig=offline-capability"})
+        assert request.url.path == "/studies/S1/documents/doc/ingest"
+        body = json.loads(request.content)
+        assert body["processing"] == "nightly"
+        submitted.append(body)
+        return httpx.Response(202, json={"id": "job", "state": "scheduled", "source_revision": "revision"})
+
+    original = httpx.Client
+    monkeypatch.setattr(httpx, "Client", lambda **kwargs: original(
+        **kwargs, transport=httpx.MockTransport(handle)))
+    evidence = workflow("https://application.invalid", path, "S1", "section", "offline-token",
+                        processing="nightly", submit_only=True)
+    assert len(submitted) == 2 and submitted[0] == submitted[1]
+    assert evidence["state"] == "scheduled" and evidence["checks"]["scheduled_for_batch"]
+    encoded = json.dumps(evidence)
+    assert "offline-token" not in encoded and "offline-capability" not in encoded
+    assert "draft" not in evidence

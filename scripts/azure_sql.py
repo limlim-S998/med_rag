@@ -50,9 +50,10 @@ def main():
         cursor.execute("IF NOT EXISTS (SELECT 1 FROM core.e3_section WHERE section_path=?) "
                        "INSERT INTO core.e3_section(section_path,title,required) VALUES(?,?,1)",
                        config["section_path"], config["section_path"], "Placeholder efficacy section")
-        cursor.execute("IF NOT EXISTS (SELECT 1 FROM core.study_access WHERE study_id=? AND user_oid=?) "
-                       "INSERT INTO core.study_access(study_id,user_oid) VALUES(?,?)",
-                       config["study_id"], config["writer_object_id"], config["study_id"], config["writer_object_id"])
+        for actor in (config["writer_object_id"], config["demo_client_object_id"]):
+            cursor.execute("IF NOT EXISTS (SELECT 1 FROM core.study_access WHERE study_id=? AND user_oid=?) "
+                           "INSERT INTO core.study_access(study_id,user_oid) VALUES(?,?)",
+                           config["study_id"], actor, config["study_id"], actor)
         connection.commit()
         print("Schema migrated, delivery principal provisioned, test study membership seeded")
     finally:

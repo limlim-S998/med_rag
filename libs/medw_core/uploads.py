@@ -6,7 +6,7 @@ import hashlib
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Protocol
+from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -28,6 +28,7 @@ class IngestRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     upload_id: str = Field(pattern=r"^[a-f0-9]{32}$")
     idempotency_key: str = Field(min_length=1, max_length=128)
+    processing: Literal["immediate", "nightly"] = "immediate"
 
 
 class UploadStorage(Protocol):

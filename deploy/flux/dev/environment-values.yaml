@@ -307,3 +307,17 @@ spec:
         memory: 1Gi
     podDisruptionBudget:
       minAvailable: 0
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: airflow
+  namespace: medw
+spec:
+  values:
+    image:
+      repository: medwdev9528fa20acr.azurecr.io/airflow
+    airflow:
+      images:
+        airflow:
+          repository: medwdev9528fa20acr.azurecr.io/airflow

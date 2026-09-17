@@ -204,7 +204,8 @@ class JobStore(Protocol):
     async def create(self, study_id: str, doc_id: str, *,
                      source_revision: str | None = None,
                      idempotency_key: str | None = None,
-                     correlation_id: str | None = None) -> dict: ...
+                     correlation_id: str | None = None, processing: str = "immediate",
+                     requested_by_oid: str | None = None) -> dict: ...
 
     async def advance(self, job: dict, state: str) -> dict: ...
 

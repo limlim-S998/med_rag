@@ -55,18 +55,18 @@ def test_environment_route_and_network_policy_agree(gateway_chart, tmp_path, env
         assert upstream["read-timeout"] == "300s"
         assert upstream["next-upstream"] == "off"
     routes = ingress["spec"]["routes"]
-    assert [route["action"]["pass"] for route in routes[:4]] == [
-        "ingestion-worker", "ingestion-worker", "retrieval", "generation",
+    assert [route["action"]["pass"] for route in routes[:5]] == [
+        "ingestion-worker", "ingestion-worker", "ingestion-worker", "retrieval", "generation",
     ]
     policies = {doc["metadata"]["name"]: doc["spec"]["externalAuth"]
                 for doc in resources if doc["kind"] == "Policy"}
-    for route in routes[:4]:
+    for route in routes[:5]:
         auth = policies[route["policies"][0]["name"]]
         assert auth["authServiceName"] == "gateway" and auth["authServicePorts"] == [8000]
         assert "proxy_set_header X-Original-URI $request_uri;" in auth["authSnippets"]
         assert "proxy_set_header X-Original-Method $request_method;" in auth["authSnippets"]
         assert route["errorPages"][0]["return"]["code"] == 503
-    assert len({auth["authURI"] for auth in policies.values()}) == 4
+    assert len({auth["authURI"] for auth in policies.values()}) == 5
     assert routes[-1]["action"]["return"]["code"] == 404
     assert not any("/_internal" in route["path"] or "/metrics" in route["path"] for route in routes)
     assert any(rule["from"] == [{

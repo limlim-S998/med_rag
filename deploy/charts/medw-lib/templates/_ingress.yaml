@@ -3,7 +3,7 @@ controller network access. F5 VirtualServer/Policy resources require CRDs from
 our pinned controller chart. Public URLs pass unchanged to each application. */}}
 {{- define "medw-lib.ingress" -}}
 {{- if and (eq .Values.name "gateway") .Values.ingress.enabled }}
-{{- range $operation := list "jobs" "search" "draft" "ingest" }}
+{{- range $operation := list "jobs" "batches" "search" "draft" "ingest" }}
 ---
 apiVersion: k8s.nginx.org/v1
 kind: Policy
@@ -48,6 +48,7 @@ spec:
   routes:
     {{- range $route := list
         (dict "operation" "jobs" "path" "~ ^/studies/[^/]+/jobs/[^/]+$" "backend" "ingestion-worker")
+        (dict "operation" "batches" "path" "~ ^/studies/[^/]+/batches/[^/]+$" "backend" "ingestion-worker")
         (dict "operation" "ingest" "path" "~ ^/studies/[^/]+/documents/[^/]+/ingest$" "backend" "ingestion-worker")
         (dict "operation" "search" "path" "~ ^/studies/[^/]+/search$" "backend" "retrieval")
         (dict "operation" "draft" "path" "~ ^/studies/[^/]+/sections/[^/]+/draft$" "backend" "generation") }}

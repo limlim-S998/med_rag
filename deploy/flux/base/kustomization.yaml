@@ -9,3 +9,4 @@ resources:
 - reranker.yaml
 - ingestion-worker.yaml
 - qdrant.yaml
+- airflow.yaml

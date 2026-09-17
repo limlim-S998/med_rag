@@ -122,7 +122,7 @@ def test_every_retryable_stage_states_its_cost(state):
 def test_every_non_terminal_stage_after_queued_has_a_retry_policy():
     """A stage with no policy gets whatever the default is, which is exactly
     the kind of implicit decision this table exists to remove."""
-    needs = {s for s in JobState if s not in TERMINAL and s is not JobState.queued}
+    needs = {s for s in JobState if s not in TERMINAL | {JobState.queued, JobState.scheduled}}
     assert needs <= RETRY_COST.keys()
 
 

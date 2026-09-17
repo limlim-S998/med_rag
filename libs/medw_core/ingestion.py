@@ -1,4 +1,4 @@
-"""Durable ingestion operations shared by the HTTP worker and future batch DAGs.
+"""Durable ingestion operations for immediate and Airflow-admitted documents.
 
 Medical parsing is deliberately simple. Storage, leases, publication and audit are
 real: a restarted worker resumes the same source and immutable index generation.
@@ -55,12 +55,14 @@ class IngestionRunner:
 
     async def run_once(self) -> int:
         """Bounded discovery/processing; one job per poll bounds work per process."""
-        # The oldest unfinished job owns its study's queue position even while
-        # leased/backing off. Later jobs must not overtake recovery and lose the
-        # document snapshot or overwrite an already-published generation.
+        # Resume started work before admitting another publication. Among jobs
+        # that have not started, interactive work takes priority over batches.
+        # Scheduled jobs cannot block an immediate upload in the same study.
         pending = sorted((row.value for row in await self.state.list("job")
-                          if row.value["state"] not in ("done", "failed")),
-                         key=lambda job: (job.get("created_at", job["updated_at"]), job["id"]))
+                          if row.value["state"] not in ("scheduled", "done", "failed", "superseded")),
+                         key=lambda job: (job["state"] == "queued",
+                                          job.get("processing", "immediate") == "nightly",
+                                          job.get("created_at", job["updated_at"]), job["id"]))
         studies = set()
         for candidate in pending:
             study = candidate["study_id"]
@@ -174,7 +176,7 @@ class IngestionRunner:
             current = await self.jobs.get(lease.job["study_id"], lease.job["id"])
             if not current or current["lease_owner"] != self.worker_id:
                 return
-            if current["state"] in ("done", "failed"):
+            if current["state"] in ("done", "failed", "superseded"):
                 return
             attempts = current.get("attempts", 0) + int(count_attempt)
             try:
@@ -191,6 +193,17 @@ class IngestionRunner:
 
     async def _process(self, lease: Lease) -> None:
         job = lease.job
+        if job["state"] == "queued":
+            # An old overnight revision must not replace a newer immediate
+            # revision. The study lease excludes concurrent publication here.
+            newer = [row.value for row in await self.state.list("job", job["study_id"])
+                     if row.value["doc_id"] == job["doc_id"] and row.value["state"] == "done"
+                     and (row.value.get("created_at", 0), row.value["id"])
+                     > (job.get("created_at", 0), job["id"])]
+            if newer:
+                async with self.mutex:
+                    lease.job = await self.jobs.advance(lease.job, JobState.superseded.value)
+                return
         source_row = await self.state.get("source", job["study_id"], job["source_revision"])
         if not source_row:
             raise LookupError("durably acknowledged source is missing")
@@ -328,6 +341,8 @@ class IngestionRunner:
             "collection": generation.dense_collection, "chunks_upserted": generation.chunk_count,
             "index_generation_id": generation.generation_id, "source_revision": source.revision_id,
             "correlation_id": job["correlation_id"],
+            "job_id": job["id"], "batch_id": job.get("batch_id"),
+            "requested_by_oid": job.get("requested_by_oid"),
             "document": {"doc_type": classification["doc_type"], "blob_path": source.artifact_uri,
                          # Earlier checkpoints did not invoke a classifier. Do
                          # not retrospectively attribute their result to one.

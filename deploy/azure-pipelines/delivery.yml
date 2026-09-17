@@ -5,6 +5,7 @@ trigger:
   paths:
     include:
     - services
+    - pipelines
     - libs
     - db/sql
     - scripts

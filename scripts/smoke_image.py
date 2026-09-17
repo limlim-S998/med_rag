@@ -8,9 +8,48 @@ The smoke run cannot send telemetry or credentials to any external service.
 from __future__ import annotations
 
 import argparse
+import os
+import pathlib
+import secrets
 import subprocess
 import time
 import uuid
+
+
+def smoke_airflow(image: str) -> None:
+    """A disposable PostgreSQL plus the real DAG; no application deployment."""
+    import yaml
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+    postgres_image = yaml.safe_load((root / "deploy/charts/airflow/values.yaml").read_text())["postgres"]["image"]
+    name = "medw-airflow-check-" + uuid.uuid4().hex[:10]
+    database, runtime = name + "-db", name + "-dag"
+    environment = {**os.environ, "POSTGRES_PASSWORD": secrets.token_urlsafe(24)}
+    environment["AIRFLOW__DATABASE__SQL_ALCHEMY_CONN"] = (
+        "postgresql://airflow:" + environment["POSTGRES_PASSWORD"] + "@airflow-db:5432/airflow")
+    subprocess.run(["docker", "network", "create", "--internal", name], check=True, capture_output=True)
+    try:
+        subprocess.run(["docker", "run", "--detach", "--name", database, "--network", name,
+                        "--network-alias", "airflow-db", "--env", "POSTGRES_USER=airflow",
+                        "--env", "POSTGRES_DB=airflow", "--env", "POSTGRES_PASSWORD", postgres_image],
+                       env=environment, check=True, capture_output=True)
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline:
+            result = subprocess.run(["docker", "exec", database, "pg_isready", "-U", "airflow"],
+                                    check=False, capture_output=True)
+            if result.returncode == 0:
+                break
+            time.sleep(0.5)
+        else:
+            raise RuntimeError("temporary Airflow metadata database did not start")
+        subprocess.run(["docker", "run", "--name", runtime, "--network", name,
+                        "--env", "AIRFLOW__DATABASE__SQL_ALCHEMY_CONN", "--mount",
+                        f"type=bind,source={root / 'tests/support/airflow_smoke.py'},target=/tmp/airflow_smoke.py,readonly",
+                        image, "python", "/tmp/airflow_smoke.py"], env=environment, check=True, timeout=180)
+    finally:
+        for container in (runtime, database):
+            subprocess.run(["docker", "rm", "--force", "--volumes", container], check=False, capture_output=True)
+        subprocess.run(["docker", "network", "rm", name], check=True, capture_output=True)
 
 
 def main() -> None:
@@ -18,6 +57,9 @@ def main() -> None:
     parser.add_argument("--image", required=True)
     parser.add_argument("--service", required=True)
     args = parser.parse_args()
+    if args.service == "airflow":
+        smoke_airflow(args.image)
+        return
     name = "medw-smoke-" + uuid.uuid4().hex[:12]
     source = subprocess.run(["docker", "image", "inspect", args.image, "--format",
                              '{{index .Config.Labels "org.opencontainers.image.revision"}}'],

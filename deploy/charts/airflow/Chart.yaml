@@ -1,0 +1,9 @@
+apiVersion: v2
+name: medw-airflow
+version: 0.1.0
+type: application
+description: Nightly ingestion using the official Airflow chart and a durable metadata database.
+dependencies:
+  - name: airflow
+    version: 1.22.0
+    repository: https://airflow.apache.org

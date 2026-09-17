@@ -61,6 +61,15 @@ Owned Azure resources, the managed node group, temporary DevOps objects and API
 registrations were removed afterwards. Borrowed free-tier account settings and
 the stopped local installation were preserved.
 
+Nightly Airflow ingestion is now implemented, with a configurable 02:00
+Australia/Brisbane schedule. Offline tests exercise deferred submission, frozen
+batch membership, retries, revision ordering and access control. The packaged DAG
+also runs against a real disposable PostgreSQL database, with loopback identity
+and ingestion API fixtures. These checks do not establish a deployed Airflow
+installation: its AKS startup, real workload-token exchange and overnight run
+remain to be verified in Azure. The earlier twelve-area Azure result predates
+this addition; the acceptance suite now includes a thirteenth, Airflow batch check.
+
 The retired `medw` minikube installation remains stopped, with its original data
 and volumes preserved. Its historical application source is
 `8be19924b30edc325c2525f2439b5c1e3a62a044` and its Qdrant image is 1.12.1.
@@ -69,7 +78,7 @@ installation. Current Azure deployments use Qdrant 1.19.0.
 
 ## Development and offline tests
 
-Requires Python 3.11+; full checks also use Helm and kubectl. Service images use
+Requires Python 3.11+; full checks also use Helm 3.19+ and kubectl. Service images use
 Python 3.11 with exact hash-checked dependencies; the host environment resolves
 development requirements separately.
 
@@ -103,14 +112,30 @@ With Docker available, check all packaged images without deploying Azure:
 python scripts/build_images.py --tag startup-check
 ```
 
-Each image starts temporarily with networking disabled and dummy Azure endpoint
+The five application images start temporarily with networking disabled and dummy Azure endpoint
 configuration. Its actual Azure adapters must initialize; missing infrastructure
 must keep readiness at 503. A versioned placeholder reranker can be ready without
 external stores. Telemetry uses loopback destinations and cannot leave the
 container. Smoke containers are removed on success and failure. Uncommitted
 builds are marked `unversioned` and cannot become published releases.
 
-Every service has `/healthz`, `/readyz`, `/version` and `/metrics`, listening on
+The sixth image packages Airflow and the active ingestion DAG. Its smoke check
+uses an isolated Docker network, disposable PostgreSQL, and loopback identity/API
+fixtures. It executes successful and failed DAG runs and tests operator-account
+creation on a rerun. It does not deploy an alternate application. To check only it:
+
+```sh
+python scripts/build_images.py --service airflow --tag batch-check
+```
+
+For a browser-controlled cloud walkthrough, `scripts/cloud_demo.py` runs an API
+client as a temporary AKS Job using the selected ingestion image. Its separate
+`demo-client` workload identity receives membership in the configured test study,
+with no direct Blob/Cosmos/Search/SQL grants. Audit attributes its actions to that
+machine identity. The client uses normal authenticated public APIs and explicitly
+trusts the deployment certificate; there is no alternate application mode.
+
+Each of the five application services has `/healthz`, `/readyz`, `/version` and `/metrics`, listening on
 port 8000 inside its container. Readiness probes the dependencies actually used.
 Generation also checks retrieval, and retrieval checks reranker. Gateway access
 decisions do not depend on the availability of those downstream services.
@@ -123,6 +148,10 @@ decisions do not depend on the availability of those downstream services.
 | Generation | JWT actor, HTTP retrieval, streamed output, audit and draft persistence |
 | Ingestion worker | Registered upload submission, durable polling, stages and publication |
 
+Airflow is a separate scheduler/API/DAG-processor installation using its upstream
+health probes and StatsD metrics. Its task processes call the ingestion worker;
+they do not host another copy of the document-processing implementation.
+
 ## Architecture and application contract
 
 ```mermaid
@@ -130,7 +159,9 @@ flowchart TB
     Client --> NGINX
     NGINX -->|JWT and study authorization| Gateway
     Client -->|single blob SAS| Blob[(Blob Storage)]
-    NGINX -->|ingest and job status| Ingestion
+    NGINX -->|ingest, job and study batch status| Ingestion
+    Airflow -->|workload-authenticated batch admission/status| Ingestion
+    Airflow --> PostgreSQL[(Airflow scheduling and task metadata)]
     NGINX -->|search| Retrieval
     NGINX -->|draft| Generation
     NGINX -->|upload registration and acceptance| Gateway
@@ -155,15 +186,22 @@ flowchart TB
    delegation SAS for one staging blob. The client uploads directly to Blob.
    The SAS URL and its token do not belong in logs or evidence reports.
 2. Authenticated `POST /studies/{study}/documents/{document}/ingest` accepts
-   `{upload_id,idempotency_key}` and returns `202` with a durable job ID. Arbitrary
+   `{upload_id,idempotency_key,processing?}` and returns `202` with a durable job ID.
+   `processing` is `immediate` by default or `nightly`. Arbitrary
    download URLs are not accepted. Size and SHA-256 are checked, an Azure ETag
    protects the read, and immutable source bytes are captured before acknowledgment.
    Repeated matching submissions return the same job, including after SAS expiry;
-   reusing a key for different input is rejected.
+   reusing a key for different input or processing choice is rejected. A first
+   submission must occur before the upload registration expires, including for
+   nightly work; the SAS itself need not remain valid until morning.
 3. `GET /studies/{study}/jobs/{job}` reports persisted progress. The worker polls
    durable jobs, leases them, renews leases and saves immutable stage checkpoints.
    Per-study serialization prevents overlapping publication. Restart recovery
-   retains the job's generation identity and skips committed stages.
+   retains the job's generation identity and skips committed stages. Immediate
+   jobs enter `queued`; nightly jobs remain `scheduled` until Airflow admits them.
+   The returned job then includes a `batch_id`. Authenticated
+   `GET /studies/{study}/batches/{batch}` reports that study's counts and jobs
+   without disclosing another study's inputs.
 4. A study generation includes the newest revision of every previously published
    document. The worker stages both indexes, reads back counts and payload hashes,
    retains evidence and conditionally replaces one active manifest. Partial
@@ -183,6 +221,45 @@ flowchart TB
    transitions that specific draft under the authenticated writer. The SQL
    procedure atomically records acceptance and changes status. It cannot mutate
    the original generation audit. Same-writer repeat acceptance is idempotent.
+
+### Immediate and nightly processing
+
+A future frontend uses the same upload sequence for either choice: register the
+upload, PUT the bytes to Blob, then submit the ingest request with the chosen
+`processing` value. It can poll the job ID. `immediate` means eligible for the
+worker now; the HTTP request still returns before processing finishes.
+
+At 02:00 Brisbane time, `pipelines/dags/ingest_study.py` freezes a batch of the
+oldest eligible nightly submissions, releases them to the existing durable
+worker, waits without occupying a task slot, and reports the combined outcome.
+The deployment configuration's `batch` object controls `hour`, `minute`,
+`timezone` and `max_documents` (default 500, maximum 1,000). Inputs arriving after
+the scheduling boundary and any backlog beyond the limit wait for the next run.
+Missed nights are covered by selecting all older pending inputs, without a lower
+date boundary. Only one run of this DAG is active at a time.
+
+Batch membership is persisted in Cosmos before admission. A retried task resumes
+that selection instead of discovering a different set of files. Airflow stores
+its own schedule and task history in PostgreSQL; document checkpoints and outcomes
+remain in Cosmos and indexing audit remains in SQL. The batch coordinator uses
+an Entra workload identity, not a writer's browser session. Its private endpoints
+accept only the configured machine principal. Writer endpoints also check JWTs
+and study membership inside ingestion, in addition to NGINX authorization.
+
+Started work recovers first; immediate jobs then take priority over unstarted
+nightly jobs. Publication remains serialized per study. An older deferred revision
+is marked `superseded` if a newer submission for the same document has already
+completed. Successful documents remain published if another batch member fails;
+this is not an all-or-nothing transaction across the batch. A failed document
+makes the DAG fail. Retrying Airflow tasks does not reset terminal document
+failures; after correcting their cause, submit again with a new idempotency key.
+The batch report counts completed, failed and superseded documents explicitly.
+
+For an operator-triggered run of the same DAG, use the private Airflow UI or
+`airflow dags trigger ingest_study` inside its scheduler container. No separate
+manual processing implementation is needed. `make demo-run FILE=… PROCESSING=nightly`
+uploads and records the scheduled job, then returns without waiting overnight or
+drafting. The default command continues through ingestion, drafting and acceptance.
 
 ## Installed processing and deliberate gaps
 
@@ -206,19 +283,20 @@ receives an explicitly synthetic envelope with no table cells and returns
 storage label, not a predicted document type. Checkpoints record the classifier
 actually called; older checkpoints without that call are marked `not-run`.
 
-Airflow batch ingestion and reindexing come next, reusing
-[ingestion.py](libs/medw_core/ingestion.py) operations. Real model implementations
-can then replace placeholders one at a time behind the existing interfaces.
+Nightly Airflow ingestion reuses [ingestion.py](libs/medw_core/ingestion.py)
+operations. Scheduled backfill/reindexing remains future work. Real model
+implementations can replace placeholders one at a time behind the existing interfaces.
 Medical parsing, numerical fidelity, clinical evaluation/golden datasets, a
 frontend, client rules, automatic evidence-retention policy and multi-node
 availability are outside this increment. The older implementation branch
 `implementation/retrieval-slice` (`089dd50`) is reference material, not code to copy
 wholesale over the current durability and provenance contracts.
 
-The stubs in `pipelines/` (including the CLI, parsers and Airflow DAGs), `ml/`,
+The stubs in `pipelines/` (including the CLI, parsers and `backfill_reindex.py`), `ml/`,
 `evals/`, and generation's table rendering and clinical verification functions
 remain intentional future work. They are retained even where no active runtime
-imports them. `make seed` and `make eval` still name those unfinished entrypoints;
+imports them. Only the implemented `ingest_study` DAG is installed in Airflow.
+`make seed` and `make eval` still name those unfinished entrypoints;
 they do not currently seed a study or produce evaluation results. Use the Azure
 setup and normal upload APIs for the functioning workflow. The inactive Container
 Apps example is retained as historical scaffolding and is not an Azure deployment
@@ -253,6 +331,20 @@ option supported by the operator commands.
 - Runtime identities receive narrowly scoped data permissions; migration identity
   alone has DDL authority. Migration 0005 adds draft/acceptance persistence and
   narrows generation audit grants without rewriting migrations 0001–0004.
+  Migration 0006 grants ingestion membership reads and appends indexing-audit
+  fields for job, batch and original requester identity. Historical migrations
+  and append-only audit permissions are preserved.
+- Airflow owns scheduling and batch outcomes; the existing durable worker owns
+  processing and publication. This keeps immediate and scheduled processing on
+  the same implementation. The bounded installation uses LocalExecutor, without
+  Redis or a second distributed worker queue.
+- Airflow needs a compatible metadata database. Its supported deployment choices
+  are PostgreSQL and MySQL; the existing Azure SQL database uses Microsoft SQL
+  Server and cannot fill that role. See the
+  [official database setup guide](https://airflow.apache.org/docs/apache-airflow/3.3.1/howto/set-up-database.html).
+  A PostgreSQL 16 container uses the existing AKS node and a persistent disk; no
+  Azure managed PostgreSQL service is provisioned. This single-instance setup
+  is for the bounded exercise, without database HA or automated metadata backups.
 - Python forwarding, in-memory-only jobs, placeholder 501 handlers and required
   unused Azure AI services were removed from the active workflow. False medical
   verification and attribution to Azure OpenAI are not used for placeholder output.
@@ -278,7 +370,7 @@ option supported by the operator commands.
 
 ## Azure commissioning
 
-Install Azure CLI, Docker, kubectl, Helm, Flux and OpenSSL, then run `az login`
+Install Azure CLI, Docker, kubectl, Helm 3.19+, Flux and OpenSSL, then run `az login`
 and select the intended subscription with `az account set --subscription ID`.
 The operator needs resource creation and role-assignment permissions, plus
 permission to register Entra applications. Preflight reports missing access.
@@ -313,11 +405,36 @@ index/database names, study membership and Azure DevOps organization/project.
 The current project is `https://dev.azure.com/gzwhbosons/medwriter-assist`.
 Passwords, SAS tokens and service credentials do not belong in that file or Git.
 
+After deployment, the meeting walkthrough can be controlled from Azure Cloud
+Shell with Python and kubectl; no local application or localhost login callback
+is involved. Obtain AKS credentials for the configured cluster in Cloud Shell,
+clone this repository, and run:
+
+```sh
+python3 scripts/cloud_demo.py run --processing immediate
+python3 scripts/cloud_demo.py run --processing nightly
+# Optionally use files uploaded into Cloud Shell instead of generated synthetic documents:
+python3 scripts/cloud_demo.py run --processing nightly --file first.txt --file second.txt
+```
+
+Immediate processing displays upload/job progress, retrieval and streamed text,
+then accepts the persisted draft. The nightly command defaults to two documents,
+proves they are deferred, triggers the installed `ingest_study` DAG, and checks
+the batch, retrieval and Airflow's final run state. Only the operator triggers
+Airflow; the client identity cannot coordinate batches. Files are transferred to
+temporary pod storage, then uploaded through the ordinary SAS flow. Evidence is
+saved under `data/azure/walkthrough-*.json`, excluding credentials and SAS URLs.
+`--kubeconfig PATH` and `--output PATH` are available. Client Jobs are removed on
+success or failure; the application remains deployed for the meeting. Use
+`azure-down` after the session. The full `azure-verify` command is separate and
+still tears the entire owned deployment down.
+
 | Command | Behavior |
 |---|---|
 | `azure-preflight` | Access, provider registration, VM capacity/quota, borrowed resource compatibility, nonbillable build-access proof and current price estimate; blocks paid creation on failure |
 | `azure-up` | Journalled resource creation, schema/membership setup, Entra/workload identities, controller/TLS/telemetry, pipeline and initial Flux release |
 | `demo-run FILE=…` | Normal authenticated upload-to-acceptance API workflow; verifies stream completion and saves evidence |
+| `demo-run FILE=… PROCESSING=nightly` | Preserves an upload and schedules its durable job for the next Airflow batch |
 | `azure-verify` | Actual deployment/recovery/observability/delivery checks, evidence export and teardown on success or failure; unperformed checks cannot count as passed |
 | `azure-down` | Deletes journalled owned resources and application test data; preserves borrowed accounts and unrelated experiments |
 
@@ -326,9 +443,23 @@ ACR Basic, a small SQL database, one Qdrant replica and small disks. Application
 scaling is capped at two replicas. Pinned NGINX, Flux, KEDA and Prometheus are
 installed; bounded telemetry goes to Application Insights. Azure OpenAI, Document
 Intelligence, Language, Azure ML and Container Apps are omitted.
-Application CPU reservations total 700 millicores for the installed placeholders,
-leaving room for platform components, rollout and recovery jobs on the one node.
-Real models will need their own resource sizing.
+The five application services reserve 700 millicores for the installed
+placeholders. Airflow and PostgreSQL add approximately 710 millicores and 2.1 GiB
+of steady-state memory requests, plus temporary migration/account-creation jobs.
+The cost estimate includes four disks: node OS, Qdrant, Airflow metadata and
+Airflow logs. Real models and larger batches will need their own sizing.
+
+Airflow 3.3.1 is packaged on the official Helm chart 1.22.0. PostgreSQL metadata
+and Airflow logs each have a 4 GiB persistent disk; log grooming retains seven
+days. The generated `medw-airflow` Kubernetes Secret holds database credentials,
+encryption/signing keys and the operator password. Reruns preserve those keys,
+and refuse to adopt a foreign or incomplete Secret. Airflow's UI has no public
+route. Operators with Kubernetes access can port-forward
+`svc/airflow-api-server` on port 8080 in namespace `medw`, using the deployment's
+kubeconfig, and sign in as `admin` with the Secret's `admin-password`. The
+PostgreSQL volume is retained when its StatefulSet is deleted; full Azure teardown
+removes owned disks with the managed resource group. Moving to a continuously
+operated environment requires metadata backups and an appropriate availability plan.
 
 Compatible free Search/Cosmos accounts can be borrowed through resource IDs,
 including another accessible subscription. Their account-wide settings and
@@ -376,7 +507,8 @@ build-capacity evidence file. The real delivery pipeline is created during setup
 
 ## Releases and versioning
 
-A complete release contains all five image digests and full source SHAs, immutable
+A complete schema-2 release contains six image digests (five application services
+plus Airflow/DAGs) and full source SHAs, immutable
 chart source revision, model names/versions, embedding compatibility/dimensions,
 content-derived prompt hash and canonical bundle hash. Runtime
 `deployment_revision` hashes effective Helm values, including secret references;
@@ -385,15 +517,23 @@ prompt hash and resulting output. Models are checked against the installed code;
 ARM deployment checks become relevant when remote Azure adapters are wired in.
 
 Register `deploy/azure-pipelines/delivery.yml` as the automatic pipeline. It checks
-code/charts, builds and smokes five images, publishes to ACR, verifies packaged
+code/charts, builds and smokes six images, publishes to ACR, verifies packaged
 identity, applies migrations and commits the release selection. Code, prompts,
-charts and behavior changes trigger work. Selection commits only touch release
+charts, DAGs and behavior changes trigger work. Selection commits only touch release
 records/Flux configuration and do not trigger a build loop.
 
 Cloud overlays separate `environment-values.yaml` (infrastructure) from
 `release-values.yaml` (selected artifacts). Flux owns application Helm releases.
 `medwriter-release-charts` pins chart Git source. Promotion and rollback reuse
 existing images; do not manually `helm upgrade` Flux-owned applications.
+Airflow database migration and operator-creation Jobs use release-specific names
+so chart-only upgrades can also recreate immutable Jobs. Account creation waits
+for migrations; both are ordinary Jobs, avoiding a post-install hook waiting on
+pods that themselves need the migration. Historical five-image schema-1 releases
+remain readable, but cannot replace an active schema-2 selection: their ingestion
+API predates batch processing. Roll back to another complete schema-2 release.
+An Airflow major-version/database-schema downgrade would need its own migration
+and recovery procedure; ordinary prompt or application rollbacks keep Airflow pinned.
 
 ```sh
 python scripts/verify_release.py bundle.json --registry REGISTRY --environment dev
@@ -423,7 +563,7 @@ The maintained F5 NGINX OSS controller is pinned in `deploy/nginx-ingress.yaml`
 retired community ingress-nginx controller. Gateway's chart owns VirtualServer
 routes and external-auth Policies. The controller overwrites `X-Original-URI`
 and `X-Original-Method`; gateway rejects ambiguous encodings before membership
-checks. Auth subrequests cover jobs, ingestion, search and drafting.
+checks. Auth subrequests cover jobs, study batch status, ingestion, search and drafting.
 
 Unknown paths, internal `/search`, authorization routes, OpenAPI, probes and
 metrics are private. Buffering and automatic upstream POST retries are disabled.
@@ -434,7 +574,10 @@ Only trusted operators may edit snippet-enabled controller resources.
 
 NetworkPolicies select controller namespace and pod labels together. Generation
 may call retrieval, retrieval may call reranker, and ingestion/retrieval may call
-Qdrant. The monitoring namespace is trusted for scraping. AKS uses an enforcing
+Qdrant. Airflow's scheduler may call ingestion's private batch API, with a separate
+JWT identity check. Airflow components may reach their PostgreSQL database and
+each other; the database has no general application access. The monitoring
+namespace is trusted for scraping, including Airflow's StatsD exporter. AKS uses an enforcing
 Cilium overlay; private Azure endpoints need explicit additional egress rules.
 
 Prometheus exports request counts/durations/in-flight work. KEDA uses the actual
@@ -445,11 +588,15 @@ separate storage for verification; replicas alone are not a backup.
 
 ## Verification and file walkthrough
 
-`make check` runs Ruff, mypy, import contracts, tests, six chart renders, four Flux
+`make check` runs Ruff, mypy, import contracts, tests, seven chart renders, four Flux
 configurations and the pinned NGINX controller contract. It needs network access
-to fetch the official controller chart. Tests include signed JWTs, forged identity
+to fetch the official controller and Airflow charts. Tests include signed JWTs, forged identity
 rejection, lease/checkpoint races, interrupted dual-index publication, immutable
-evidence, audit failure, specific draft acceptance and retained revisions.
+evidence, audit failure, specific draft acceptance, retained revisions and nightly
+admission/retry/access-control behavior. Azure acceptance submits two deferred
+documents, triggers the real DAG, checks their shared batch and searchable source
+identities, and requires Airflow itself to report a successful run. It records the
+schedule, job/batch IDs and selected/running Airflow image identity.
 Image smoke tests also enable telemetry against loopback endpoints; this catches
 missing Azure Monitor packages without sending test telemetry to Azure. The
 focused `scripts/verify_qdrant_recovery.py` Docker harness is retained for its
@@ -465,6 +612,7 @@ cleanup and explicit failed or unverified checks.
 
 For a code walkthrough, start with settings, schemas and ports, then composition
 and service lifespan. Follow gateway authentication/upload, `uploads.py`,
-`durable_jobs.py`, `ingestion.py`, `sources.py` and `indexing.py`. Continue through
+`durable_jobs.py`, `ingestion.py`, `sources.py` and `indexing.py`. Follow `batches.py`,
+`pipelines/batch_client.py` and `pipelines/dags/ingest_study.py` for nightly work. Continue through
 retrieval, reranker, generation, audit and `drafts.py`. Finish with database
 migrations, image/release scripts, Helm/Flux/NGINX and the Azure operator scripts.

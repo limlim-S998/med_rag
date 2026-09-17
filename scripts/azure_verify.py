@@ -178,7 +178,7 @@ class Acceptance:
                            c.get("observedGeneration") == release["metadata"]["generation"]
                            for c in release.get("status", {}).get("conditions", [])):
                     return None
-                if expected_bundle and release["metadata"]["name"] in SERVICES:
+                if expected_bundle and release["metadata"]["name"] in (*SERVICES, "airflow"):
                     bundle = release["spec"].get("values", {}).get("config", {}).get("release_bundle_sha")
                     if bundle != expected_bundle:
                         return None
@@ -254,6 +254,95 @@ class Acceptance:
             raise AssertionError("application workflow did not prove all required checks")
         self.completed_workflows.append(result)
         return result
+
+    def airflow_batch(self):
+        """Use the installed DAG, not a verifier that dispatches jobs itself."""
+        self.refresh_token()
+        if not self.token:
+            raise NotVerified("batch submission requires an authenticated writer")
+        module = importlib.import_module("scripts.demo_run")
+        run_id = "acceptance-" + self.run_id
+        submitted = []
+        with tempfile.TemporaryDirectory(prefix="medw-nightly-") as directory:
+            for ordinal in range(2):
+                path = pathlib.Path(directory) / f"nightly-{ordinal}.txt"
+                path.write_text(f"Nightly batch source {run_id}, document {ordinal}: 12 patients.\n")
+                evidence = module.workflow(
+                    self.base, path, self.d.config["study_id"], self.d.config["section_path"],
+                    self.token, self.ca, doc_id=f"nightly-{run_id}-{ordinal}",
+                    processing="nightly", submit_only=True)
+                if evidence["state"] != "scheduled":
+                    raise AssertionError("nightly input was not deferred")
+                submitted.append(evidence)
+        prefix = self.base + "/studies/" + quote(self.d.config["study_id"], safe="")
+        with httpx.Client(verify=self.tls, timeout=30,
+                          headers={"Authorization": "Bearer " + self.token}) as client:
+            # A manual trigger exercises the exact installed nightly DAG without
+            # keeping the paid cluster alive until 2am. The cron is checked below.
+            self.d.kube("-n", "medw", "exec", "statefulset/airflow-scheduler", "-c", "scheduler", "--",
+                        "airflow", "dags", "trigger", "ingest_study", "--run-id", run_id)
+
+            def finished():
+                jobs = []
+                for submission in submitted:
+                    response = client.get(prefix + "/jobs/" + submission["job_id"])
+                    response.raise_for_status()
+                    job = response.json()
+                    if job["state"] in {"failed", "superseded"}:
+                        raise AssertionError("nightly document did not complete")
+                    jobs.append(job)
+                return jobs if all(job["state"] == "done" for job in jobs) else None
+
+            jobs = await_value(finished, timeout=600, interval=5, label="Airflow batch document completion")
+            batch_ids = {job.get("batch_id") for job in jobs}
+            if None in batch_ids or len(batch_ids) != 1:
+                raise AssertionError("documents did not join the same Airflow batch")
+            batch_id = next(iter(batch_ids))
+            response = client.get(prefix + "/batches/" + batch_id)
+            response.raise_for_status()
+            batch = response.json()
+            if batch["run_id"] != run_id or batch["status"] != "completed":
+                raise AssertionError("the requested DAG did not complete the batch")
+            for submission, job in zip(submitted, jobs, strict=True):
+                response = client.post(prefix + "/search", json={
+                    "query": "sha256:" + submission["input"]["sha256"], "top_k": 8})
+                response.raise_for_status()
+                if not any(hit["citation"]["source_revision"] == job["source_revision"]
+                           for hit in response.json()["hits"]):
+                    raise AssertionError("batch source is missing from retrieval")
+        script = """import json,sys
+from sqlalchemy import select
+from airflow.models.dagrun import DagRun
+from airflow.utils.session import create_session
+with create_session() as session:
+    row=session.scalar(select(DagRun).where(DagRun.dag_id=='ingest_study',DagRun.run_id==sys.argv[1]))
+    print(json.dumps({'state':str(row.state) if row else None}))
+"""
+
+        def dag_finished():
+            raw = self.d.kube("-n", "medw", "exec", "statefulset/airflow-scheduler", "-c", "scheduler",
+                              "--", "python", "-c", script, run_id)
+            outcome = json.loads(raw.strip().splitlines()[-1])
+            if outcome["state"] == "failed":
+                raise AssertionError("Airflow reported a failed DAG run")
+            return outcome if outcome["state"] == "success" else None
+
+        dag_state = await_value(dag_finished, timeout=180, interval=5, label="Airflow DAG success")
+        release = self.d.kube("-n", "medw", "get", "helmrelease", "airflow", "-o", "json", json_result=True)
+        values = release["spec"]["values"]
+        configured = {v["name"]: v["value"] for v in values["airflow"]["env"]}
+        pods = self.d.kube("-n", "medw", "get", "pods", "-l", "medw-component=airflow,component=scheduler",
+                           "-o", "json", json_result=True)["items"]
+        running = [p for p in pods if not p["metadata"].get("deletionTimestamp")]
+        if not running or any(not c.get("imageID") or values["image"]["digest"] not in c["imageID"]
+                              for p in running for c in p["status"]["containerStatuses"]):
+            raise AssertionError("Airflow scheduler image differs from selected release")
+        return {"run_id": run_id, "dag_state": dag_state, "batch_id": batch_id, "counts": batch["counts"],
+                "jobs": [{"id": job["id"], "source_revision": job["source_revision"],
+                          "correlation_id": job["correlation_id"]} for job in jobs],
+                "inputs": [item["input"] for item in submitted], "image": values["image"],
+                "scheduler_pods": [p["metadata"]["uid"] for p in running],
+                "schedule": configured["MEDW_BATCH_SCHEDULE"], "timezone": configured["MEDW_BATCH_TIMEZONE"]}
 
     def worker_recovery(self):
         if not self.completed_workflows:
@@ -899,6 +988,7 @@ asyncio.run(read())
         self.check("expired_upload_rejections", self.expired_upload)
         self.check("application_workflow", self.application)
         self.check("blob_source_checksum", self.blob_content)
+        self.check("airflow_batch", self.airflow_batch)
         self.check("worker_restart_recovery", self.worker_recovery)
         self.check("qdrant_persistence", self.persistence)
         self.check("blob_snapshot_restore", self.backup_restore)

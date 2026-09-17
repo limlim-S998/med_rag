@@ -9,6 +9,11 @@ spec:
   podSelector: { matchLabels: { app: {{ .Values.name }} } }
   policyTypes: [Ingress, Egress]
   ingress:
+    {{- if eq .Values.name "ingestion-worker" }}
+    - from:
+        - podSelector: { matchLabels: { medw-component: airflow, component: scheduler } }
+      ports: [{ protocol: TCP, port: 8000 }]
+    {{- end }}
     {{- if eq .Values.name "retrieval" }}
     - from:
         - podSelector: { matchLabels: { app: generation } }

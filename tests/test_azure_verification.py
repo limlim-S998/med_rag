@@ -131,7 +131,7 @@ def test_failed_and_missing_observations_never_pass_or_leak_credentials(tmp_path
 
 def test_acceptance_requires_every_check_to_pass(tmp_path, monkeypatch):
     value = collector(tmp_path)
-    names = ("ready_releases", "public_access", "negative_access", "expired_upload", "application", "blob_content", "worker_recovery",
+    names = ("ready_releases", "public_access", "negative_access", "expired_upload", "application", "blob_content", "airflow_batch", "worker_recovery",
              "persistence", "backup_restore", "monitoring_and_scaling", "traces", "release_cycle")
     for name in names:
         monkeypatch.setattr(value, name, lambda: {"observed": True})

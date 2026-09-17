@@ -1,0 +1,2 @@
+# Airflow and its providers come from the digest-pinned official image.
+azure-identity==1.25.3

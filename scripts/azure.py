@@ -31,6 +31,7 @@ import urllib.request
 import uuid
 from functools import partial
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
 
@@ -58,9 +59,11 @@ def evidence_error(exc: Exception) -> dict:
 
 def helm_apply_options(version: str) -> list[str]:
     """Preserve AKS-injected webhook selectors when rerunning platform setup."""
-    match = re.match(r"v?(\d+)\.", version.strip())
+    match = re.match(r"v?(\d+)\.(\d+)\.", version.strip())
     if not match:
-        raise SetupError("Cannot determine Helm major version")
+        raise SetupError("Cannot determine Helm major/minor version")
+    if (int(match[1]), int(match[2])) < (3, 19):
+        raise SetupError("The pinned Airflow chart requires Helm 3.19 or newer")
     # Helm 3 uses a three-way client merge. Helm 4 defaults to server apply,
     # which conflicts with fields owned by AKS admissionsenforcer on reruns.
     return ["--server-side=false"] if int(match[1]) >= 4 else []
@@ -165,6 +168,16 @@ def load_config(path: pathlib.Path) -> dict:
     organization = config["devops"].get("organization", "")
     if organization and not re.fullmatch(r"https://dev.azure.com/[A-Za-z0-9_-]+/?", organization):
         raise SetupError("devops.organization must be https://dev.azure.com/ORGANIZATION")
+    batch = {"hour": 2, "minute": 0, "timezone": "Australia/Brisbane", "max_documents": 500,
+             **config.get("batch", {})}
+    for key, upper in (("hour", 23), ("minute", 59), ("max_documents", 1000)):
+        if type(batch[key]) is not int or not (1 if key == "max_documents" else 0) <= batch[key] <= upper:
+            raise SetupError(f"invalid batch.{key}")
+    try:
+        ZoneInfo(batch["timezone"])
+    except (ZoneInfoNotFoundError, ValueError, TypeError) as exc:
+        raise SetupError("invalid batch.timezone") from exc
+    config["batch"] = batch
     return config
 
 
@@ -229,8 +242,10 @@ def retail_prices(location: str) -> dict:
 
 
 def estimate_cost(prices: dict, hours: float) -> dict:
-    # One 64Gi node OS disk + one conservative 64Gi quote for the 8Gi data disk.
-    hourly = sum(prices[k]["hourly_aud"] * (2 if k in {"disk", "public_ip"} else 1) for k in prices)
+    # OS + Qdrant + Airflow metadata + Airflow logs. Conservatively quote each
+    # small persistent disk at the existing 64Gi meter; never hide the addition.
+    hourly = sum(prices[k]["hourly_aud"] * (4 if k == "disk" else 2 if k == "public_ip" else 1)
+                 for k in prices)
     # Bounded tiny documents/traffic. Reserve AUD5 for Blob operations, egress,
     # monitoring ingestion, disk operations and price rounding/minimum billing.
     reserve = 5.0
@@ -359,6 +374,7 @@ class Deployment:
                        if shutil.which(name) is None]
             if missing:
                 raise SetupError("Missing commands: " + ", ".join(missing))
+            helm_apply_options(run(["helm", "version", "--short"]))
             run(["docker", "info", "--format", "{{.ServerVersion}}"])
             return "Required local tools and Docker available"
 
@@ -398,7 +414,7 @@ class Deployment:
 
     def _quota(self):
         usage = az("vm", "list-usage", "-l", self.config["location"])
-        known = self.state.get("completed", {}).get("aks")
+        known = None if self.state.get("teardown_complete") else self.state.get("completed", {}).get("aks")
         if known:
             expected = (f"/subscriptions/{self.config['subscription_id']}/resourceGroups/"
                         f"{self.config['resource_group']}/providers/Microsoft.ContainerService/managedClusters/"
@@ -899,7 +915,7 @@ class Deployment:
         c, resources = self.config, self.state["resources"]
         identities = {service: self.checkpoint("identity-" + service,
                       lambda service=service: self._identity(service))
-                      for service in (*SERVICES, "qdrant-backup", "delivery")}
+                      for service in (*SERVICES, "airflow", "demo-client", "qdrant-backup", "delivery")}
         self.state["identities"] = identities
         self.save()
         cosmos_group, cosmos_name = arm_parts(resources["cosmos"],
@@ -914,7 +930,7 @@ class Deployment:
                 ("Storage Blob Data Contributor", resources["storage"] + "/blobServices/default/containers/raw"),
                 ("Storage Blob Data Contributor", resources["storage"] + "/blobServices/default/containers/parsed")],
             "qdrant-backup": [("Storage Blob Data Contributor", resources["storage"] + "/blobServices/default/containers/snapshots")],
-            "delivery": [("AcrPush", resources["registry"])], "reranker": [],
+            "delivery": [("AcrPush", resources["registry"])], "reranker": [], "airflow": [], "demo-client": [],
         }
         cosmos_access = {"gateway": [("writer", "documents"), ("writer", "sessions")],
                          "retrieval": [("reader", "platform-state")],
@@ -974,6 +990,7 @@ class Deployment:
                    "MEDW_SQL_DATABASE": c["sql_database"],
                    "MEDW_AZURE_BOOTSTRAP": json.dumps({
                        "migration_client_id": self.state["identities"]["delivery"]["clientId"],
+                       "demo_client_object_id": self.state["identities"]["demo-client"]["principalId"],
                        "study_id": c["study_id"], "section_path": c["section_path"],
                        "writer_object_id": c["writer_object_id"], "location": c["location"]})}
             run(["docker", "run", "--rm", *(item for name in env for item in ("--env", name)),
@@ -1005,6 +1022,7 @@ class Deployment:
         self.save()
         self.apply(*[{"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": name}}
                      for name in ("medw", "monitoring", "keda")])
+        self._airflow_secret()
         repos = {"kedacore": "https://kedacore.github.io/charts",
                  "prometheus-community": "https://prometheus-community.github.io/helm-charts"}
         for name, url in repos.items():
@@ -1056,8 +1074,58 @@ class Deployment:
         self.apply({"apiVersion": "v1", "kind": "Secret", "metadata": {
             "name": "medw-telemetry", "namespace": "medw"}, "type": "Opaque",
             "stringData": {"connection-string": insights["properties"]["ConnectionString"]}})
+        self._demo_client(certificate.read_text())
         self.save()
         return {"hostname": host, "ca_file": str(certificate)}
+
+    def _demo_client(self, certificate: str):
+        """A cloud API client, with study membership but no direct store grants."""
+        self.apply(
+            {"apiVersion": "v1", "kind": "ServiceAccount", "metadata": {
+                "name": "demo-client", "namespace": "medw", "annotations": {
+                    "azure.workload.identity/client-id": self.state["identities"]["demo-client"]["clientId"]}}},
+            {"apiVersion": "v1", "kind": "ConfigMap", "metadata": {
+                "name": "medw-demo-client", "namespace": "medw"}, "data": {
+                    "base-url": "https://" + self.state["hostname"], "study-id": self.config["study_id"],
+                    "section-path": self.config["section_path"],
+                    "audience": self.state["applications"]["api"]["appId"], "ca.pem": certificate}},
+            {"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy", "metadata": {
+                "name": "demo-client", "namespace": "medw"}, "spec": {
+                    "podSelector": {"matchLabels": {"medw-component": "demo-client"}},
+                    "policyTypes": ["Ingress", "Egress"], "ingress": [], "egress": [
+                        {"to": [{"namespaceSelector": {"matchLabels": {
+                            "kubernetes.io/metadata.name": "kube-system"}}}],
+                         "ports": [{"protocol": "UDP", "port": 53}, {"protocol": "TCP", "port": 53}]},
+                        {"to": [{"namespaceSelector": {"matchLabels": {
+                            "kubernetes.io/metadata.name": "nginx-ingress"}},
+                            "podSelector": {"matchLabels": {"app.kubernetes.io/name": "nginx-ingress"}}}],
+                         "ports": [{"protocol": "TCP", "port": 443}]},
+                        {"to": [{"ipBlock": {"cidr": "0.0.0.0/0", "except": [
+                            "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16"]}}],
+                         "ports": [{"protocol": "TCP", "port": 443}]}]}})
+
+    def _airflow_secret(self):
+        import base64
+
+        existing = self.kube("-n", "medw", "get", "secret", "medw-airflow", "--ignore-not-found", "-o", "json")
+        if existing.strip():
+            secret = json.loads(existing)
+            if secret.get("metadata", {}).get("labels", {}).get("medw-owner") != self.config["owner"]:
+                raise SetupError("Airflow secret exists without this deployment's ownership label")
+            required = {"postgres-password", "connection", "fernet-key", "jwt-secret",
+                        "api-secret-key", "admin-password"}
+            if not all(secret.get("data", {}).get(key) for key in required):
+                raise SetupError("Airflow secret is incomplete; restore its original keys before rerunning")
+            return
+        password = secrets.token_urlsafe(32)
+        self.apply({"apiVersion": "v1", "kind": "Secret", "metadata": {
+            "name": "medw-airflow", "namespace": "medw", "labels": {"medw-owner": self.config["owner"]}},
+            "stringData": {
+                "postgres-password": password,
+                "connection": f"postgresql://airflow:{password}@airflow-db:5432/airflow",
+                "fernet-key": base64.urlsafe_b64encode(secrets.token_bytes(32)).decode(),
+                "jwt-secret": secrets.token_urlsafe(64), "api-secret-key": secrets.token_urlsafe(32),
+                "admin-password": secrets.token_urlsafe(32)}})
 
     def environment_values(self) -> list[dict]:
         c, resources = self.config, self.state["resources"]
@@ -1073,9 +1141,24 @@ class Deployment:
                   "auth_audience": self.state["applications"]["api"]["appId"],
                   "auth_issuer": "https://login.microsoftonline.com/" + c["tenant_id"] + "/v2.0",
                   "auth_jwks_url": "https://login.microsoftonline.com/" + c["tenant_id"] + "/discovery/v2.0/keys"}
+        batch = {"hour": 2, "minute": 0, "timezone": "Australia/Brisbane", "max_documents": 500,
+                 **c.get("batch", {})}
+        shared["batch_principal_id"] = self.state["identities"]["airflow"]["principalId"]
+        shared["batch_max_documents"] = batch["max_documents"]
         for document in documents:
             name = document["metadata"]["name"]
             values = document["spec"].setdefault("values", {})
+            if name == "airflow":
+                repository = resources["registry_host"] + "/airflow"
+                values["image"] = {"repository": repository}
+                values["serviceAccount"] = {"annotations": {
+                    "azure.workload.identity/client-id": self.state["identities"]["airflow"]["clientId"]}}
+                values["airflow"] = {"images": {"airflow": {"repository": repository}}, "env": [
+                    {"name": "MEDW_BATCH_SCHEDULE", "value": f"{batch['minute']} {batch['hour']} * * *"},
+                    {"name": "MEDW_BATCH_TIMEZONE", "value": batch["timezone"]},
+                    {"name": "MEDW_INGESTION_URL", "value": "http://ingestion-worker:8000"},
+                    {"name": "MEDW_AUTH_AUDIENCE", "value": shared["auth_audience"]}]}
+                continue
             if name == "qdrant":
                 document["spec"]["suspend"] = False
                 values.update(replicas=1, persistence={"storageClass": "managed-csi", "size": "8Gi"},
@@ -1259,9 +1342,8 @@ class Deployment:
         self._resources()
         self._workload_access()
         self.checkpoint("search-index", self._search_index)
-        # New operation key reruns the idempotent bootstrap on journals created
-        # before delivery users were correctly bound to their client-ID SID.
-        self.checkpoint("sql-bootstrap-client-sid", self._sql_bootstrap)
+        # Rerun migrations and scoped membership on earlier deployment journals.
+        self.checkpoint("sql-bootstrap-cloud-client", self._sql_bootstrap)
         self._cluster_platform()
         self._publish_configuration()
         self._pipeline()

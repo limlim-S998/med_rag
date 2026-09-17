@@ -22,6 +22,8 @@ class Principal:
     oid: str
     roles: tuple[str, ...] = ()
     tenant_id: str = ""
+    client_id: str = ""
+    scopes: str = ""
 
 
 class TokenValidator:
@@ -95,7 +97,12 @@ class TokenValidator:
             roles = claims.get("roles", [])
             if not isinstance(roles, list) or any(not isinstance(role, str) for role in roles):
                 raise jwt.InvalidTokenError("invalid roles")
-            return Principal(oid=claims["oid"], roles=tuple(roles), tenant_id=claims["tid"])
+            client_id = claims.get("azp", claims.get("appid", ""))
+            scopes = claims.get("scp", "")
+            if not isinstance(client_id, str) or not isinstance(scopes, str):
+                raise jwt.InvalidTokenError("invalid client identity")
+            return Principal(oid=claims["oid"], roles=tuple(roles), tenant_id=claims["tid"],
+                             client_id=client_id, scopes=scopes)
         except (jwt.PyJWTError, ValueError, TypeError) as exc:
             raise HTTPException(401, "invalid access token", headers={"WWW-Authenticate": "Bearer"}) from exc
 
@@ -126,3 +133,13 @@ async def study_user(
     if not allowed:
         raise HTTPException(403, "study access denied")
     return user
+
+
+async def batch_coordinator(request: Request, actor: Principal = Depends(current_user)) -> Principal:
+    """An explicit workload ACL, never a human's cached token or a body field."""
+    settings = request.app.state.settings
+    if not settings.batch_principal_id:
+        raise HTTPException(503, "batch workload identity is not configured")
+    if actor.oid != settings.batch_principal_id or actor.scopes or not actor.client_id:
+        raise HTTPException(403, "batch coordinator access required")
+    return actor

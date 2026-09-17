@@ -7,7 +7,7 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 
-from medw_core.jobs import TERMINAL, JobState, check_transition
+from medw_core.jobs import PROCESSING_STATES, TERMINAL, JobState, check_transition
 from medw_core.persistence import Conflict, Record, StateStore
 
 
@@ -22,11 +22,16 @@ class DurableJobStore:
     async def create(self, study_id: str, doc_id: str, *,
                      source_revision: str | None = None,
                      idempotency_key: str | None = None,
-                     correlation_id: str | None = None) -> dict:
+                     correlation_id: str | None = None, processing: str = "immediate",
+                     requested_by_oid: str | None = None) -> dict:
+        if processing not in {"immediate", "nightly"}:
+            raise ValueError("unknown processing choice")
         job_id = (hashlib.sha256(idempotency_key.encode()).hexdigest()
                   if idempotency_key else str(uuid.uuid4()))
+        initial = "scheduled" if processing == "nightly" else "queued"
         body: dict = {"id": job_id, "study_id": study_id, "doc_id": doc_id,
-                "source_revision": source_revision, "state": "queued", "history": ["queued"],
+                "source_revision": source_revision, "state": initial, "history": [initial],
+                "processing": processing, "batch_id": None, "requested_by_oid": requested_by_oid,
                 "checkpoints": {}, "lease_owner": None, "lease_until": 0,
                 "created_at": self.clock(), "updated_at": self.clock(), "correlation_id": correlation_id or uuid.uuid4().hex,
                 "attempts": 0, "next_attempt_at": 0}
@@ -36,13 +41,26 @@ class DurableJobStore:
         except Conflict:
             existing = await self.get(study_id, job_id)
             if (not existing or existing["doc_id"] != doc_id or
-                    existing["source_revision"] != source_revision):
+                    existing["source_revision"] != source_revision or
+                    existing.get("processing", "immediate") != processing):
                 raise Conflict("idempotency key reused for different input") from None
             return existing
 
     async def get(self, study_id: str, job_id: str) -> dict | None:
         record = await self.state.get("job", study_id, job_id)
         return self._job(record) if record else None
+
+    async def admit_batch(self, study_id: str, job_id: str, batch_id: str) -> dict:
+        """CAS admission makes a frozen Airflow selection safe to dispatch again."""
+        job = await self.get(study_id, job_id)
+        if job is None:
+            raise KeyError(job_id)
+        if job.get("batch_id") == batch_id:
+            return job
+        if job["state"] != "scheduled" or job.get("batch_id"):
+            raise Conflict("job is no longer awaiting this batch")
+        return await self._save(job, state="queued", batch_id=batch_id,
+                                history=[*job["history"], "queued"])
 
     async def _save(self, job: dict, **changes) -> dict:
         body = {k: v for k, v in job.items() if k != "revision"}
@@ -65,6 +83,8 @@ class DurableJobStore:
             raise KeyError(job_id)
         if JobState(job["state"]) in TERMINAL:
             raise Conflict("terminal jobs cannot be claimed")
+        if job["state"] == "scheduled":
+            raise Conflict("scheduled jobs require Airflow admission")
         if job["lease_until"] > self.clock():
             raise Conflict("job is already leased")
         return await self._save(job, lease_owner=worker_id,
@@ -98,7 +118,7 @@ class DurableJobStore:
 
     async def recoverable(self, study_id: str | None = None) -> list[dict]:
         return [self._job(r) for r in await self.state.list("job", study_id)
-                if JobState(r.value["state"]) not in TERMINAL
+                if JobState(r.value["state"]) not in TERMINAL | {JobState.scheduled}
                 and r.value["lease_until"] <= self.clock()
                 and r.value.get("next_attempt_at", 0) <= self.clock()]
 
@@ -111,7 +131,7 @@ async def run_stages(store: DurableJobStore, job: dict, worker_id: str,
     Long callbacks must renew their lease; an expired worker cannot commit work.
     """
     job = await store.claim(job["study_id"], job["id"], worker_id)
-    for stage in list(JobState)[1:-2]:
+    for stage in PROCESSING_STATES:
         if stage.value not in stages:
             raise ValueError(f"missing stage callback: {stage}")
         if stage.value in job["checkpoints"]:

@@ -13,9 +13,9 @@ import subprocess
 import sys
 
 if __package__:
-    from .release import ROOT, SERVICES
+    from .release import ARTIFACTS, ROOT
 else:
-    from release import ROOT, SERVICES
+    from release import ARTIFACTS, ROOT
 
 
 def run(*args: str, capture: bool = False) -> str:
@@ -29,7 +29,7 @@ def main() -> None:
     parser.add_argument("--tag", default="scaffold-local")
     parser.add_argument("--push", action="store_true")
     parser.add_argument("--output", type=pathlib.Path, default=pathlib.Path("/tmp/medw-images.json"))
-    parser.add_argument("--service", choices=SERVICES, action="append")
+    parser.add_argument("--service", choices=ARTIFACTS, action="append")
     args = parser.parse_args()
     dirty = run("git", "status", "--porcelain", capture=True).strip()
     source = run("git", "rev-parse", "HEAD", capture=True).strip()
@@ -39,7 +39,7 @@ def main() -> None:
     tag = source if args.push else args.tag
 
     artifacts = {}
-    for service in args.service or SERVICES:
+    for service in args.service or ARTIFACTS:
         directory = service.replace("-", "_")
         repository = f"{args.registry}/{service}" if args.registry else f"medw-{service}"
         image = f"{repository}:{tag}"

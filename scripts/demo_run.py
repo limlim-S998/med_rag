@@ -20,7 +20,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 def workflow(base_url: str, file: str | pathlib.Path, study: str, section: str,
              token: str, ca_file: str | pathlib.Path | None = None, *, timeout: float = 300,
-             doc_id: str | None = None, on_submitted: Callable[[dict], None] | None = None) -> dict:
+             doc_id: str | None = None, on_submitted: Callable[[dict], None] | None = None,
+             processing: str = "immediate", submit_only: bool = False,
+             on_progress: Callable[[str, dict], None] | None = None) -> dict:
     """A client, not another implementation of the application's workflow."""
     payload = pathlib.Path(file).read_bytes()
     if not 0 < len(payload) <= 5 * 1024 * 1024:
@@ -32,6 +34,10 @@ def workflow(base_url: str, file: str | pathlib.Path, study: str, section: str,
     prefix = "/studies/" + quote(study, safe="")
     evidence: dict = {"schema_version": 1, "correlation_id": cid, "study_id": study,
                 "input": {"sha256": checksum, "size_bytes": len(payload)}, "checks": {}}
+    def progress(stage, **detail):
+        if on_progress:
+            on_progress(stage, detail)
+
     with httpx.Client(base_url=base_url.rstrip("/"), verify=trust, timeout=timeout,
                       headers={"Authorization": "Bearer " + token, "x-correlation-id": cid}) as client:
         def request(method, path, **kwargs):
@@ -52,21 +58,34 @@ def workflow(base_url: str, file: str | pathlib.Path, study: str, section: str,
             uploaded = uploader.put(upload_url, content=payload, headers=registration.get("headers", {}))
             if not uploaded.is_success:
                 raise RuntimeError(f"blob upload failed with HTTP {uploaded.status_code}")
-        body = {"upload_id": registration["upload_id"], "idempotency_key": uuid.uuid4().hex}
+        progress("uploaded", doc_id=registration["doc_id"], sha256=checksum, size_bytes=len(payload))
+        body = {"upload_id": registration["upload_id"], "idempotency_key": uuid.uuid4().hex,
+                "processing": processing}
         ingest_path = prefix + "/documents/" + quote(registration["doc_id"], safe="") + "/ingest"
         job = request("POST", ingest_path, json=body)
         repeated = request("POST", ingest_path, json=body)
         if job["id"] != repeated["id"]:
             raise AssertionError("idempotent submission created a second job")
         evidence["checks"]["idempotent_submission"] = True
+        evidence.update(upload_id=registration["upload_id"], doc_id=registration["doc_id"],
+                        job_id=job["id"], source_revision=job["source_revision"],
+                        processing=processing, state=job["state"], release=version)
         if on_submitted:
             on_submitted(job)
+        progress("submitted", job_id=job["id"], state=job["state"], source_revision=job["source_revision"])
+        if submit_only:
+            evidence["checks"]["source_preserved"] = bool(job["source_revision"])
+            evidence["checks"]["scheduled_for_batch"] = processing == "nightly" and job["state"] == "scheduled"
+            return evidence
         deadline = time.monotonic() + timeout
-        while job["state"] not in {"done", "failed"}:
+        while job["state"] not in {"done", "failed", "superseded"}:
             if time.monotonic() >= deadline:
                 raise TimeoutError("ingestion deadline exceeded")
             time.sleep(0.5)
+            previous = job["state"]
             job = request("GET", prefix + "/jobs/" + quote(job["id"], safe=""))
+            if job["state"] != previous:
+                progress("job", job_id=job["id"], state=job["state"])
         if job["state"] != "done":
             raise RuntimeError("ingestion job failed; inspect its correlation ID")
         documents = request("GET", prefix + "/documents")
@@ -75,6 +94,7 @@ def workflow(base_url: str, file: str | pathlib.Path, study: str, section: str,
         search = request("POST", prefix + "/search", json={"query": query, "top_k": 8})
         if not any(hit["citation"]["source_revision"] == job["source_revision"] for hit in search["hits"]):
             raise AssertionError("retrieval did not return the uploaded source")
+        progress("retrieved", hits=len(search["hits"]), source_revision=job["source_revision"])
         lines, text_parts, elapsed = [], [], []
         began = time.monotonic()
         with client.stream("POST", prefix + "/sections/" + quote(section, safe="") + "/draft",
@@ -89,6 +109,7 @@ def workflow(base_url: str, file: str | pathlib.Path, study: str, section: str,
                 elapsed.append(time.monotonic() - began)
                 if event["type"] == "delta":
                     text_parts.append(event["text"])
+                    progress("draft_delta", text=event["text"])
         output = "".join(text_parts)
         if not lines or lines[-1]["type"] != "complete":
             raise AssertionError("stream ended without durable audit/draft completion")
@@ -99,9 +120,11 @@ def workflow(base_url: str, file: str | pathlib.Path, study: str, section: str,
                            json={"draft_id": complete["draft_id"]})
         if accepted["draft_id"] != complete["draft_id"] or accepted["status"] != "accepted":
             raise AssertionError("acceptance changed the wrong draft")
+        progress("accepted", draft_id=complete["draft_id"], output_sha256=complete["output_sha256"])
         evidence.update(upload_id=registration["upload_id"], document=document,
                         job_id=job["id"], source_revision=job["source_revision"],
-                        job_checkpoints=job["checkpoints"], release=version,
+                        job_checkpoints=job["checkpoints"], state=job["state"],
+                        batch_id=job.get("batch_id"), release=version,
                         index_generation=search["index_generation"],
                         draft=complete, acceptance=accepted,
                         stream={"events": len(lines), "delta_events": len(text_parts),
@@ -191,17 +214,20 @@ def main():
     parser.add_argument("--config", type=pathlib.Path, default=ROOT / "data/azure/config.json")
     parser.add_argument("--file", type=pathlib.Path, required=True)
     parser.add_argument("--output", type=pathlib.Path)
+    parser.add_argument("--processing", choices=("immediate", "nightly"), default="immediate")
     args = parser.parse_args()
     config = json.loads(args.config.read_text())
     directory = ROOT / "data/azure" / config["resource_group"]
     state = json.loads((directory / "state.json").read_text())
     token = os.environ.get("MEDW_DEMO_TOKEN") or acquire_token(state, directory / "api-token-cache.json")
     report = workflow("https://" + state["hostname"], args.file, config["study_id"],
-                      config.get("section_path", "11.4.2"), token, directory / "tls/server.crt")
+                      config.get("section_path", "11.4.2"), token, directory / "tls/server.crt",
+                      processing=args.processing, submit_only=args.processing == "nightly")
     output = args.output or directory / "application-evidence.json"
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, indent=2) + "\n")
-    print(f"Workflow passed; evidence: {output}")
+    outcome = "Upload scheduled for nightly processing" if args.processing == "nightly" else "Workflow passed"
+    print(f"{outcome}; evidence: {output}")
 
 
 if __name__ == "__main__":

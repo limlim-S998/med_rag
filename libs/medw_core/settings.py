@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     ingestion_poll_seconds: float = Field(default=1.0, gt=0, le=60)
     ingestion_lease_seconds: float = Field(default=60, ge=5, le=3600)
     ingestion_max_attempts: int = Field(default=5, ge=1, le=20)
+    batch_max_documents: int = Field(default=500, ge=1, le=1000)
+    # Only this workload principal may coordinate batches through the private API.
+    batch_principal_id: str = ""
 
     # --- Installed model identities and dormant Azure model adapters -----
     # Current identities name the packaged placeholders. Azure model adapters

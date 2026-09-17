@@ -1,16 +1,8 @@
-# Ingestion as an explicit state machine, with the illegal transitions absent
-# rather than merely undocumented.
-#
-# This lives in medw_core, not in the ingestion worker, because two things
-# implement JobStore - Cosmos and the in-memory local one - and if each
-# enforced its own rules they would drift. The store persists; the rules live
-# here. A store that validated transitions itself would mean a job could take
-# a path locally that Cosmos rejects, which is the worst kind of local/real
-# divergence: it only shows up in the environment you cannot debug.
-#
-# Why it matters that the transitions are data: "it failed somewhere in
-# ingestion" is not an operable message. Every stage costs a different amount
-# to redo, and the recovery decision depends entirely on which one it was.
+"""Legal transitions shared by immediate and scheduled durable jobs.
+
+The same rules apply to Cosmos persistence and offline test stores. Persisted
+stage names describe operations, not a particular model provider.
+"""
 
 from __future__ import annotations
 
@@ -18,15 +10,17 @@ from enum import StrEnum
 
 
 class JobState(StrEnum):
+    scheduled = "scheduled"        # Preserved source, awaiting Airflow admission.
     queued = "queued"
-    extracting = "extracting"      # Document Intelligence -> Blob parsed/
-    classifying = "classifying"    # sklearn doc-type classifier
-    chunking = "chunking"          # parsers/table.py + parsers/chunker.py
-    annotating = "annotating"      # Azure Language clinical NER
-    embedding = "embedding"        # AOAI, rate-limited
+    extracting = "extracting"
+    classifying = "classifying"
+    chunking = "chunking"
+    annotating = "annotating"
+    embedding = "embedding"
     indexing = "indexing"          # Qdrant upsert + Cognitive Search upload
     done = "done"
     failed = "failed"
+    superseded = "superseded"      # A newer revision was already published.
 
 
 # The pipeline is linear, so the interesting content of this map is what it
@@ -48,12 +42,15 @@ TRANSITIONS: dict[JobState, frozenset[JobState]] = {
     for i, state in enumerate(_LINEAR[:-1])
 }
 TRANSITIONS[JobState.done] = frozenset()
-# `failed` is terminal for this job. Retrying means a new job whose history
-# starts fresh - see RETRY_COST for why "resume in place" is the wrong model
-# when the stages have such different prices.
+# Transient failures resume saved checkpoints within the attempt limit.
+# Once a job reaches `failed`, resubmission creates a new history.
 TRANSITIONS[JobState.failed] = frozenset()
+TRANSITIONS[JobState.scheduled] = frozenset({JobState.queued, JobState.failed})
+TRANSITIONS[JobState.queued] |= {JobState.superseded}
+TRANSITIONS[JobState.superseded] = frozenset()
 
-TERMINAL = frozenset({JobState.done, JobState.failed})
+TERMINAL = frozenset({JobState.done, JobState.failed, JobState.superseded})
+PROCESSING_STATES = tuple(_LINEAR[1:-1])
 
 
 class IllegalTransition(Exception):
@@ -76,7 +73,9 @@ def check_transition(frm: JobState, to: JobState) -> None:
         raise IllegalTransition(frm, to)
 
 
-# --- what a re-run actually costs ----------------------------------------
+# Future remote-model retry policy, retained for the intended integrations.
+# The installed placeholders use IngestionRunner's bounded retry/checkpoint
+# handling; this policy is not the current provider selection or cost model.
 #
 # The retry decision is not "how many times" - it is "is this stage safe and
 # cheap to repeat". Those are different questions per stage and the answers

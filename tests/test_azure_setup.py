@@ -22,11 +22,44 @@ def test_unknown_quota_is_not_treated_as_available():
                                    "currentValue": 4}], "cores")
 
 
+def test_quota_after_teardown_checks_new_capacity_instead_of_deleted_cluster(tmp_path, monkeypatch):
+    deployment = azure.Deployment(config(), root=tmp_path)
+    deployment.state = {"teardown_complete": True, "completed": {"aks": {"id": "deleted-cluster"}}}
+
+    def query(*args):
+        if args[:2] == ("vm", "list-usage"):
+            return [{"name": {"value": name}, "limit": 4, "currentValue": 0}
+                    for name in ("cores", "standardDSv5Family")]
+        assert args[:2] == ("vm", "list-skus")
+        return [{"restrictions": []}]
+
+    monkeypatch.setattr(azure, "az", query)
+    assert "quota covers 4 vCPUs" in deployment._quota()
+
+
+def test_cloud_client_configuration_contains_public_trust_and_scoped_identity(tmp_path, monkeypatch):
+    deployment = azure.Deployment(config(), root=tmp_path)
+    deployment.state = {"hostname": "api.example", "identities": {"demo-client": {"clientId": "client"}},
+                        "applications": {"api": {"appId": "audience"}}}
+    objects = []
+    monkeypatch.setattr(deployment, "apply", lambda *args: objects.extend(args))
+    deployment._demo_client("PUBLIC CERTIFICATE")
+    assert {o["kind"] for o in objects} == {"ServiceAccount", "ConfigMap", "NetworkPolicy"}
+    public = next(o for o in objects if o["kind"] == "ConfigMap")["data"]
+    assert public["ca.pem"] == "PUBLIC CERTIFICATE"
+    assert public["base-url"] == "https://api.example" and public["study-id"] == config()["study_id"]
+    policy = next(o for o in objects if o["kind"] == "NetworkPolicy")["spec"]
+    assert not policy["ingress"]
+    assert all(p["port"] in (53, 443) for rule in policy["egress"] for p in rule["ports"])
+
+
 def test_platform_helm_reruns_preserve_aks_owned_fields_without_force():
     assert azure.helm_apply_options("v3.19.0+abc") == []
     assert azure.helm_apply_options("v4.3.0+bec5b06") == ["--server-side=false"]
     with pytest.raises(azure.SetupError, match="Helm major"):
         azure.helm_apply_options("unknown")
+    with pytest.raises(azure.SetupError, match=r"Helm 3\.19"):
+        azure.helm_apply_options("v3.18.5")
 
 
 def test_delivery_sql_sid_uses_client_guid_and_repairs_only_mismatches(monkeypatch):
@@ -63,12 +96,52 @@ def test_preflight_failure_never_provisions(monkeypatch, tmp_path):
     assert json.loads((deployment.directory / "preflight.json").read_text())["passed"] is False
 
 
-def test_cost_reserves_usage_and_both_os_and_data_disks():
+def test_cost_reserves_os_qdrant_airflow_metadata_and_log_disks():
     quote = {kind: {"hourly_aud": 0.1} for kind in
              ("node", "registry", "sql", "disk", "load_balancer", "public_ip")}
     result = azure.estimate_cost(quote, 4)
-    assert result["estimated_aud"] == 8.2
+    assert result["estimated_aud"] == 9.0
     assert result["is_hard_cap"] is False
+
+
+@pytest.mark.parametrize(("key", "value"), [
+    ("hour", 24), ("minute", 60), ("hour", True), ("max_documents", 0),
+    ("max_documents", 1001), ("timezone", "Not/A_Timezone"),
+])
+def test_invalid_nightly_configuration_is_rejected(tmp_path, key, value):
+    settings = config()
+    settings["batch"][key] = value
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(settings))
+    with pytest.raises(azure.SetupError, match=f"batch.{key}"):
+        azure.load_config(path)
+
+
+def test_airflow_credentials_are_private_preserved_and_owned(tmp_path, monkeypatch):
+    import base64
+
+    deployment = azure.Deployment(config(), root=tmp_path)
+    deployment.config["owner"] = "our-test-deployment"
+    existing, writes = {}, []
+    monkeypatch.setattr(deployment, "kube", lambda *args: json.dumps(existing) if existing else "")
+    monkeypatch.setattr(deployment, "apply", writes.append)
+    deployment._airflow_secret()
+    assert len(writes) == 1
+    secret = writes[0]
+    values = secret.pop("stringData")
+    assert values["postgres-password"] in values["connection"]
+    assert len(base64.urlsafe_b64decode(values["fernet-key"])) == 32
+    assert len(set(values.values())) == len(values)
+    existing.update(secret, data={k: base64.b64encode(v.encode()).decode() for k, v in values.items()})
+    deployment._airflow_secret()
+    assert len(writes) == 1
+    assert "postgres-password" not in json.dumps(deployment.state)
+    del existing["data"]["fernet-key"]
+    with pytest.raises(azure.SetupError, match="incomplete"):
+        deployment._airflow_secret()
+    existing["metadata"]["labels"]["medw-owner"] = "someone-else"
+    with pytest.raises(azure.SetupError, match="ownership"):
+        deployment._airflow_secret()
 
 
 def test_checkpoint_reuses_success_and_records_interrupted_work(tmp_path):
@@ -137,7 +210,8 @@ def test_environment_generation_uses_azure_resources_and_bounded_scaling(tmp_pat
     deployment.state = {"resources": {"blob_url": "https://blobs.example", "cosmos_url": "https://cosmos.example",
         "search_url": "https://search.example", "sql_server": "sql.example", "registry_host": "acr.example"},
         "applications": {"api": {"appId": "client"}}, "hostname": "writer.example",
-        "identities": {service: {"clientId": service + "-id"} for service in (*azure.SERVICES, "qdrant-backup")}}
+        "identities": {service: {"clientId": service + "-id", "principalId": service + "-principal"}
+                       for service in (*azure.SERVICES, "airflow", "qdrant-backup")}}
     manifests = deployment.environment_values()
     application_cpu = 0
     for manifest in manifests:
@@ -145,6 +219,11 @@ def test_environment_generation_uses_azure_resources_and_bounded_scaling(tmp_pat
         if name == "qdrant":
             assert values["replicas"] == 1
             assert values["config"]["write_consistency_factor"] == 1
+        elif name == "airflow":
+            variables = {e["name"]: e["value"] for e in values["airflow"]["env"]}
+            assert variables["MEDW_BATCH_SCHEDULE"] == "0 2 * * *"
+            assert variables["MEDW_BATCH_TIMEZONE"] == "Australia/Brisbane"
+            assert values["serviceAccount"]["annotations"]["azure.workload.identity/client-id"] == "airflow-id"
         else:
             assert values["autoscaling"]["maxReplicas"] == 2
             application_cpu += int(values["resources"]["requests"]["cpu"].removesuffix("m"))
@@ -279,7 +358,7 @@ def test_recent_same_region_price_quote_is_reused(monkeypatch, tmp_path):
         "source": "https://prices.azure.com/api/retail/prices",
         "fetched_at": azure.dt.datetime.now(azure.dt.UTC).isoformat(), "quotes": quote}))
     monkeypatch.setattr(azure, "retail_prices", lambda _: pytest.fail("unnecessary retail API request"))
-    assert deployment._cost()["estimated_aud"] == 8.2
+    assert deployment._cost()["estimated_aud"] == 9.0
 
 
 def test_retail_rate_limit_retries_get_without_repeating_mutations(monkeypatch):

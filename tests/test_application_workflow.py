@@ -260,7 +260,8 @@ async def test_sql_index_retry_tolerates_sql_server_uuid_readback_case():
     class Read:
         async def execute(self, statement, parameters):
             # pyodbc/SQL Server can return UNIQUEIDENTIFIER as uppercase text.
-            stored = {**event, "event_id": event["event_id"].upper()}
+            stored = {**event, "event_id": event["event_id"].upper(),
+                      "job_id": None, "batch_id": None, "requested_by_oid": None}
             return SimpleNamespace(mappings=lambda: SimpleNamespace(first=lambda: stored))
 
     class Database:

@@ -10,7 +10,7 @@ import subprocess
 import pytest
 import yaml
 
-from scripts.release import SERVICES, content_hash, create, select, validate
+from scripts.release import SERVICES, content_hash, create, release_patches, select, validate
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CHARTS = ROOT / "deploy/charts"
@@ -148,6 +148,80 @@ def test_chart_only_release_preserves_image_and_behavior_identity(bundle):
     assert changed["images"] == bundle["images"]
     assert changed["behavior"] == bundle["behavior"]
     assert changed["bundle_sha"] != bundle["bundle_sha"]
+
+
+def test_airflow_release_is_atomic_and_older_contract_cannot_replace_it(bundle, tmp_path):
+    old = copy.deepcopy(bundle)
+    bundle["schema_version"] = 2
+    bundle["images"]["airflow"] = {"digest": "sha256:" + "6" * 64, "source_sha": "a" * 40}
+    bundle["bundle_sha"] = content_hash({k: v for k, v in bundle.items() if k != "bundle_sha"})
+    validate(bundle)
+    target = tmp_path / "deploy/flux/dev"
+    target.mkdir(parents=True)
+    select(old, "dev", root=tmp_path)
+    select(bundle, "dev", root=tmp_path)
+    selected = (target / "release-values.yaml").read_bytes()
+    with pytest.raises(ValueError, match="schema-2 rollback"):
+        select(old, "dev", root=tmp_path)
+    assert (target / "release-values.yaml").read_bytes() == selected
+    changed = copy.deepcopy(bundle)
+    changed["chart_source_sha"] = "b" * 40
+    changed["bundle_sha"] = content_hash({k: v for k, v in changed.items() if k != "bundle_sha"})
+    names = []
+    for release in (bundle, changed):
+        airflow = next(p["spec"] for p in release_patches(release) if p["metadata"]["name"] == "airflow")
+        assert airflow["suspend"] is False
+        assert airflow["values"]["airflow"]["images"]["airflow"]["digest"] == release["images"]["airflow"]["digest"]
+        names.append([json.loads(p["patch"])[0]["value"] for p in
+                      airflow["postRenderers"][0]["kustomize"]["patches"]])
+    assert set(names[0]).isdisjoint(names[1])  # Chart-only upgrades must recreate immutable Jobs too.
+    select(changed, "dev", root=tmp_path)
+    select(bundle, "dev", root=tmp_path)  # Supported rollback preserves all six artifacts.
+    assert (target / "release-values.yaml").read_bytes() == selected
+    del bundle["images"]["airflow"]
+    with pytest.raises(ValueError, match="artifacts"):
+        validate(bundle)
+
+
+@pytest.mark.skipif(not shutil.which("helm"), reason="Helm required")
+def test_airflow_chart_runs_pinned_private_scheduler_with_persistent_metadata(tmp_path):
+    values = {"releaseRequired": True, "image": {"digest": "sha256:" + "6" * 64, "sourceSha": "a" * 40},
+              "config": {"release_bundle_sha": "sha256:" + "b" * 64},
+              "airflow": {"images": {"airflow": {"digest": "sha256:" + "6" * 64}}}}
+    path = tmp_path / "values.yaml"
+    path.write_text(yaml.safe_dump(values))
+    command = ["helm", "template", "airflow", str(CHARTS / "airflow"), "-f", str(path)]
+    rendered = subprocess.check_output(command, text=True)
+    docs = [d for d in yaml.safe_load_all(rendered) if d]
+    scheduler = next(d for d in docs if d["metadata"]["name"] == "airflow-scheduler"
+                     and d["kind"] == "StatefulSet")
+    pod = scheduler["spec"]["template"]
+    assert pod["metadata"]["labels"]["azure.workload.identity/use"] == "true"
+    assert pod["metadata"]["labels"]["medw-component"] == "airflow"
+    assert pod["spec"]["serviceAccountName"] == "airflow"
+    assert pod["spec"]["containers"][0]["image"].endswith("@sha256:" + "6" * 64)
+    database = next(d for d in docs if d["kind"] == "StatefulSet" and d["metadata"]["name"] == "airflow-db")
+    assert database["spec"]["volumeClaimTemplates"][0]["spec"]["resources"]["requests"]["storage"] == "4Gi"
+    assert database["spec"]["persistentVolumeClaimRetentionPolicy"]["whenDeleted"] == "Retain"
+    assert not any(d["kind"] in ("Ingress", "VirtualServer") for d in docs)
+    assert not any("redis" in d["metadata"]["name"] for d in docs)
+    config = next(d for d in docs if d["kind"] == "ConfigMap" and d["metadata"]["name"] == "airflow-config")
+    assert "executor = LocalExecutor" in config["data"]["airflow.cfg"]
+    jobs = [d for d in docs if d["kind"] == "Job"]
+    assert len(jobs) == 2
+    for job in jobs:
+        assert "helm.sh/hook" not in job["metadata"].get("annotations", {})
+        variables = job["spec"]["template"]["spec"]["containers"][0]["env"]
+        assert not any(v["name"] == "MEDW_BATCH_SCHEDULE" for v in variables)
+    creator = next(d for d in jobs if d["metadata"]["name"] == "airflow-create-user")
+    container = creator["spec"]["template"]["spec"]["containers"][0]
+    assert "check-migrations" in container["args"][-1]
+    password = next(v for v in container["env"] if v["name"] == "AIRFLOW_ADMIN_PASSWORD")
+    assert password["valueFrom"]["secretKeyRef"] == {"name": "medw-airflow", "key": "admin-password"}
+    values["airflow"]["images"]["airflow"]["digest"] = "sha256:" + "7" * 64
+    path.write_text(yaml.safe_dump(values))
+    failed = subprocess.run(command, capture_output=True, text=True, check=False)
+    assert failed.returncode != 0 and "match the selected release" in failed.stderr
 
 
 def test_azure_delivery_checks_charts_before_publishing():

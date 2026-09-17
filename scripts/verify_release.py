@@ -46,6 +46,11 @@ def main() -> None:
                        '{{index .Config.Labels "org.opencontainers.image.revision"}}')
         if revision != artifact["source_sha"]:
             raise ValueError(f"{service}: built source revision differs from release metadata")
+        if service == "airflow":
+            run("docker", "run", "--rm", "--network", "none", image, "python", "-c",
+                "from pathlib import Path; import airflow; from pipelines.batch_client import BatchClient; "
+                "assert airflow.__version__ == '3.3.1'; assert Path('/opt/airflow/dags/ingest_study.py').is_file()")
+            continue
         identities = json.loads(run(
             "docker", "run", "--rm", "--network", "none", image, "python", "-c",
             "import json; from medw_core.placeholders import MODEL_IDENTITIES; "
@@ -57,7 +62,7 @@ def main() -> None:
                          "print(prompt_hash(Path('/app/app/prompts')))")
             if actual != bundle["behavior"]["prompt_bundle_sha"]:
                 raise ValueError("packaged prompt content differs from release metadata")
-    print(f"verified all five artifacts at {args.registry}: {bundle['bundle_sha']}")
+    print(f"verified {len(bundle['images'])} artifacts at {args.registry}: {bundle['bundle_sha']}")
 
 
 if __name__ == "__main__":

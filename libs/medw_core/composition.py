@@ -46,7 +46,7 @@ DEPENDENCIES = {
     "gateway": {"sessions", "documents", "authorization", "drafts", "uploads"},
     "retrieval": {"embedder", "sparse", "vectors", "state", "index_registry"},
     "generation": {"chat", "audit", "evidence", "state", "drafts", "authorization"},
-    "ingestion-worker": {"embedder", "layout", "classifier", "jobs", "documents", "audit", "state",
+    "ingestion-worker": {"embedder", "layout", "classifier", "jobs", "documents", "audit", "state", "authorization",
                          "index_registry", "evidence", "uploads", "dense_writer", "sparse_writer"},
     "reranker": {"reranker"},
 }

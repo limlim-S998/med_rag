@@ -1,0 +1,120 @@
+# Sized for the existing one-node Azure exercise; no Celery/Redis worker tier.
+image:
+  repository: medwdevacr.azurecr.io/airflow
+  digest: ""
+  sourceSha: unversioned
+releaseRequired: false
+config:
+  release_bundle_sha: ""
+serviceAccount:
+  annotations:
+    azure.workload.identity/client-id: ""
+postgres:
+  image: postgres:16-bookworm@sha256:bb3e1a57e5407e0a5280b4211980a5e537f4abd234a87014ac979849a78dd825
+  storageClass: managed-csi
+  size: 4Gi
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: "1", memory: 512Mi}
+airflow:
+  fullnameOverride: airflow
+  airflowVersion: 3.3.1
+  defaultAirflowTag: 3.3.1-python3.11
+  executor: LocalExecutor
+  labels: {medw-component: airflow}
+  images:
+    airflow:
+      repository: medwdevacr.azurecr.io/airflow
+      tag: scaffold
+      digest: ""
+  data:
+    metadataSecretName: medw-airflow
+  fernetKeySecretName: medw-airflow
+  jwtSecretName: medw-airflow
+  apiSecretKeySecretName: medw-airflow
+  postgresql: {enabled: false}
+  redis: {enabled: false}
+  pgbouncer: {enabled: false}
+  triggerer: {enabled: false}
+  rbac: {create: false}
+  allowPodLaunching: false
+  networkPolicies: {enabled: false} # Explicit namespace policies below cover egress too.
+  dags:
+    gitSync: {enabled: false} # DAG code is baked into the release image.
+  logs:
+    persistence:
+      enabled: true
+      existingClaim: airflow-logs
+  config:
+    core:
+      parallelism: 2
+      max_active_tasks_per_dag: 2
+      dags_are_paused_at_creation: 'False'
+      default_timezone: Australia/Brisbane
+      load_examples: 'False'
+      auth_manager: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+    api:
+      workers: 1
+    dag_processor:
+      parsing_processes: 1
+    logging:
+      delete_local_logs: 'False'
+  env:
+    - {name: MEDW_BATCH_SCHEDULE, value: '0 2 * * *'}
+    - {name: MEDW_BATCH_TIMEZONE, value: Australia/Brisbane}
+    - {name: MEDW_INGESTION_URL, value: 'http://ingestion-worker:8000'}
+    - {name: MEDW_AUTH_AUDIENCE, value: ''}
+  scheduler:
+    replicas: 1
+    labels: {azure.workload.identity/use: 'true'}
+    serviceAccount: {create: false, name: airflow}
+    resources:
+      requests: {cpu: 250m, memory: 768Mi}
+      limits: {cpu: '1', memory: 2Gi}
+    logGroomerSidecar:
+      enabled: true
+      retentionDays: 7
+      resources:
+        requests: {cpu: 10m, memory: 32Mi}
+        limits: {cpu: 100m, memory: 128Mi}
+  apiServer:
+    replicas: 1
+    resources:
+      requests: {cpu: 150m, memory: 512Mi}
+      limits: {cpu: '1', memory: 1Gi}
+  dagProcessor:
+    enabled: true
+    resources:
+      requests: {cpu: 150m, memory: 512Mi}
+      limits: {cpu: '1', memory: 1Gi}
+    logGroomerSidecar: {enabled: false}
+  migrateDatabaseJob:
+    # Flux gives these ordinary Jobs release-specific names before applying them.
+    useHelmHooks: false
+    applyCustomEnv: false # Schedule/API changes do not mutate completed Jobs.
+    ttlSecondsAfterFinished: null
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {cpu: '1', memory: 1Gi}
+  createUserJob:
+    useHelmHooks: false
+    applyCustomEnv: false
+    ttlSecondsAfterFinished: null
+    env:
+      - name: AIRFLOW_ADMIN_PASSWORD
+        valueFrom: {secretKeyRef: {name: medw-airflow, key: admin-password}}
+    args:
+      - bash
+      - -ec
+      - >-
+        airflow db check-migrations --migration-wait-timeout 300 &&
+        airflow users create --username admin --firstname Platform --lastname Operator
+        --role Admin --email airflow@localhost --password "$AIRFLOW_ADMIN_PASSWORD"
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {cpu: '1', memory: 1Gi}
+  statsd:
+    enabled: true
+    resources:
+      requests: {cpu: 50m, memory: 64Mi}
+      limits: {cpu: 100m, memory: 128Mi}

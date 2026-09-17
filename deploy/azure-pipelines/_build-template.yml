@@ -1,4 +1,4 @@
-# One release contains all five immutable images from the same clean source.
+# One release contains five API/worker images and the Airflow DAG image.
 parameters:
   - name: registryHost
     type: string
@@ -29,7 +29,7 @@ stages:
           - task: UsePythonVersion@0
             inputs: { versionSpec: '3.11' }
           - task: HelmInstaller@1
-            inputs: { helmVersionToInstall: '3.16.4' }
+            inputs: { helmVersionToInstall: '3.19.0' }
           - task: KubectlInstaller@0
             inputs: { kubectlVersion: '1.32.2' }
           - script: |

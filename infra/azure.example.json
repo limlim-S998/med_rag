@@ -28,5 +28,11 @@
     "agent_pool": ""
   },
   "search_subscription_id": "",
-  "cosmos_subscription_id": ""
+  "cosmos_subscription_id": "",
+  "batch": {
+    "hour": 2,
+    "minute": 0,
+    "timezone": "Australia/Brisbane",
+    "max_documents": 500
+  }
 }

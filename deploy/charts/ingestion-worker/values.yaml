@@ -1,4 +1,4 @@
-# Durable single-document ingestion. Airflow batch orchestration follows later.
+# Durable processing shared by immediate requests and Airflow batches.
 name: ingestion-worker
 env: dev
 replicas: 1

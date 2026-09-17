@@ -15,6 +15,7 @@ from medw_core.content import prompt_hash
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SERVICES = ("gateway", "retrieval", "generation", "ingestion-worker", "reranker")
+ARTIFACTS = (*SERVICES, "airflow")
 ENVIRONMENTS = ("dev", "staging", "prod")
 SHA = re.compile(r"(?!0{40}$)[0-9a-f]{40}")
 DIGEST = re.compile(r"sha256:(?!0{64}$)[0-9a-f]{64}")
@@ -29,12 +30,13 @@ def content_hash(value: object) -> str:
 
 
 def validate(bundle: dict) -> dict:
-    if bundle.get("schema_version") != 1:
+    if bundle.get("schema_version") not in {1, 2}:
         raise ValueError("unsupported release schema")
     if not SHA.fullmatch(bundle.get("chart_source_sha", "")):
         raise ValueError("full chart source revision required")
-    if set(bundle.get("images", {})) != set(SERVICES):
-        raise ValueError("release must contain exactly all five service images")
+    expected = SERVICES if bundle["schema_version"] == 1 else ARTIFACTS
+    if set(bundle.get("images", {})) != set(expected):
+        raise ValueError("release must contain exactly its schema's application artifacts")
     for service, image in bundle["images"].items():
         if not DIGEST.fullmatch(image.get("digest", "")):
             raise ValueError(f"{service}: immutable image digest required")
@@ -65,7 +67,7 @@ def validate(bundle: dict) -> dict:
 def create(images: dict, behavior: dict, prompts: pathlib.Path, *,
            chart_source_sha: str | None = None) -> dict:
     behavior = {**behavior, "prompt_bundle_sha": prompt_hash(prompts)}
-    bundle = {"schema_version": 1, "images": images, "behavior": behavior,
+    bundle = {"schema_version": 2 if "airflow" in images else 1, "images": images, "behavior": behavior,
               "chart_source_sha": chart_source_sha or images["generation"]["source_sha"]}
     bundle["bundle_sha"] = content_hash(bundle)
     return validate(bundle)
@@ -84,7 +86,30 @@ def release_patches(bundle: dict) -> list[dict]:
             "config": {**copy.deepcopy(bundle["behavior"]),
                        "release_bundle_sha": bundle["bundle_sha"]},
         }},
-    } for service, image in bundle["images"].items()]
+    } for service, image in bundle["images"].items() if service != "airflow"]
+    if "airflow" in bundle["images"]:
+        artifact = bundle["images"]["airflow"]
+        # Flux applies ordinary migration Jobs with release-specific names.
+        # This avoids immutable Job updates and post-install hook/readiness deadlock.
+        job_patches = [{"target": {"kind": "Job", "name": name}, "patch": json.dumps([
+            {"op": "replace", "path": "/metadata/name", "value": name + "-" + bundle["bundle_sha"][7:19]}
+        ])} for name in ("airflow-run-airflow-migrations", "airflow-create-user")]
+        patches.append({"apiVersion": "helm.toolkit.fluxcd.io/v2", "kind": "HelmRelease",
+                        "metadata": {"name": "airflow", "namespace": "medw"}, "spec": {
+            "suspend": False, "chart": {"spec": {"sourceRef": {"name": "medwriter-release-charts"}}},
+            "postRenderers": [{"kustomize": {"patches": job_patches}}],
+            "values": {"releaseRequired": True,
+                       "image": {"digest": artifact["digest"], "sourceSha": artifact["source_sha"]},
+                       "config": {"release_bundle_sha": bundle["bundle_sha"]},
+                       "airflow": {"images": {"airflow": {"digest": artifact["digest"]}}}}
+        }})
+    else:
+        # Historical releases have no scheduler artifact. Keep them readable,
+        # but never run a newer DAG against their older ingestion contract.
+        patches.append({"apiVersion": "helm.toolkit.fluxcd.io/v2", "kind": "HelmRelease",
+                        "metadata": {"name": "airflow", "namespace": "medw"},
+                        "spec": {"suspend": True,
+                                 "chart": {"spec": {"sourceRef": {"name": "medwriter-release-charts"}}}}})
     # Backups reuse the already built ingestion image and its Azure Blob client.
     worker = bundle["images"]["ingestion-worker"]
     patches.append({"apiVersion": "helm.toolkit.fluxcd.io/v2", "kind": "HelmRelease",
@@ -105,6 +130,11 @@ def select(bundle: dict, environment: str, *, root: pathlib.Path = ROOT) -> path
     target = root / "deploy" / "flux" / environment / "release-values.yaml"
     if not target.parent.exists():
         raise ValueError(f"missing environment directory: {target.parent}")
+    if bundle["schema_version"] == 1 and target.exists():
+        selected = list(yaml.safe_load_all(target.read_text()))
+        if any(isinstance(d, dict) and d.get("metadata", {}).get("name") == "airflow"
+               and d.get("spec", {}).get("suspend") is False for d in selected):
+            raise ValueError("A live Airflow installation requires a schema-2 rollback release")
     target.write_text(yaml.safe_dump_all(release_patches(bundle), sort_keys=False))
     return target
 

@@ -15,6 +15,7 @@ from medw_core.auth import Principal, current_user, study_user
 router = APIRouter(prefix="/_internal/authorize", include_in_schema=False)
 ROUTES = {
     "jobs": ("GET", r"/studies/([^/]+)/jobs/[^/]+"),
+    "batches": ("GET", r"/studies/([^/]+)/batches/[^/]+"),
     "search": ("POST", r"/studies/([^/]+)/search"),
     "draft": ("POST", r"/studies/([^/]+)/sections/[^/]+/draft"),
     "ingest": ("POST", r"/studies/([^/]+)/documents/[^/]+/ingest"),
@@ -23,7 +24,7 @@ ROUTES = {
 
 @router.get("/{operation}", status_code=204)
 async def authorize(
-    operation: Literal["jobs", "search", "draft", "ingest"], request: Request,
+    operation: Literal["jobs", "batches", "search", "draft", "ingest"], request: Request,
     user: Principal = Depends(current_user),
 ) -> Response:
     method, pattern = ROUTES[operation]

@@ -172,3 +172,17 @@ spec:
     snapshots:
       image:
         repository: medwstagingacr.azurecr.io/ingestion-worker
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: airflow
+  namespace: medw
+spec:
+  values:
+    image:
+      repository: medwstagingacr.azurecr.io/airflow
+    airflow:
+      images:
+        airflow:
+          repository: medwstagingacr.azurecr.io/airflow

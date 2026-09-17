@@ -21,6 +21,7 @@ lint:
 	ruff check .
 
 chart-deps:    ## prepare local library dependencies before tests render charts
+	@helm repo add medw-airflow https://airflow.apache.org --force-update >/dev/null
 	@set -eu; for c in deploy/charts/*/; do \
 	  [ "$$(basename $$c)" = "medw-lib" ] && continue; \
 	  helm dependency build $$c >/dev/null; \
@@ -62,9 +63,10 @@ seed:          ## parse + chunk + index the sample study
 	python -m pipelines.cli index --study ABC-101 --path data/sample/
 
 .PHONY: demo-run
+PROCESSING ?= immediate
 demo-run:      ## Upload FILE through the normal Azure application and retain evidence
 	@test -n "$(FILE)" || (echo "FILE is required"; exit 2)
-	./.venv/bin/python scripts/demo_run.py --config "$(AZURE_CONFIG)" --file "$(FILE)"
+	./.venv/bin/python scripts/demo_run.py --config "$(AZURE_CONFIG)" --file "$(FILE)" --processing "$(PROCESSING)"
 
 # Copy infra/azure.example.json to this ignored path and fill its resource IDs.
 AZURE_CONFIG ?= data/azure/config.json
