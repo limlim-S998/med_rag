@@ -33,7 +33,7 @@ def render(chart, tmp_path, values):
     return [doc for doc in yaml.safe_load_all(output) if doc]
 
 
-@pytest.mark.parametrize("environment", ["base", "dev", "staging", "prod", "local"])
+@pytest.mark.parametrize("environment", ["base", "dev", "staging", "prod"])
 def test_environment_route_and_network_policy_agree(gateway_chart, tmp_path, environment):
     output = subprocess.check_output([
         "kubectl", "kustomize", str(ROOT / "deploy/flux" / environment),
@@ -43,7 +43,7 @@ def test_environment_route_and_network_policy_agree(gateway_chart, tmp_path, env
     resources = render(gateway_chart, tmp_path, release["spec"].get("values", {}))
     ingress = next(doc for doc in resources if doc["kind"] == "VirtualServer")
     policy = next(doc for doc in resources if doc["kind"] == "NetworkPolicy")
-    tls = environment != "local"
+    tls = True
     assert ingress["spec"]["ingressClassName"] == "medw-nginx"
     assert bool(ingress["spec"].get("tls")) == tls
     if tls:
@@ -117,12 +117,8 @@ def test_backends_allow_controller_without_creating_public_routes(gateway_chart,
     assert "gateway" not in str(policy["spec"]["ingress"])
 
 
-def test_synthetic_edge_route_requires_local_opt_in(gateway_chart, tmp_path):
-    for environment, enabled, expected in [("local", True, True), ("local", False, False),
-                                            ("dev", True, False)]:
-        resources = render(gateway_chart, tmp_path, {
-            "env": environment, "config": {"synthetic_enabled": enabled},
-        })
-        server = next(doc for doc in resources if doc["kind"] == "VirtualServer")
-        assert any(route["path"] == "= /_synthetic/work"
-                   for route in server["spec"]["routes"]) == expected
+def test_retired_local_routes_are_not_published(gateway_chart, tmp_path):
+    resources = render(gateway_chart, tmp_path, {})
+    server = next(doc for doc in resources if doc["kind"] == "VirtualServer")
+    paths = [route["path"] for route in server["spec"]["routes"]]
+    assert not any("/_synthetic/" in path or "/uploads/" in path for path in paths)

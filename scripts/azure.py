@@ -1062,7 +1062,7 @@ class Deployment:
     def environment_values(self) -> list[dict]:
         c, resources = self.config, self.state["resources"]
         documents = list(yaml.safe_load_all((self.root / "deploy/flux/dev/environment-values.yaml").read_text()))
-        shared = {"backend": "azure", "cosmos_endpoint": resources["cosmos_url"],
+        shared = {"cosmos_endpoint": resources["cosmos_url"],
                   "cosmos_database": c["cosmos_database"], "cosmos_state_container": "platform-state",
                   "blob_account_url": resources["blob_url"], "blob_container": "raw",
                   "sql_server": resources["sql_server"], "sql_database": c["sql_database"],

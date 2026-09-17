@@ -1,4 +1,4 @@
-"""Current model implementations, shared by local and Azure deployments.
+"""Current model implementations, installed in the Azure application.
 
 These deterministic implementations exercise orchestration, never clinical
 quality. Their identities use the existing model provenance fields.

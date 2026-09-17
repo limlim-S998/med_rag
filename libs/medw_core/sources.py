@@ -8,9 +8,6 @@ operation; no regulatory retention period is invented by this application.
 from __future__ import annotations
 
 import hashlib
-import os
-import pathlib
-import tempfile
 from typing import Protocol
 
 from medw_core.ids import source_revision_id
@@ -21,41 +18,6 @@ from medw_core.schemas import Chunk, Citation, IndexGeneration, SourceRevision
 class Artifacts(Protocol):
     async def put(self, payload: bytes) -> str: ...
     async def get(self, uri: str) -> bytes: ...
-
-
-class LocalArtifacts:
-    def __init__(self, root: str | pathlib.Path):
-        self.root = pathlib.Path(root).resolve()
-        self.root.mkdir(parents=True, exist_ok=True)
-
-    async def put(self, payload: bytes) -> str:
-        digest = hashlib.sha256(payload).hexdigest()
-        path = self.root / digest
-        temporary = None
-        try:
-            with tempfile.NamedTemporaryFile(dir=self.root, delete=False) as stream:
-                temporary = pathlib.Path(stream.name)
-                stream.write(payload)
-                stream.flush()
-                os.fsync(stream.fileno())
-            try:
-                os.link(temporary, path)
-            except FileExistsError:
-                if path.read_bytes() != payload:
-                    raise Conflict("content-addressed artifact was corrupted") from None
-        finally:
-            if temporary is not None:
-                temporary.unlink(missing_ok=True)
-        return f"sha256:{digest}"
-
-    async def get(self, uri: str) -> bytes:
-        digest = uri.removeprefix("sha256:")
-        if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
-            raise ValueError("invalid content-addressed artifact URI")
-        payload = (self.root / digest).read_bytes()
-        if hashlib.sha256(payload).hexdigest() != digest:
-            raise Conflict("artifact checksum mismatch")
-        return payload
 
 
 class EvidenceStore:

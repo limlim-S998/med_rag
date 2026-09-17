@@ -64,19 +64,10 @@ spec:
     # Writer operations retain their existing FastAPI access dependencies.
     - path: '~ ^/studies/[^/]+/(documents(:upload-url)?|sections/[^/]+/accept)$'
       action: { pass: gateway }
-    {{- if eq .Values.env "local" }}
-    # Local storage checks its short-lived upload capability in the handler.
-    - path: '~ ^/studies/[^/]+/uploads/[^/]+$'
-      action: { pass: gateway }
-    {{- end }}
     - path: '= /me'
       action: { pass: gateway }
     - path: '= /version'
       action: { pass: gateway }
-    {{- if and (eq .Values.env "local") (dig "synthetic_enabled" false .Values.config) }}
-    - path: '= /_synthetic/work'
-      action: { pass: gateway }
-    {{- end }}
     # Probes/metrics, internal APIs, and auth subrequests are not public routes.
     - path: /
       action:

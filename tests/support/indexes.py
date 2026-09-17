@@ -1,9 +1,9 @@
-"""Durable synthetic index storage; BM25 remains a local behavior double."""
+"""Offline index projections for ingestion and retrieval contract tests."""
 
 from medw_core.indexing import IndexReceipt, payload_digest, selected_generation
-from medw_core.local.stores import InMemorySparseIndex
 from medw_core.persistence import Conflict, StateStore
 from medw_core.schemas import Chunk, IndexGeneration, RetrievalFilter
+from support.stores import InMemorySparseIndex
 
 
 class SQLiteGenerationSink:
@@ -48,3 +48,4 @@ class DurableSparseIndex:
 
     async def index(self, chunks: list[Chunk]) -> int:
         raise RuntimeError("retrieval cannot write an index; use SQLiteGenerationSink")
+

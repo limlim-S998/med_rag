@@ -1,6 +1,5 @@
-# Local settings may contain credentials. Commit only the example file.
+# Per-machine settings may contain credentials. Deployment examples live in infra/.
 .env
-!.env.example
 
 # Helm vendors its dependencies into charts/*.tgz and pins them in Chart.lock.
 #

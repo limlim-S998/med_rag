@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Check packaged startup, Azure telemetry imports and honest process probes.
+"""Check packaged Azure startup, telemetry imports and honest process probes.
 
-The synthetic telemetry destination is loopback inside an isolated container;
-the smoke run cannot send telemetry or credentials to any external service.
+Storage endpoints are syntactically valid but unreachable inside a networkless
+container. SDK construction must succeed; dependency checks must report outages.
+The smoke run cannot send telemetry or credentials to any external service.
 """
 from __future__ import annotations
 
@@ -16,14 +17,18 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--image", required=True)
     parser.add_argument("--service", required=True)
-    parser.add_argument("--backend", choices=("local", "azure"), default="local")
     args = parser.parse_args()
     name = "medw-smoke-" + uuid.uuid4().hex[:12]
     source = subprocess.run(["docker", "image", "inspect", args.image, "--format",
                              '{{index .Config.Labels "org.opencontainers.image.revision"}}'],
                             check=True, capture_output=True, text=True).stdout.strip()
     subprocess.run(["docker", "run", "--detach", "--name", name, "--network", "none",
-                    "--env", f"MEDW_BACKEND={args.backend}", "--env", "MEDW_ENV=local",
+                    "--env", "MEDW_ENV=test",
+                    "--env", "MEDW_COSMOS_ENDPOINT=https://cosmos.invalid",
+                    "--env", "MEDW_BLOB_ACCOUNT_URL=https://storage.invalid",
+                    "--env", "MEDW_SEARCH_ENDPOINT=https://search.invalid",
+                    "--env", "MEDW_SQL_SERVER=sql.invalid",
+                    "--env", "MEDW_READINESS_CACHE_SECONDS=0",
                     "--env", f"MEDW_SERVICE_NAME={args.service}",
                     "--env", f"MEDW_IMAGE_SHA={source}",
                     "--env", ("MEDW_APPINSIGHTS_CONNECTION_STRING="
@@ -33,7 +38,7 @@ def main() -> None:
                     args.image], check=True, capture_output=True)
     probe = """import urllib.request, urllib.error, sys
 try:
-    r=urllib.request.urlopen('http://127.0.0.1:8000'+sys.argv[1], timeout=2)
+    r=urllib.request.urlopen('http://127.0.0.1:8000'+sys.argv[1], timeout=5)
     print(r.status)
 except urllib.error.HTTPError as e:
     print(e.code)
@@ -57,7 +62,7 @@ except urllib.error.HTTPError as e:
         # All other services depend on infrastructure absent from this isolated
         # container. Full readiness is checked by the application verification.
         expected = "200" if args.service == "reranker" else "503"
-        if args.backend == "azure" and source == "unversioned":
+        if source == "unversioned":
             expected = "503"
         allowed = {expected}
         if result.stdout.strip() not in allowed:

@@ -1,11 +1,10 @@
-"""Select infrastructure once; both backends run the same model implementations."""
+"""Wire Azure infrastructure and the installed models for each service."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
-from typing import Literal
 
 from medw_core import ports
 from medw_core.health import HealthMonitor, unavailable_check
@@ -14,7 +13,6 @@ from medw_core.settings import Settings, require_setting
 
 @dataclass(frozen=True)
 class Services:
-    backend: Literal["azure", "local"]
     embedder: ports.Embedder | None = None
     vectors: ports.VectorIndex | None = None
     sparse: ports.SparseIndex | None = None
@@ -40,7 +38,7 @@ class Services:
     def require(self, name: str):
         value = getattr(self, name, None)
         if value is None:
-            raise RuntimeError(f"{name!r} was not wired under {self.backend}")
+            raise RuntimeError(f"{name!r} was not wired for this service")
         return value
 
 
@@ -52,11 +50,6 @@ DEPENDENCIES = {
                          "index_registry", "evidence", "uploads", "dense_writer", "sparse_writer"},
     "reranker": {"reranker"},
 }
-
-
-def effective_settings(s: Settings) -> Settings:
-    """Model identity is explicit configuration, independent of infrastructure."""
-    return s
 
 
 async def build(s: Settings, stack: AsyncExitStack, *, credential=None,
@@ -78,7 +71,7 @@ async def build(s: Settings, stack: AsyncExitStack, *, credential=None,
     name = service or s.service_name
     required = DEPENDENCIES.get(name, set().union(*DEPENDENCIES.values()))
     health = HealthMonitor(timeout=s.readiness_timeout, cache_seconds=s.readiness_cache_seconds)
-    result: dict = {"backend": s.backend, "health": health}
+    result: dict = {"health": health}
     state: ports.StateStore | None = None
     upload_state: ports.StateStore | None = None
     upload_storage: UploadStorage | None = None
@@ -103,50 +96,7 @@ async def build(s: Settings, stack: AsyncExitStack, *, credential=None,
     if "reranker" in required:
         health.add("reranker-model", result["reranker"].check)
 
-    if s.backend == "local":
-        from medw_core.local.indexes import DurableSparseIndex, SQLiteGenerationSink
-        from medw_core.local.platform import (
-            LocalStudyAccess,
-            PersistentDocumentStore,
-            PersistentSessionStore,
-        )
-        from medw_core.persistence import SQLiteStateStore
-        from medw_core.sources import EvidenceStore, LocalArtifacts
-        from medw_core.uploads import LocalUploadStorage
-
-        if required & {"state", "jobs", "sessions", "documents", "authorization", "evidence", "uploads"}:
-            state = local_state = SQLiteStateStore(s.local_state_path)
-            stack.push_async_callback(local_state.close)
-            health.add("local-state", local_state.check)
-            result["state"] = state
-            upload_state = state
-            local_factories: dict[str, Callable[[], object]] = {
-                "sparse": lambda: DurableSparseIndex(local_state),
-                "sparse_writer": lambda: SQLiteGenerationSink(local_state),
-                "sessions": lambda: PersistentSessionStore(local_state),
-                "documents": lambda: PersistentDocumentStore(local_state),
-                "authorization": lambda: LocalStudyAccess(local_state),
-                "evidence": lambda: EvidenceStore(local_state, LocalArtifacts(s.local_artifact_dir)),
-            }
-            for field, factory in local_factories.items():
-                if field in required:
-                    result[field] = factory()
-        if "uploads" in required:
-            from pathlib import Path
-            upload_storage = LocalUploadStorage(Path(s.local_artifact_dir) / "staging")
-        if "audit" in required:
-            from medw_core.local.durable_audit import SQLiteAuditSink
-            audit = SQLiteAuditSink(s.local_state_path)
-            result["audit"] = audit
-            stack.push_async_callback(audit.close)
-            health.add("audit", audit.check)
-        if "drafts" in required:
-            from medw_core.drafts import SQLiteDraftStore
-            drafts = SQLiteDraftStore(s.local_state_path)
-            result["drafts"] = drafts
-            stack.push_async_callback(drafts.close)
-            health.add("drafts", drafts.check)
-    elif required - {"reranker"}:
+    if required - {"reranker"}:
         from medw_core import azure
 
         cred = credential or azure.credential()
@@ -255,6 +205,4 @@ def readiness(services: Services, required: tuple[str, ...]) -> tuple[bool, str]
     missing = [name for name in required if getattr(services, name, None) is None]
     if missing:
         return False, "not wired: " + ", ".join(missing)
-    if services.backend == "local":
-        return True, "local backend: structurally wired"
     return False, "reachability is not established by wiring; await the health check"

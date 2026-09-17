@@ -98,17 +98,6 @@ spec:
           readinessProbe:
             httpGet: { path: /readyz, port: 8000 }
             periodSeconds: 5
-          {{- if and .Values.localState .Values.localState.enabled }}
-          volumeMounts:
-            - name: local-state
-              mountPath: /data
-          {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-      {{- if and .Values.localState .Values.localState.enabled }}
-      volumes:
-        - name: local-state
-          persistentVolumeClaim:
-            claimName: {{ required "localState.existingClaim is required" .Values.localState.existingClaim }}
-      {{- end }}
 {{- end -}}

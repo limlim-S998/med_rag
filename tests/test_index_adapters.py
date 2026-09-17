@@ -3,10 +3,11 @@ from types import SimpleNamespace
 
 import pytest
 from qdrant_client import AsyncQdrantClient
+from support.indexes import DurableSparseIndex, SQLiteGenerationSink
+from support.state import SQLiteStateStore
 
 from medw_core.indexing import make_generation, payload_digest
-from medw_core.local.indexes import DurableSparseIndex, SQLiteGenerationSink
-from medw_core.persistence import Conflict, SQLiteStateStore
+from medw_core.persistence import Conflict
 from medw_core.schemas import Chunk, DocType, RetrievalFilter
 from pipelines.sinks.qdrant_sink import QdrantGenerationSink
 from pipelines.sinks.search_sink import SearchGenerationSink

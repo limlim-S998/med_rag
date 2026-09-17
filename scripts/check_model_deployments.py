@@ -40,8 +40,6 @@ def validate_targets(documents: list[dict]) -> dict:
         for key in required:
             if not isinstance(config.get(key), str) or not config[key].strip():
                 raise ValueError(f"{name}: target setting {key} must be configured")
-        if config.get("backend") != "azure":
-            raise ValueError(f"{name}: cloud release requires the Azure backend")
         if name != "reranker":
             identity = values.get("serviceAccount", {}).get("annotations", {}).get(
                 "azure.workload.identity/client-id", "")

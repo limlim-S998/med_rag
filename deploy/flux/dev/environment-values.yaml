@@ -7,7 +7,6 @@ spec:
   values:
     env: dev
     config:
-      backend: azure
       cosmos_endpoint: https://medrag325744d5cosmos.documents.azure.com:443/
       cosmos_database: medw-dev
       blob_account_url: https://medwdev9528fa20sa.blob.core.windows.net
@@ -63,7 +62,6 @@ spec:
   values:
     env: dev
     config:
-      backend: azure
       chat_deployment: scripted-chat
       embed_deployment: hash-1
       qdrant_url: http://qdrant:6333
@@ -122,7 +120,6 @@ spec:
   values:
     env: dev
     config:
-      backend: azure
       chat_deployment: scripted-chat
       sql_server: medwdev9528fa20sql.database.windows.net
       sql_database: medw
@@ -179,7 +176,6 @@ spec:
   values:
     env: dev
     config:
-      backend: azure
       embed_deployment: hash-1
       search_endpoint: https://medrag325744d5search.search.windows.net
       search_index: medw-dev-chunks
@@ -237,7 +233,6 @@ spec:
   values:
     env: dev
     config:
-      backend: azure
       cosmos_endpoint: https://medrag325744d5cosmos.documents.azure.com:443/
       cosmos_database: medw-dev
       cosmos_state_container: platform-state

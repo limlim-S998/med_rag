@@ -1,22 +1,21 @@
-"""Exercise real local persistence and the shared durable ingestion workflow."""
+"""Exercise offline persistence and the shared durable ingestion workflow."""
 
 import asyncio
 import hashlib
 import json
 from types import SimpleNamespace
-from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
-from fastapi import FastAPI
+from support.audit import SQLiteAuditSink
+from support.files import FileArtifacts, FileUploadStorage
+from support.indexes import SQLiteGenerationSink
+from support.state import SQLiteStateStore
+from support.stores import PersistentDocumentStore
 
 from medw_core.durable_jobs import DurableJobStore
 from medw_core.indexing import IndexRegistry
 from medw_core.ingestion import IngestionRunner
-from medw_core.local.durable_audit import SQLiteAuditSink
-from medw_core.local.indexes import SQLiteGenerationSink
-from medw_core.local.platform import PersistentDocumentStore
-from medw_core.persistence import SQLiteStateStore
 from medw_core.placeholders import (
     HashEmbedder,
     PlaceholderLayoutExtractor,
@@ -24,14 +23,14 @@ from medw_core.placeholders import (
 )
 from medw_core.schemas import TableType
 from medw_core.settings import Settings
-from medw_core.sources import EvidenceStore, LocalArtifacts
-from medw_core.uploads import LocalUploadStorage, UploadRequest, UploadService
+from medw_core.sources import EvidenceStore
+from medw_core.uploads import UploadRequest, UploadService
 
 
 def workflow(tmp_path, *, state=None):
     state = state or SQLiteStateStore(tmp_path / "state.db")
-    evidence = EvidenceStore(state, LocalArtifacts(tmp_path / "artifacts"))
-    uploads = UploadService(state, LocalUploadStorage(tmp_path / "staging"))
+    evidence = EvidenceStore(state, FileArtifacts(tmp_path / "artifacts"))
+    uploads = UploadService(state, FileUploadStorage(tmp_path / "staging"))
     audit = SQLiteAuditSink(tmp_path / "state.db")
     values = {"state": state, "evidence": evidence, "uploads": uploads,
               "jobs": DurableJobStore(state), "index_registry": IndexRegistry(state),
@@ -39,7 +38,7 @@ def workflow(tmp_path, *, state=None):
               "embedder": HashEmbedder(64), "layout": PlaceholderLayoutExtractor(evidence.artifacts),
               "classifier": PlaceholderTableClassifier()}
     services = SimpleNamespace(require=values.__getitem__)
-    settings = Settings(backend="local", env="test", ingestion_poll_seconds=0.01)
+    settings = Settings(_env_file=None, env="test", ingestion_poll_seconds=0.01)
     runner = IngestionRunner(settings, services, dense=SQLiteGenerationSink(state, "dense"),
                              sparse=SQLiteGenerationSink(state))
     return values, runner
@@ -49,10 +48,9 @@ async def upload(values, *, study="S1", doc="document", payload=b"Study evidence
     digest = hashlib.sha256(payload).hexdigest()
     uploads = values["uploads"]
     registered = await uploads.register(study, UploadRequest(
-        filename="source.txt", doc_id=doc, size_bytes=len(payload), sha256=digest),
-        public_base_url="http://gateway")
-    token = parse_qs(urlparse(registered["upload_url"]).query)["token"][0]
-    await uploads.write_local(study, registered["upload_id"], token, payload)
+        filename="source.txt", doc_id=doc, size_bytes=len(payload), sha256=digest))
+    record = await uploads.record(study, registered["upload_id"])
+    await uploads.storage.write(record, payload)
     source = await uploads.capture(study, doc, registered["upload_id"], values["evidence"])
     job = await values["jobs"].create(study, doc, source_revision=source.revision_id,
                                         idempotency_key=key, correlation_id="1" * 32)
@@ -127,7 +125,7 @@ async def test_extraction_and_classifier_are_called_and_recovery_preserves_actua
 
 
 async def test_placeholder_layout_preserves_bytes_and_bounds_decoded_content(tmp_path):
-    artifacts = LocalArtifacts(tmp_path)
+    artifacts = FileArtifacts(tmp_path)
     payload = b"\x00\xff\n" + b"a" * 64000
     uri = await artifacts.put(payload)
     extractor = PlaceholderLayoutExtractor(artifacts)
@@ -141,22 +139,24 @@ async def test_placeholder_layout_preserves_bytes_and_bounds_decoded_content(tmp
         await extractor.extract(uri, pages="1")
 
 
-async def test_upload_capability_is_scoped_expiring_and_checks_content(tmp_path):
+async def test_upload_registration_is_scoped_expiring_and_checks_content(tmp_path):
     state = SQLiteStateStore(tmp_path / "state.db")
     clock = [1000.0]
-    service = UploadService(state, LocalUploadStorage(tmp_path / "staging"), clock=lambda: clock[0])
+    storage = FileUploadStorage(tmp_path / "staging")
+    service = UploadService(state, storage, clock=lambda: clock[0])
+    evidence = EvidenceStore(state, FileArtifacts(tmp_path / "artifacts"))
     body = UploadRequest(filename="../../source.bin", doc_id="doc", size_bytes=3,
                          sha256=hashlib.sha256(b"abc").hexdigest())
-    registered = await service.register("S1", body, public_base_url="http://gateway")
-    token = parse_qs(urlparse(registered["upload_url"]).query)["token"][0]
-    with pytest.raises(PermissionError):
-        await service.write_local("S1", registered["upload_id"], "wrong", b"abc")
+    registered = await service.register("S1", body)
+    record = await service.record("S1", registered["upload_id"])
     with pytest.raises(KeyError):
-        await service.write_local("S2", registered["upload_id"], token, b"abc")
+        await service.record("S2", registered["upload_id"])
+    with pytest.raises(KeyError):
+        await service.record("S1", registered["upload_id"], "another-document")
+    # Blob accepts arbitrary bytes; application validation happens on capture.
+    await storage.write(record, b"bad")
     with pytest.raises(ValueError, match="checksum"):
-        await service.write_local("S1", registered["upload_id"], token, b"bad")
-    await service.write_local("S1", registered["upload_id"], token, b"abc")
-    assert (tmp_path / "staging" / registered["upload_id"]).read_bytes() == b"abc"
+        await service.capture("S1", "doc", registered["upload_id"], evidence)
     assert not (tmp_path / "source.bin").exists()
     clock[0] += 901
     with pytest.raises(PermissionError, match="expired"):
@@ -296,21 +296,13 @@ async def test_ingest_http_rejects_unregistered_input_and_is_idempotent_after_ex
         await values["state"].close()
 
 
-async def test_local_upload_http_is_bounded_and_missing_token_fails(tmp_path):
-    from services.gateway.app.routes.documents import upload_router
+async def test_retired_local_http_endpoints_are_absent():
+    from services.gateway.app.main import app
 
-    values, _ = workflow(tmp_path)
-    registered, _, _ = await upload(values)
-    app = FastAPI()
-    app.include_router(upload_router)
-    app.state.services = SimpleNamespace(require=values.__getitem__)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gateway") as client:
-        url = registered["upload_url"]
-        assert (await client.put(url.split("?")[0], content=b"anything")).status_code == 422
-        values["uploads"].max_bytes = 2
-        assert (await client.put(url, content=b"oversized")).status_code == 413
-    await values["audit"].close()
-    await values["state"].close()
+        response = await client.put("/studies/S1/uploads/abc?token=unused", content=b"anything")
+        assert response.status_code == 404
+        assert (await client.get("/_synthetic/work")).status_code == 404
 
 
 @pytest.mark.parametrize("stage", ["extracting", "classifying", "chunking", "annotating", "embedding", "indexing"])
@@ -492,7 +484,7 @@ async def test_azure_upload_sas_is_one_blob_create_only_and_read_is_etag_bound(m
     monkeypatch.setattr("azure.storage.blob.generate_blob_sas", sas)
     storage = AzureUploadStorage(Service(), "raw")
     record = {"blob_name": "staging/id", "expires_at": 2000000000, "size_bytes": 3}
-    url = await storage.issue(record, "local-token-unused", "http://local-unused")
+    url = await storage.issue(record)
     assert url.endswith("?signed") and calls["sas"]["blob_name"] == "staging/id"
     assert str(calls["sas"]["permission"]) == "c"
     assert calls["sas"]["protocol"] == "https"

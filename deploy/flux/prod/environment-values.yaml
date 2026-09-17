@@ -8,7 +8,6 @@ spec:
   values:
     env: prod
     config:
-      backend: azure
       cosmos_endpoint: ''
       cosmos_database: medw
       blob_account_url: ''
@@ -44,7 +43,6 @@ spec:
   values:
     env: prod
     config:
-      backend: azure
       chat_deployment: scripted-chat
       embed_deployment: hash-1
       qdrant_url: http://qdrant:6333
@@ -81,7 +79,6 @@ spec:
   values:
     env: prod
     config:
-      backend: azure
       chat_deployment: scripted-chat
       sql_server: ''
       sql_database: medw
@@ -113,7 +110,6 @@ spec:
   values:
     env: prod
     config:
-      backend: azure
       embed_deployment: hash-1
       search_endpoint: ''
       search_index: csr-chunks
@@ -151,8 +147,6 @@ metadata:
 spec:
   values:
     env: prod
-    config:
-      backend: azure
     image:
       repository: medwprodacr.azurecr.io/reranker
     serviceAccount:

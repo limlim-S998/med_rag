@@ -9,10 +9,10 @@ import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import Depends, FastAPI, HTTPException
+from support.state import SQLiteStateStore
+from support.stores import SQLiteStudyAccess
 
 from medw_core.auth import TokenValidator, study_user
-from medw_core.local.platform import LocalStudyAccess
-from medw_core.persistence import SQLiteStateStore
 from medw_core.settings import Settings
 
 
@@ -29,7 +29,7 @@ def signed():
 
 
 def config():
-    return Settings(backend="local", env="test", auth_tenant_id="tenant",
+    return Settings(_env_file=None, env="test", auth_tenant_id="tenant",
                     auth_audience="medw-api", auth_issuer="https://identity.test/tenant/v2.0",
                     auth_jwks_url="https://identity.test/keys")
 
@@ -94,7 +94,7 @@ async def test_key_outage_fails_closed(signed):
 async def test_study_access_precedes_domain_handler_and_survives_restart(signed, tmp_path):
     key, jwk, claims = signed
     state = SQLiteStateStore(tmp_path / "access.sqlite")
-    access = LocalStudyAccess(state)
+    access = SQLiteStudyAccess(state)
     await access.grant("writer", "allowed")
     await state.close()
     state = SQLiteStateStore(tmp_path / "access.sqlite")
@@ -110,7 +110,7 @@ async def test_study_access_precedes_domain_handler_and_survives_restart(signed,
         lambda request: httpx.Response(200, json={"keys": [jwk]}),
     )) as keys:
         app.state.token_validator = TokenValidator(config(), keys)
-        app.state.services = SimpleNamespace(authorization=LocalStudyAccess(state))
+        app.state.services = SimpleNamespace(authorization=SQLiteStudyAccess(state))
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
                                     base_url="http://gateway") as client:
             assert (await client.post("/studies/allowed/draft")).status_code == 401

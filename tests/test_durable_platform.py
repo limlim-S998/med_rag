@@ -6,6 +6,9 @@ import sqlite3
 
 import pytest
 from sqlalchemy import text
+from support.audit import SQLiteAuditSink
+from support.files import FileArtifacts
+from support.state import SQLiteStateStore
 
 from medw_core.audit_events import AUDIT_COLUMNS, generation_event
 from medw_core.durable_jobs import DurableJobStore, run_stages
@@ -17,11 +20,10 @@ from medw_core.indexing import (
     payload_digest,
     publish_generation,
 )
-from medw_core.local.durable_audit import SQLiteAuditSink
-from medw_core.persistence import Conflict, SQLiteStateStore
+from medw_core.persistence import Conflict
 from medw_core.provenance import Provenance
 from medw_core.schemas import Chunk, DocType
-from medw_core.sources import EvidenceStore, LocalArtifacts
+from medw_core.sources import EvidenceStore
 from medw_core.sql import AUDIT_INSERT, SqlAuditSink
 
 
@@ -52,7 +54,7 @@ async def rejected(generation):
 @pytest.fixture
 async def platform(tmp_path):
     state = SQLiteStateStore(tmp_path / "state.sqlite3")
-    evidence = EvidenceStore(state, LocalArtifacts(tmp_path / "artifacts"))
+    evidence = EvidenceStore(state, FileArtifacts(tmp_path / "artifacts"))
     yield state, evidence, IndexRegistry(state)
     await state.close()
 
@@ -91,7 +93,7 @@ async def test_source_edit_preserves_old_citation_after_restart(platform, tmp_pa
     await publish(registry, evidence, manifest([new]), [new], dense, sparse, first_revision)
     await evidence.retain_for_event("event-1", [citation])
     reopened = SQLiteStateStore(tmp_path / "state.sqlite3")
-    restored = EvidenceStore(reopened, LocalArtifacts(tmp_path / "artifacts"))
+    restored = EvidenceStore(reopened, FileArtifacts(tmp_path / "artifacts"))
     assert (await restored.resolve(citation))[2] == b"synthetic original"
     with pytest.raises(Conflict, match="immutable"):
         await evidence.archive_chunk(old.model_copy(update={"text": "tampered"}))

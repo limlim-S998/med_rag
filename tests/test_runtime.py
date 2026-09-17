@@ -1,4 +1,4 @@
-"""Service isolation, dependency failure/recovery and durable local sessions."""
+"""Service isolation, dependency failure/recovery and offline session persistence."""
 
 import asyncio
 from contextlib import AsyncExitStack
@@ -6,12 +6,79 @@ from contextlib import AsyncExitStack
 import httpx
 import pytest
 from pydantic import ValidationError
+from support.state import SQLiteStateStore
+from support.stores import PersistentSessionStore
 
 from medw_core.composition import DEPENDENCIES, build
 from medw_core.health import DependencyUnavailable, HealthMonitor, http_check
-from medw_core.local.platform import PersistentSessionStore
-from medw_core.persistence import SQLiteStateStore
 from medw_core.settings import Settings
+
+
+@pytest.mark.parametrize("service", list(DEPENDENCIES))
+async def test_azure_dependencies_are_scoped_probed_and_closed_offline(service, monkeypatch):
+    """Exercise the real composition root, replacing only external client boundaries."""
+    from unittest.mock import AsyncMock, MagicMock, Mock
+
+    import qdrant_client
+
+    from medw_core import azure, sql
+    from services.retrieval.app import qdrant_repo
+    from services.retrieval.app.sparse_repo import SparseRepo
+
+    container = Mock(read=AsyncMock(), get_container_properties=AsyncMock())
+    cosmos = Mock(close=AsyncMock())
+    cosmos.get_database_client.return_value.get_container_client.return_value = container
+    blobs = Mock(close=AsyncMock())
+    blobs.get_container_client.return_value = container
+    search = Mock(close=AsyncMock(), get_document_count=AsyncMock(return_value=0))
+    vectors = Mock(close=AsyncMock(), get_collections=AsyncMock())
+    database = Mock(dispose=AsyncMock())
+    connection = MagicMock()
+    connection.__aenter__.return_value = Mock(execute=AsyncMock())
+    database.connect.return_value = connection
+    factories = {}
+    for module, name, value in [(azure, "cosmos_client", cosmos),
+                                (azure, "blob_client", blobs),
+                                (azure, "search_client", search),
+                                (sql, "engine", database)]:
+        factories[name] = Mock(return_value=value)
+        monkeypatch.setattr(module, name, factories[name])
+    monkeypatch.setattr(qdrant_client, "AsyncQdrantClient", Mock(return_value=vectors))
+    monkeypatch.setattr(qdrant_repo, "AsyncQdrantClient", Mock(return_value=vectors))
+    monkeypatch.setattr(azure, "openai_client", Mock(side_effect=AssertionError("unused model")))
+    settings = Settings(_env_file=None, env="test", readiness_cache_seconds=0)
+    required = DEPENDENCIES[service]
+    async with AsyncExitStack() as stack:
+        services = await build(settings, stack, service=service, credential=object(),
+                               vector_factory=qdrant_repo.QdrantRepo, sparse_factory=SparseRepo)
+        for name in required:
+            assert services.require(name) is not None
+        for name in set().union(*DEPENDENCIES.values()) - required:
+            assert getattr(services, name) is None
+        await services.health.check()
+        if service != "reranker":
+            container.read.side_effect = ConnectionError("Cosmos unavailable")
+            with pytest.raises(DependencyUnavailable):
+                await services.health.check()
+            container.read.side_effect = None
+            if services.evidence or services.uploads:
+                container.get_container_properties.side_effect = ConnectionError("Blob unavailable")
+                with pytest.raises(DependencyUnavailable, match="source-artifacts"):
+                    await services.health.check()
+                container.get_container_properties.side_effect = None
+            await services.health.check()
+    expectations = {
+        "cosmos_client": service != "reranker",
+        "blob_client": service in {"gateway", "generation", "ingestion-worker"},
+        "search_client": service in {"retrieval", "ingestion-worker"},
+        "engine": service in {"gateway", "generation", "ingestion-worker"},
+    }
+    for name, expected in expectations.items():
+        assert factories[name].call_count == int(expected)
+        resource = factories[name].return_value
+        closer = resource.dispose if name == "engine" else resource.close
+        assert closer.await_count == int(expected)
+    assert vectors.close.await_count == int(service in {"retrieval", "ingestion-worker"})
 
 
 async def test_probe_recovers_without_rebuilding_service():
@@ -43,25 +110,6 @@ async def test_probe_timeout_is_bounded_and_http_status_is_checked():
             await health.check()
 
 
-@pytest.mark.parametrize("service", ["gateway", "generation", "ingestion-worker", "reranker"])
-async def test_local_service_dependencies_are_scoped(service, tmp_path):
-    settings = Settings(backend="local", env="test", local_state_path=str(tmp_path / "state.db"),
-                        local_artifact_dir=str(tmp_path / "artifacts"), qdrant_url="http://127.0.0.1:1")
-    async with AsyncExitStack() as stack:
-        services = await build(settings, stack, service=service)
-        if service == "ingestion-worker":
-            with pytest.raises(DependencyUnavailable, match="dense-writer"):
-                await services.health.check()
-        else:
-            await services.health.check()
-        for field in DEPENDENCIES[service]:
-            assert services.require(field) is not None
-        if service in {"gateway", "reranker"}:
-            assert services.embedder is None and services.chat is None
-        if service == "reranker":
-            assert services.audit is None and services.state is None
-
-
 async def test_azure_reranker_live_shell_never_constructs_an_azure_credential(monkeypatch):
     from medw_core import azure
 
@@ -70,7 +118,7 @@ async def test_azure_reranker_live_shell_never_constructs_an_azure_credential(mo
 
     monkeypatch.setattr(azure, "credential", forbidden)
     async with AsyncExitStack() as stack:
-        services = await build(Settings(backend="azure"), stack, service="reranker")
+        services = await build(Settings(_env_file=None), stack, service="reranker")
         assert services.reranker is not None
         await services.health.check()
         assert await services.reranker.rerank("hello", [("1", "hello")], top_k=1) == [("1", 1.0)]
@@ -91,25 +139,19 @@ async def test_session_persists_but_user_scope_and_expiry_are_enforced(tmp_path)
     await state.close()
 
 
-@pytest.mark.parametrize("values", [
-    {"backend": "typo"}, {"backend": "local", "env": "prod"},
-    {"backend": "azure", "env": "local", "synthetic_enabled": True},
-    {"backend": "local", "env": "dev", "synthetic_enabled": True},
-])
-def test_invalid_modes_are_rejected(values):
+def test_insecure_jwks_url_is_rejected():
     with pytest.raises(ValidationError):
-        Settings(**values)
+        Settings(_env_file=None, auth_jwks_url="http://identity.test/keys")
 
 
 async def test_retrieval_selects_one_generation_for_both_searches(monkeypatch):
     from types import SimpleNamespace
 
-    from medw_core.composition import effective_settings
     from medw_core.indexing import make_generation
     from medw_core.schemas import RetrievalRequest
     from services.retrieval.app import main
 
-    settings = effective_settings(Settings(backend="local", env="test"))
+    settings = Settings(_env_file=None, env="test")
     monkeypatch.setattr(main, "s", settings)
     generation = make_generation(
         "study", [], parser_version="synthetic-1", embed_version=settings.embed_version,

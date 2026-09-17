@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -16,7 +15,7 @@ class Settings(BaseSettings):
     """Environment configuration shared by the application processes.
 
     Every service can access these fields. Optional Azure values are checked
-    where they are used; local services need no Azure configuration.
+    where they are used, so each service needs only its own Azure dependencies.
     """
 
     model_config = SettingsConfigDict(
@@ -27,30 +26,14 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     service_name: str = "unset"
 
-    # Infrastructure selection only. Both backends run the same installed
-    # placeholder models and application workflow.
-    backend: Literal["local", "azure"] = "azure"
-
-    # Local persistent stores use this file across process restarts. Tests can
-    # supply a temporary path; production never selects the local backend.
-    local_state_path: str = "/tmp/medw-platform.sqlite3"
-    local_artifact_dir: str = "/tmp/medw-artifacts"
-    synthetic_enabled: bool = False
     readiness_timeout: float = Field(default=3.0, gt=0, le=30)
     readiness_cache_seconds: float = Field(default=5.0, ge=0, le=60)
     parser_version: str = "placeholder-text-1"
     upload_max_bytes: int = Field(default=5 * 1024 * 1024, ge=1, le=5 * 1024 * 1024)
     upload_ttl_seconds: int = Field(default=900, ge=1, le=3600)
-    # Used for locally served upload capabilities when a reverse proxy changes
-    # the upstream Host/port. Azure upload URLs come directly from Blob Storage.
-    public_base_url: str | None = None
     ingestion_poll_seconds: float = Field(default=1.0, gt=0, le=60)
     ingestion_lease_seconds: float = Field(default=60, ge=5, le=3600)
     ingestion_max_attempts: int = Field(default=5, ge=1, le=20)
-
-    # Recorded Document Intelligence layout responses, replayed by the local
-    # LayoutExtractor. Point this at a directory of *.layout.json.
-    fixture_dir: str = "data/sample/ABC-101"
 
     # --- Installed model identities and dormant Azure model adapters -----
     # Current identities name the packaged placeholders. Azure model adapters
@@ -145,7 +128,7 @@ class Settings(BaseSettings):
     # --- Prompts ----------------------------------------------------------
     # Hash of the prompt directory. Logged on every generation so you can
     # answer "which prompt produced this paragraph" six months later.
-    prompt_bundle_sha: str = "local-dev"
+    prompt_bundle_sha: str = "unversioned"
 
     # Helm supplies source attribution separately from the selected digest.
     # Azure readiness compares image_sha with the source baked into the image;
@@ -159,7 +142,7 @@ class Settings(BaseSettings):
     @field_validator(
         "aoai_endpoint", "aoai_resource_id", "search_endpoint", "blob_account_url",
         "cosmos_endpoint", "sql_server", "docintel_endpoint", "language_endpoint",
-        "appinsights_connection_string", "auth_jwks_url", "public_base_url", mode="before",
+        "appinsights_connection_string", "auth_jwks_url", mode="before",
     )
     @classmethod
     def blank_is_absent(cls, value):
@@ -169,20 +152,11 @@ class Settings(BaseSettings):
         return value
 
     @model_validator(mode="after")
-    def validate_modes(self):
-        if self.backend == "local" and self.env == "prod":
-            raise ValueError("the local backend cannot run in prod")
-        if self.synthetic_enabled and (
-            self.backend != "local" or self.env not in {"local", "test"}
-        ):
-            raise ValueError(
-                "synthetic work requires backend=local and env=local or test"
-            )
+    def validate_relationships(self):
         if self.qdrant_write_consistency_factor > self.qdrant_replication_factor:
             raise ValueError("Qdrant write consistency cannot exceed replication")
         if (
             self.auth_jwks_url
-            and self.backend == "azure"
             and not self.auth_jwks_url.startswith("https://")
         ):
             raise ValueError("Azure JWKS URL must use HTTPS")

@@ -96,7 +96,7 @@ def test_cleanup_requires_recorded_ownership(tmp_path, monkeypatch):
         deployment.down()
 
 
-def test_environment_generation_uses_real_backends_and_bounded_resources(tmp_path):
+def test_environment_generation_uses_azure_resources_and_bounded_scaling(tmp_path):
     deployment = azure.Deployment(config(), root=tmp_path)
     deployment.root = ROOT
     deployment.config["tenant_id"] = "tenant"
@@ -112,7 +112,6 @@ def test_environment_generation_uses_real_backends_and_bounded_resources(tmp_pat
             assert values["replicas"] == 1
             assert values["config"]["write_consistency_factor"] == 1
         else:
-            assert values["config"]["backend"] == "azure"
             assert values["autoscaling"]["maxReplicas"] == 2
             application_cpu += int(values["resources"]["requests"]["cpu"].removesuffix("m"))
             assert "demo_mode" not in values["config"]

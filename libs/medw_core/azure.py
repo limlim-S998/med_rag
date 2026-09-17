@@ -35,8 +35,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 # The credential factory uses azure-identity and its azure-core dependency.
-# Local adapters and the held-back reranker do not construct credentials.
-from azure.core.credentials import AzureKeyCredential  # noqa: F401  (local only)
+# The installed placeholder reranker does not construct credentials.
 from azure.identity.aio import DefaultAzureCredential, get_bearer_token_provider
 from pydantic import HttpUrl
 

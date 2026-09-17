@@ -88,6 +88,7 @@ filterwarnings = [
 # another service's module and never notice.
 pythonpath = [
     "libs",
+    "tests",  # Offline support is importable by tests, never installed in images.
     ".",
     "services/retrieval",
     "services/gateway",

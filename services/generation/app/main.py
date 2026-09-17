@@ -14,7 +14,6 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from medw_core import tracing
 from medw_core.audit_events import generation_event
 from medw_core.auth import Principal, study_user
-from medw_core.composition import effective_settings
 from medw_core.persistence import Conflict
 from medw_core.schemas import RetrievalResponse
 from medw_core.service import (
@@ -27,7 +26,7 @@ from medw_core.settings import get_settings
 
 from .verify import placeholder_verification
 
-s = effective_settings(get_settings().model_copy(update={"service_name": "generation"}))
+s = get_settings().model_copy(update={"service_name": "generation"})
 PROMPTS = Path(__file__).parent / "prompts"
 app = FastAPI(title="generation", lifespan=lifespan_for("generation", s, prompts=PROMPTS))
 attach_request_instrumentation(app, "generation")

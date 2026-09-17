@@ -1,6 +1,6 @@
 dependencies:
 - name: medw-lib
   repository: file://../medw-lib
-  version: 0.11.0
-digest: sha256:ad3d65770682bfdb850176ad3c84ade97492331c61b4f2f63939f67856ff6fef
-generated: "2026-09-16T11:41:35.927879184+10:00"
+  version: 0.12.0
+digest: sha256:09ca19146d0b41f8bb52bdbd767d744a7ad5a8497cb77ec8b950d25fdc5e9366
+generated: "2026-09-17T11:44:37.414753712+10:00"

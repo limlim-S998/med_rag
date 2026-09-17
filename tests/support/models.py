@@ -1,12 +1,38 @@
-# A scripted chat client. Returns what it is told to return.
-#
-# This is what makes the verification tests possible at all. To prove that
-# numeric_fidelity fails a tampered numeral you need a model that emits one on
-# demand, and no real model does that reliably - you would be testing the
-# model's mood rather than your own guard. A scripted responder turns "does
-# the guard catch it" into a deterministic question.
+"""Controlled model responses and a distinct embedding identity for offline tests."""
 
+import hashlib
+import math
 from collections.abc import AsyncIterator
+
+
+class HashEmbedder:
+    """Satisfies medw_core.ports.Embedder."""
+
+    def __init__(self, dimensions: int = 3072):
+        self._dim = dimensions
+
+    @property
+    def embed_version(self) -> str:
+        # Deliberately not v-anything: this string lands in the Qdrant
+        # collection name, so a local index can never collide with a real one.
+        return "local-hash-000"
+
+    @property
+    def dimensions(self) -> int:
+        return self._dim
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        return [self._one(t) for t in texts]
+
+    def _one(self, text: str) -> list[float]:
+        vec = [0.0] * self._dim
+        for token in text.lower().split():
+            h = hashlib.blake2b(token.encode(), digest_size=8).digest()
+            idx = int.from_bytes(h[:4], "big") % self._dim
+            sign = 1.0 if h[4] & 1 else -1.0
+            vec[idx] += sign
+        norm = math.sqrt(sum(v * v for v in vec)) or 1.0
+        return [v / norm for v in vec]
 
 
 class ScriptedChatClient:
@@ -36,3 +62,4 @@ class ScriptedChatClient:
     async def complete_json(self, prompt: str, schema: dict) -> dict:
         self.calls.append(prompt)
         return self._next(self.json_responses)
+

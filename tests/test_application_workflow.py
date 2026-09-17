@@ -13,23 +13,24 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import FastAPI
 from qdrant_client import AsyncQdrantClient
+from support.audit import SQLiteAuditSink, SQLiteDraftStore
+from support.files import FileArtifacts
+from support.indexes import DurableSparseIndex, SQLiteGenerationSink
+from support.state import SQLiteStateStore
+from support.stores import SQLiteStudyAccess
 
 from medw_core import tracing
 from medw_core.auth import TokenValidator
 from medw_core.composition import Services
-from medw_core.drafts import SQLiteDraftStore
 from medw_core.ids import chunk_id
 from medw_core.indexing import IndexRegistry, make_generation, publish_generation
-from medw_core.local.durable_audit import SQLiteAuditSink
-from medw_core.local.indexes import DurableSparseIndex, SQLiteGenerationSink
-from medw_core.local.platform import LocalStudyAccess
-from medw_core.persistence import Conflict, SQLiteStateStore
+from medw_core.persistence import Conflict
 from medw_core.placeholders import HashEmbedder, PlaceholderChatClient, PlaceholderReranker
 from medw_core.provenance import Provenance
 from medw_core.qdrant_sink import QdrantGenerationSink
 from medw_core.schemas import Chunk, DocType
 from medw_core.settings import Settings
-from medw_core.sources import EvidenceStore, LocalArtifacts
+from medw_core.sources import EvidenceStore
 from services.gateway.app.routes.draft import router as acceptance_router
 from services.generation.app import main as generation
 from services.reranker.app import main as reranker
@@ -44,7 +45,7 @@ async def workflow(tmp_path, monkeypatch):
         path = tmp_path / "state.sqlite3"
         state = SQLiteStateStore(path)
         stack.push_async_callback(state.close)
-        evidence = EvidenceStore(state, LocalArtifacts(tmp_path / "artifacts"))
+        evidence = EvidenceStore(state, FileArtifacts(tmp_path / "artifacts"))
         payload = b"Evidence from uploaded document: blue flowers and 12 birds."
         source = await evidence.ingest_source("S1", "doc1", payload, "evidence.txt")
         chunk = Chunk(
@@ -71,7 +72,7 @@ async def workflow(tmp_path, monkeypatch):
         repo = object.__new__(QdrantRepo)
         repo.s = SimpleNamespace(search_ef=16)
         repo.client = qdrant
-        access = LocalStudyAccess(state)
+        access = SQLiteStudyAccess(state)
         await access.grant("writer", "S1")
         await access.grant("other-writer", "S1")
         audit = SQLiteAuditSink(path, evidence)
@@ -85,11 +86,11 @@ async def workflow(tmp_path, monkeypatch):
         gateway = FastAPI()
         gateway.include_router(acceptance_router)
         gateway.add_middleware(tracing.TraceMiddleware, service="gateway")
-        gateway.state.services = Services(backend="local", drafts=drafts, authorization=access)
-        retrieval.app.state.services = Services(backend="local", embedder=embedder, vectors=repo,
+        gateway.state.services = Services(drafts=drafts, authorization=access)
+        retrieval.app.state.services = Services(embedder=embedder, vectors=repo,
                                                 sparse=DurableSparseIndex(state), index_registry=registry)
-        reranker.app.state.services = Services(backend="local", reranker=PlaceholderReranker())
-        generation.app.state.services = Services(backend="local", evidence=evidence, audit=audit,
+        reranker.app.state.services = Services(reranker=PlaceholderReranker())
+        generation.app.state.services = Services(evidence=evidence, audit=audit,
                                                  drafts=drafts, authorization=access,
                                                  chat=PlaceholderChatClient())
         generation.app.state.provenance = Provenance(
@@ -112,7 +113,7 @@ async def workflow(tmp_path, monkeypatch):
         http = await stack.enter_async_context(httpx.AsyncClient(
             transport=httpx.MockTransport(dispatch),
             event_hooks={"request": [tracing.httpx_request_hook]}))
-        config = Settings(backend="local", env="test", auth_tenant_id="tenant",
+        config = Settings(_env_file=None, env="test", auth_tenant_id="tenant",
                           auth_audience="app", auth_issuer="https://identity/issuer",
                           auth_jwks_url="https://identity/keys")
         validator = TokenValidator(config, http)

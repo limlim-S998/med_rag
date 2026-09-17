@@ -7,6 +7,7 @@
 from itertools import pairwise
 
 import pytest
+from support.state import InMemoryJobStore
 
 from medw_core.jobs import (
     RETRY_COST,
@@ -18,7 +19,6 @@ from medw_core.jobs import (
     check_transition,
     is_expensive,
 )
-from medw_core.local.jobs import InMemoryJobStore
 
 PIPELINE = [
     JobState.queued, JobState.extracting, JobState.classifying,

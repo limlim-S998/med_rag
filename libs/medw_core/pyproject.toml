@@ -1,7 +1,7 @@
 # The five service images install this package as a wheel from the same source
 # checkout as their application. Host development uses an editable install.
-# The flat directory layout is mapped explicitly below, including local
-# adapters: listing only medw_core would silently omit medw_core.local.
+# The flat directory layout is mapped explicitly below. Offline helpers live
+# under tests/support and are never included in the application package.
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
@@ -14,8 +14,8 @@ requires-python = ">=3.11"
 
 # Compatibility requirements for consumers of the library. Service images
 # resolve these into exact, hash-checked services/*/requirements.txt locks.
-# Azure SDK modules are imported inside their factories so local adapters do
-# not create cloud clients. aiohttp supplies the async credential transport.
+# Azure SDK modules are imported inside their factories so each service loads
+# only its dependencies. aiohttp supplies the async credential transport.
 dependencies = [
     "pydantic>=2",
     "pydantic-settings>=2",
@@ -58,4 +58,4 @@ dev = [
 
 [tool.setuptools]
 package-dir = { medw_core = "." }
-packages = ["medw_core", "medw_core.local"]
+packages = ["medw_core"]

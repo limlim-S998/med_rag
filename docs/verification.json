@@ -1529,6 +1529,216 @@
         "managed_node_group_exists": false,
         "remaining_resources": []
       }
+    },
+    "azure-only-cleanup": {
+      "verified_at": "2026-09-17T01:51:33.825316+00:00",
+      "scope": "Retire local application deployment; preserve future-work stubs and specific offline tests. No Azure provisioning, release publication or cloud acceptance run.",
+      "result": "passed",
+      "source": {
+        "base_commit": "b1f476feeec80904707eab05028428e22cc60711",
+        "uncommitted_changes": true,
+        "worktree_sha256": "974fee229ac95f43e51b38d060608e435b3acd259dd180d3bbbefba0bb77681e",
+        "fingerprint_algorithm": "SHA256 of canonical sorted JSON [{path,sha256}] for existing tracked/new unignored files, excluding docs/verification.json"
+      },
+      "layout": {
+        "files_before": 273,
+        "files_after": 253,
+        "removed_local_deployment_files": 17,
+        "former_runtime_local_modules": 10,
+        "consolidated_test_support_files": 7,
+        "remaining_markdown_files": 3,
+        "future_work_paths_unchanged": [
+          "pipelines",
+          "ml",
+          "evals",
+          "infra/aoai",
+          "services/generation/app/table_to_text.py",
+          "services/generation/app/verify.py",
+          "services/generation/app/prompts"
+        ]
+      },
+      "checks": {
+        "make_check": "passed",
+        "pytest_passed": 333,
+        "ruff": "passed",
+        "mypy": "passed",
+        "import_contracts_kept": 4,
+        "service_test_support_boundaries": "passed",
+        "chart_renders": 6,
+        "flux_configurations": [
+          "base",
+          "dev",
+          "staging",
+          "prod"
+        ],
+        "nginx_controller_contract": "passed",
+        "image_builds_and_smoke_checks": {
+          "gateway": {
+            "image": "medw-gateway:azure-only-check",
+            "image_id": "sha256:6478bce4f716ec560b529d56befaa2de609a0af6dc0cd24a2032de2029d16f6f",
+            "source_sha": "unversioned",
+            "liveness": 200,
+            "readiness": 503,
+            "smoke_network": "none",
+            "pip_check": "passed",
+            "test_helpers_excluded": true,
+            "local_backend_rejected": true
+          },
+          "retrieval": {
+            "image": "medw-retrieval:azure-only-check",
+            "image_id": "sha256:8b2ed64c561544bc5207f9e203f17acb44d997f46284f9f70be073e9fcf136bd",
+            "source_sha": "unversioned",
+            "liveness": 200,
+            "readiness": 503,
+            "smoke_network": "none",
+            "pip_check": "passed",
+            "test_helpers_excluded": true,
+            "local_backend_rejected": true
+          },
+          "generation": {
+            "image": "medw-generation:azure-only-check",
+            "image_id": "sha256:3ee0add97b3975232f16fe08f0fd72018d0247dc4b3f0659d0d6bfe30dc4dbe6",
+            "source_sha": "unversioned",
+            "liveness": 200,
+            "readiness": 503,
+            "smoke_network": "none",
+            "pip_check": "passed",
+            "test_helpers_excluded": true,
+            "local_backend_rejected": true
+          },
+          "ingestion-worker": {
+            "image": "medw-ingestion-worker:azure-only-check",
+            "image_id": "sha256:17942bee14b9ee4de21993941c611b043e51329bfd27cba51a63939558cce20a",
+            "source_sha": "unversioned",
+            "liveness": 200,
+            "readiness": 503,
+            "smoke_network": "none",
+            "pip_check": "passed",
+            "test_helpers_excluded": true,
+            "local_backend_rejected": true
+          },
+          "reranker": {
+            "image": "medw-reranker:azure-only-check",
+            "image_id": "sha256:43a1b3ed04990add1606a5fea60150e24450a224e0c7ba75a7c555d32311b8ad",
+            "source_sha": "unversioned",
+            "liveness": 200,
+            "readiness": 503,
+            "smoke_network": "none",
+            "pip_check": "passed",
+            "test_helpers_excluded": true,
+            "local_backend_rejected": true
+          }
+        },
+        "azure_composition": "All five services tested with substituted external client boundaries; required dependencies, Cosmos/Blob outage visibility, recovery and client cleanup passed."
+      },
+      "limits": [
+        "Smoke images are unversioned working-tree builds, not publishable releases. Readiness 503 is expected for missing infrastructure and unversioned source.",
+        "Offline fixtures do not establish live Azure data permissions or cloud service behavior.",
+        "Full Azure acceptance remains outstanding."
+      ],
+      "cleanup": {
+        "running_containers": [],
+        "legacy_medw_profile": "Stopped; existing data and volumes untouched",
+        "azure_resources_created": false,
+        "git_push_or_release_selection": false
+      }
+    },
+    "backend-setting-removal": {
+      "verified_at": "2026-09-17T02:00:02.582450+00:00",
+      "scope": "Remove the retired backend setting entirely, including deployment values/generation, target validation, version metadata and obsolete selector tests. This supersedes the compatibility guard described in azure-only-cleanup.",
+      "result": "passed",
+      "source": {
+        "base_commit": "b1f476feeec80904707eab05028428e22cc60711",
+        "uncommitted_changes": true,
+        "worktree_sha256": "60327e4a825af9ceda315277779e4d31edeb918a337dfa3ab93c7c4d83cde0df",
+        "fingerprint_algorithm": "SHA256 of canonical sorted JSON [{path,sha256}] for existing tracked/new unignored files, excluding docs/verification.json"
+      },
+      "checks": {
+        "make_check": "passed",
+        "pytest_passed": 329,
+        "retired_backend_validation_cases_removed": 4,
+        "ruff": "passed",
+        "mypy": "passed",
+        "import_contracts_kept": 4,
+        "chart_renders": 6,
+        "flux_configurations": [
+          "base",
+          "dev",
+          "staging",
+          "prod"
+        ],
+        "nginx_controller_contract": "passed",
+        "packaged_images": {
+          "gateway": {
+            "image": "medw-gateway:backend-removal-check",
+            "image_id": "sha256:38014f955cf4b1e9c2051fc93a08af525245f62164c05db307f053bf85f2d9dc",
+            "source_sha": "unversioned",
+            "liveness": 200,
+            "readiness": 503,
+            "smoke_network": "none",
+            "pip_check": "passed",
+            "backend_setting_absent": true,
+            "backend_version_field_absent": true,
+            "test_helpers_excluded": true
+          },
+          "retrieval": {
+            "image": "medw-retrieval:backend-removal-check",
+            "image_id": "sha256:4d6ea9ad6a01aa68a77de077b68c05291783e0dcf5da0003b9fbc27e86acb70f",
+            "source_sha": "unversioned",
+            "liveness": 200,
+            "readiness": 503,
+            "smoke_network": "none",
+            "pip_check": "passed",
+            "backend_setting_absent": true,
+            "backend_version_field_absent": true,
+            "test_helpers_excluded": true
+          },
+          "generation": {
+            "image": "medw-generation:backend-removal-check",
+            "image_id": "sha256:9d55e9784cb2600cff683c004d319dff4af1f2b6ca24fcd4c907f1757826bfb3",
+            "source_sha": "unversioned",
+            "liveness": 200,
+            "readiness": 503,
+            "smoke_network": "none",
+            "pip_check": "passed",
+            "backend_setting_absent": true,
+            "backend_version_field_absent": true,
+            "test_helpers_excluded": true
+          },
+          "ingestion-worker": {
+            "image": "medw-ingestion-worker:backend-removal-check",
+            "image_id": "sha256:29ff1c5c47300446da057f1dc863da05cdaedec3b5da1f28bb905dec4fbfc253",
+            "source_sha": "unversioned",
+            "liveness": 200,
+            "readiness": 503,
+            "smoke_network": "none",
+            "pip_check": "passed",
+            "backend_setting_absent": true,
+            "backend_version_field_absent": true,
+            "test_helpers_excluded": true
+          },
+          "reranker": {
+            "image": "medw-reranker:backend-removal-check",
+            "image_id": "sha256:95a24898f8f0f830912a871750c79cdc2af22d48cd61babaaf9d0762a8a6bc30",
+            "source_sha": "unversioned",
+            "liveness": 200,
+            "readiness": 503,
+            "smoke_network": "none",
+            "pip_check": "passed",
+            "backend_setting_absent": true,
+            "backend_version_field_absent": true,
+            "test_helpers_excluded": true
+          }
+        }
+      },
+      "limits": [
+        "Network-isolated startup checks use unversioned images; readiness 503 is expected.",
+        "No Azure deployment, pipeline run or full cloud acceptance was performed."
+      ],
+      "cleanup": {
+        "running_containers": [],
+        "git_push_or_release_selection": false
+      }
     }
   },
   "documentation_cleanup": {

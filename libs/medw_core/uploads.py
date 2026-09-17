@@ -3,20 +3,14 @@
 from __future__ import annotations
 
 import hashlib
-import hmac
-import os
-import pathlib
-import secrets
-import tempfile
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
-from urllib.parse import quote
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from medw_core.persistence import Conflict, StateStore
+from medw_core.persistence import StateStore
 
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 
@@ -37,46 +31,8 @@ class IngestRequest(BaseModel):
 
 
 class UploadStorage(Protocol):
-    async def issue(self, record: dict, token: str, public_base_url: str) -> str: ...
+    async def issue(self, record: dict) -> str: ...
     async def read(self, record: dict) -> bytes: ...
-
-
-class LocalUploadStorage:
-    """Single-use signed-capability equivalent backed by durable files."""
-
-    def __init__(self, root: str | pathlib.Path):
-        self.root = pathlib.Path(root)
-        self.root.mkdir(parents=True, exist_ok=True)
-
-    def _path(self, record: dict) -> pathlib.Path:
-        # Never derive a disk path from a filename supplied by a caller.
-        return self.root / record["upload_id"]
-
-    async def issue(self, record: dict, token: str, public_base_url: str) -> str:
-        return (f"{public_base_url.rstrip('/')}/studies/{quote(record['study_id'], safe='')}"
-                f"/uploads/{record['upload_id']}?token={token}")
-
-    async def write(self, record: dict, payload: bytes) -> None:
-        temporary = None
-        try:
-            with tempfile.NamedTemporaryFile(dir=self.root, delete=False) as output:
-                temporary = pathlib.Path(output.name)
-                output.write(payload)
-                output.flush()
-                os.fsync(output.fileno())
-            try:
-                os.link(temporary, self._path(record))
-            except FileExistsError:
-                if self._path(record).read_bytes() != payload:
-                    raise Conflict("upload capability cannot replace existing bytes") from None
-        finally:
-            if temporary is not None:
-                temporary.unlink(missing_ok=True)
-
-    async def read(self, record: dict) -> bytes:
-        with self._path(record).open("rb") as stream:
-            payload = stream.read(record["size_bytes"] + 1)
-        return payload
 
 
 class AzureUploadStorage:
@@ -86,7 +42,7 @@ class AzureUploadStorage:
         self.service, self.container_name = service, container_name
         self.container = service.get_container_client(container_name)
 
-    async def issue(self, record: dict, token: str, public_base_url: str) -> str:
+    async def issue(self, record: dict) -> str:
         from azure.storage.blob import BlobSasPermissions, generate_blob_sas
 
         start = datetime.now(UTC) - timedelta(minutes=5)
@@ -121,17 +77,15 @@ class UploadService:
         self.state, self.storage, self.clock = state, storage, clock
         self.ttl_seconds, self.max_bytes = ttl_seconds, max_bytes
 
-    async def register(self, study_id: str, request: UploadRequest, *,
-                       public_base_url: str) -> dict:
+    async def register(self, study_id: str, request: UploadRequest) -> dict:
         if request.size_bytes > self.max_bytes:
             raise ValueError("file exceeds configured upload limit")
-        upload_id, token = uuid.uuid4().hex, secrets.token_urlsafe(32)
+        upload_id = uuid.uuid4().hex
         record = {**request.model_dump(), "study_id": study_id,
                   "doc_id": request.doc_id or uuid.uuid4().hex,
                   "upload_id": upload_id, "expires_at": self.clock() + self.ttl_seconds,
-                  "token_sha256": hashlib.sha256(token.encode()).hexdigest(),
                   "blob_name": f"staging/{hashlib.sha256(study_id.encode()).hexdigest()}/{upload_id}"}
-        url = await self.storage.issue(record, token, public_base_url)
+        url = await self.storage.issue(record)
         await self.state.put("upload", study_id, upload_id, record, expected_revision=None)
         return {"upload_id": upload_id, "doc_id": record["doc_id"], "upload_url": url,
                 "expires_at": record["expires_at"], "method": "PUT",
@@ -151,16 +105,6 @@ class UploadService:
             raise ValueError("uploaded file size differs from registration")
         if hashlib.sha256(payload).hexdigest() != record["sha256"]:
             raise ValueError("uploaded file checksum differs from registration")
-
-    async def write_local(self, study_id: str, upload_id: str, token: str,
-                          payload: bytes) -> None:
-        record = await self.record(study_id, upload_id)
-        if not hmac.compare_digest(record["token_sha256"], hashlib.sha256(token.encode()).hexdigest()):
-            raise PermissionError("invalid upload capability")
-        if not isinstance(self.storage, LocalUploadStorage):
-            raise PermissionError("upload bytes directly to the issued Blob URL")
-        self.validate(record, payload)
-        await self.storage.write(record, payload)
 
     async def capture(self, study_id: str, doc_id: str, upload_id: str, evidence):
         record = await self.record(study_id, upload_id, doc_id)

@@ -83,7 +83,7 @@ async def test_gateway_does_not_use_openai_settings(monkeypatch):
 
     monkeypatch.setattr(azure, "cosmos_client", cosmos_client)
     monkeypatch.setattr(azure, "openai_client", forbidden)
-    settings = Settings(_env_file=None, backend="azure", aoai_endpoint="unused-invalid-url",
+    settings = Settings(_env_file=None, aoai_endpoint="unused-invalid-url",
                         cosmos_endpoint="https://test.documents.azure.com",
                         sql_server="test.database.windows.net")
     async with AsyncExitStack() as stack:
@@ -96,7 +96,7 @@ async def test_generation_needs_real_storage_but_no_azure_model_client(monkeypat
         pytest.fail("the installed placeholder must not construct an OpenAI client")
 
     monkeypatch.setattr(azure, "openai_client", forbidden)
-    settings = Settings(_env_file=None, backend="azure",
+    settings = Settings(_env_file=None,
                         aoai_endpoint="https://test.openai.azure.com")
     async with AsyncExitStack() as stack:
         with pytest.raises(ValueError, match="MEDW_COSMOS_ENDPOINT"):
@@ -118,8 +118,8 @@ def test_sql_requires_server_and_database_before_creating_engine(monkeypatch, fi
         sql.engine(settings, credential=object())
 
 
-async def test_local_backend_ignores_unused_azure_configuration():
-    settings = Settings(_env_file=None, backend="local", env="test",
+async def test_placeholder_reranker_ignores_unused_azure_model_configuration():
+    settings = Settings(_env_file=None, env="test",
                         aoai_endpoint="unused-invalid-url", cosmos_database="")
     async with AsyncExitStack() as stack:
         services = await build(settings, stack, service="reranker")

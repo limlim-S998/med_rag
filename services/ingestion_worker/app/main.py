@@ -3,7 +3,6 @@ import hashlib
 
 from fastapi import FastAPI, HTTPException, Request, Response
 
-from medw_core.composition import effective_settings
 from medw_core.context import CORRELATION_ID
 from medw_core.ids import source_revision_id
 from medw_core.persistence import Conflict
@@ -16,7 +15,7 @@ from medw_core.service import (
 from medw_core.settings import get_settings
 from medw_core.uploads import IngestRequest
 
-s = effective_settings(get_settings().model_copy(update={"service_name": "ingestion-worker"}))
+s = get_settings().model_copy(update={"service_name": "ingestion-worker"})
 app = FastAPI(title="ingestion-worker", lifespan=lifespan_for("ingestion-worker", s))
 attach_request_instrumentation(app, "ingestion-worker")
 add_platform_routes(app, s)

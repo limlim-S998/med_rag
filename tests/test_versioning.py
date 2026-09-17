@@ -95,7 +95,7 @@ def test_library_pin_and_lock_match_source(service):
 
 
 @pytest.mark.skipif(not shutil.which("kubectl"), reason="kubectl is required for delivery checks")
-@pytest.mark.parametrize("environment", ["base", "dev", "staging", "prod", "local"])
+@pytest.mark.parametrize("environment", ["base", "dev", "staging", "prod"])
 def test_rendered_flux_sources_and_chart_revision_strategy(environment):
     rendered = subprocess.check_output(["kubectl", "kustomize", str(ROOT / "deploy/flux" / environment)], text=True)
     docs = list(yaml.safe_load_all(rendered))

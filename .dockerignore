@@ -2,7 +2,8 @@
 .venv
 .env
 .env.*
-!.env.example
+data/
+tests/
 holding
 **/__pycache__
 **/*.pyc

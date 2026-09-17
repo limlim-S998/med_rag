@@ -71,7 +71,7 @@ def test_medw_core_does_not_import_upward():
     """medw_core is the floor: it is installed into every image, so anything
     it imports lands in all four."""
     lib = ROOT / "libs" / "medw_core"
-    forbidden = ("app", "services", "pipelines", "ml")
+    forbidden = ("app", "services", "pipelines", "ml", "tests", "support")
     offenders = [
         f"{p.relative_to(ROOT)} imports {i}"
         for p in _python_files(lib)
@@ -130,3 +130,8 @@ def test_every_service_exposes_both_probes():
             if probe not in src:
                 missing.append(f"{main.relative_to(ROOT)} has no {probe}")
     assert not missing, "\n".join(missing)
+
+
+def test_service_code_does_not_import_offline_test_support():
+    for path in _python_files(SERVICES):
+        assert not any(name.split(".")[0] in {"tests", "support"} for name in _imports(path)), path

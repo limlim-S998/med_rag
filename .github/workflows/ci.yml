@@ -39,8 +39,14 @@ jobs:
       - name: types
         run: mypy libs/medw_core
 
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: v1.32.2
       - name: tests
-        run: pytest tests services -q
+        run: make test
 
   # Separate job: needs no Python and should not queue behind it.
   delivery:
@@ -84,7 +90,7 @@ jobs:
       - name: flux overlays build
         run: |
           set -euo pipefail
-          for env in base dev staging prod local; do
+          for env in base dev staging prod; do
             echo "::group::$env"
             kubectl kustomize "deploy/flux/$env"
             echo "::endgroup::"
@@ -116,7 +122,3 @@ jobs:
 
       - name: Container startup and probe contract
         run: python scripts/smoke_image.py --image medw-${{ matrix.service }}:ci --service '${{ matrix.service }}'
-
-      - name: Installed reranker works without Azure model provisioning
-        if: matrix.service == 'reranker'
-        run: python scripts/smoke_image.py --image medw-reranker:ci --service reranker --backend azure

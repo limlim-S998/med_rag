@@ -5,10 +5,12 @@ drafting and acceptance workflows. The installed models are deterministic
 placeholders. They exercise the infrastructure and preserve source provenance;
 they do not provide medical interpretation or verification.
 
-`backend=local|azure` selects infrastructure adapters. Both environments run the
-same application and placeholder processing. There is no separate demonstration
-mode, workflow or version axis. Azure OpenAI and other remote model adapters are
-retained for later integration but are not constructed or provisioned now.
+Azure is the only supported application deployment. The installed placeholder
+processing runs against real Azure stores and Qdrant. Offline tests inject small
+storage and model doubles from `tests/support`; these are not installed in service
+images or selectable through application configuration. There is no separate
+demonstration mode, workflow or version axis. Azure OpenAI and other remote model
+adapters are retained for later integration but are not constructed or provisioned now.
 
 This README is the project documentation. The two Markdown files under
 `services/generation/app/prompts/` are application templates. Historical and
@@ -18,12 +20,13 @@ that a later build has passed the same exercise.
 
 ## Current state
 
-The application workflow has passed an isolated container exercise with all five
-services and real Qdrant: two uploads, persistent jobs, interrupted publication,
+Before retirement of the local deployment option, the application workflow passed
+an isolated container exercise with all five services and real Qdrant: two uploads, persistent jobs, interrupted publication,
 worker restart, checkpoint recovery, retention of previously ingested documents,
 HTTP retrieval/reranking, streamed output, durable audit and acceptance. The
-exercise uses SQLite and files for the local infrastructure adapters and signed
-test JWTs. It does not establish Azure storage, Entra, SQL, pipeline or AKS behavior.
+exercise used SQLite and files for the former local infrastructure adapters and
+signed test JWTs. It does not establish Azure storage, Entra, SQL, pipeline or
+AKS behavior.
 
 A separate real SQL Server container exercise passed the five migrations,
 idempotent indexing audit, draft persistence and acceptance. Runtime principals
@@ -35,7 +38,9 @@ built, tested, published and selected the release; Flux brought all five service
 and Qdrant to Ready. Real Entra-authenticated HTTPS requests passed, an
 unauthenticated request was rejected, and a binary file uploaded directly to Blob
 completed durable ingestion and indexing. Azure SQL initialization and federated
-pipeline migrations also passed. The latest local checks passed 334 tests.
+pipeline migrations also passed. The host checks at commissioning passed 334 tests.
+Cleanup verification is recorded under `azure-only-cleanup` and the subsequent
+`backend-setting-removal` record in the verification JSON.
 
 Work stopped at the user's request after that initial deployment, followed by
 teardown. Full cloud acceptance is still outstanding: the complete streamed
@@ -44,80 +49,67 @@ release B, rollback and deliberate failed-deployment remediation were not run.
 Local proofs do not substitute for those Azure checks. Recorded resource and
 release identities, observed checks and cleanup results are in the verification JSON.
 
-The existing `medw` minikube installation and its persistent volumes are preserved.
-Its application images remain pinned to the earlier NGINX cutover release
-`8be19924b30edc325c2525f2439b5c1e3a62a044`. It is not silently relabelled as this
-new application release. Its Qdrant image remains explicitly pinned to 1.12.1
-until a separate backed-up storage upgrade. New deployments use Qdrant 1.19.0,
-aligned with the installed client.
+The retired `medw` minikube installation remains stopped, with its original data
+and volumes preserved. Its historical application source is
+`8be19924b30edc325c2525f2439b5c1e3a62a044` and its Qdrant image is 1.12.1.
+Removing local deployment support does not migrate, restart or delete that
+installation. Current Azure deployments use Qdrant 1.19.0.
 
-## Local development
+## Development and offline tests
 
-Requires Python 3.11+, Docker, Helm and kubectl. Service images use Python 3.11
-with exact hash-checked dependencies; the host environment resolves development
-requirements separately.
+Requires Python 3.11+; full checks also use Helm and kubectl. Service images use
+Python 3.11 with exact hash-checked dependencies; the host environment resolves
+development requirements separately.
 
 ```sh
 make dev
 source .venv/bin/activate
+# Focused tests: no Azure credentials, deployment or running services required.
+pytest tests/test_ingestion_workflow.py tests/test_application_workflow.py tests/test_auth.py -q
+# Full host checks, including chart rendering:
 make check
-make up-full
-# After stopping the foreground process:
-make down
 ```
 
-`make up` starts Qdrant, retrieval and reranker; `make up-full` adds gateway,
-generation and ingestion. SQLite state and immutable artifacts persist in the
-`platform_state` volume; Qdrant has its own volume. `make down` preserves both.
-No Azure credentials are required. `.env.example` supplies host-run settings;
-Compose supplies its own adapter and container-address settings.
+The shared application operations are tested with SQLite, temporary files,
+signed test JWTs and embedded Qdrant. These tests cover checkpoints, restarts,
+publication, retrieval/reranking HTTP calls, streamed output, audit and acceptance.
+Azure composition tests replace external client boundaries and exercise the real
+wiring and dependency probes. SDK adapter tests verify Azure requests separately.
+Offline tests do not establish live Azure permissions, availability or behavior.
 
-| Service | Local host port | Responsibility |
-|---|---|---|
-| Gateway | 8000 | JWT/study access, upload registration, documents, acceptance |
-| Retrieval | 8001 | One generation selection, both indexes, fusion, HTTP reranking |
-| Reranker | 8002 | Deterministic lexical scoring over HTTP |
-| Generation | 8003 | JWT actor, HTTP retrieval, streamed output, audit and draft persistence |
-| Ingestion worker | 8004 | Registered upload submission, durable polling, stages and publication |
+`tests/support` contains only test dependencies. Tests import them explicitly;
+there is no alternate composition root or test-mode switch in the application.
+There is no backend selector in settings, deployment configuration or `/version`.
+Azure dependencies are wired directly. Obsolete local settings can be removed
+from an existing per-machine `.env`.
+Compose, local Flux overlays, local service values, minikube application harnesses
+and the `make up`, `up-full`, `up-legacy` and `down` targets have been retired.
 
-Compose exposes diagnostic ports on localhost and does not run the Kubernetes
-NGINX controller. Retrieval and ingestion rely on the deployed edge and enforced
-NetworkPolicies for public study authorization. Do not publish their diagnostic
-ports externally. Gateway and generation additionally verify writer JWTs and
-membership themselves. Configure an identity provider and seed membership for
-manual writer requests; the disposable verification harness supplies its own
-signing keys and membership without changing the application authentication code.
+With Docker available, check all packaged images without deploying Azure:
 
 ```sh
-python scripts/build_images.py --tag application-proof
-python scripts/verify_application.py --image-tag application-proof
+python scripts/build_images.py --tag startup-check
 ```
 
-The harness creates and removes its own Compose project and volumes. It writes
-machine-readable evidence under `/tmp`. A dirty source build is explicitly
-unversioned and cannot serve as a published release.
+Each image starts temporarily with networking disabled and dummy Azure endpoint
+configuration. Its actual Azure adapters must initialize; missing infrastructure
+must keep readiness at 503. A versioned placeholder reranker can be ready without
+external stores. Telemetry uses loopback destinations and cannot leave the
+container. Smoke containers are removed on success and failure. Uncommitted
+builds are marked `unversioned` and cannot become published releases.
 
-For the real NGINX/NetworkPolicy proof, use a fresh disposable profile:
+Every service has `/healthz`, `/readyz`, `/version` and `/metrics`, listening on
+port 8000 inside its container. Readiness probes the dependencies actually used.
+Generation also checks retrieval, and retrieval checks reranker. Gateway access
+decisions do not depend on the availability of those downstream services.
 
-```sh
-export KUBECONFIG=/tmp/medw-nginx-proof.kubeconfig
-minikube start -p medw-nginx-proof --driver=docker --kubernetes-version=v1.35.1 --cni=calico --cpus=4 --memory=6144 --keep-context
-kubectl --context medw-nginx-proof wait --for=condition=Ready nodes --all --timeout=180s
-python scripts/verify_ingress.py --image-tag application-proof
-minikube delete -p medw-nginx-proof
-unset KUBECONFIG
-```
-
-The harness removes its application namespaces even on failure; delete the
-disposable profile afterward. Its fixed context prevents targeting `medw`.
-
-Every service has `/healthz`, `/readyz`, `/version` and `/metrics`. Readiness probes
-the dependencies it actually uses: a working placeholder reranker is ready without
-Azure model resources; a storage outage remains visible. Generation also checks
-retrieval, and retrieval checks reranker. The gateway does not depend on backend
-availability to make access decisions. Existing `synthetic_enabled` controls only
-the local diagnostic `/_synthetic/work` route and identity-provider readiness;
-it neither selects the application implementation nor bypasses JWT validation.
+| Service | Responsibility |
+|---|---|
+| Gateway | JWT/study access, upload registration, documents, acceptance |
+| Retrieval | One generation selection, both indexes, fusion, HTTP reranking |
+| Reranker | Deterministic lexical scoring over HTTP |
+| Generation | JWT actor, HTTP retrieval, streamed output, audit and draft persistence |
+| Ingestion worker | Registered upload submission, durable polling, stages and publication |
 
 ## Architecture and application contract
 
@@ -149,8 +141,7 @@ flowchart TB
    `{filename,size_bytes,sha256,doc_id?}` and registers an upload. Files must be
    nonempty and at most 5 MiB. Azure returns a short-lived, create-only user
    delegation SAS for one staging blob. The client uploads directly to Blob.
-   Local storage provides an equivalent expiring capability URL. Neither URL nor
-   its token belongs in logs or evidence reports.
+   The SAS URL and its token do not belong in logs or evidence reports.
 2. Authenticated `POST /studies/{study}/documents/{document}/ingest` accepts
    `{upload_id,idempotency_key}` and returns `202` with a durable job ID. Arbitrary
    download URLs are not accepted. Size and SHA-256 are checked, an Azure ETag
@@ -212,18 +203,29 @@ availability are outside this increment. The older implementation branch
 `implementation/retrieval-slice` (`089dd50`) is reference material, not code to copy
 wholesale over the current durability and provenance contracts.
 
+The stubs in `pipelines/` (including the CLI, parsers and Airflow DAGs), `ml/`,
+`evals/`, and generation's table rendering and clinical verification functions
+remain intentional future work. They are retained even where no active runtime
+imports them. `make seed` and `make eval` still name those unfinished entrypoints;
+they do not currently seed a study or produce evaluation results. Use the Azure
+setup and normal upload APIs for the functioning workflow. The inactive Container
+Apps example is retained as historical scaffolding and is not an Azure deployment
+option supported by the operator commands.
+
 ## Major decisions and corrected errors
 
 - One `Settings` class remains. Optional Azure settings use `str | None`; clients
   require only fields they use. The earlier subclasses added validation without
-  separating attributes and were removed. Configuration selects infrastructure,
-  while installed model identities are checked against packaged code.
+  separating attributes and were removed. Azure is the sole deployment target;
+  installed model identities are checked against packaged code.
 - NGINX owns forwarding and streaming. The gateway supplies small body-free
   authorization subrequests and writer operations. The five-service boundary is
   retained; streaming alone is not an argument for a separate generation service.
-- Real Azure stores and local adapters share ports. Protocols describe contracts;
-  service composition wires only needed dependencies. Readiness proves reachability
-  and installed implementation availability rather than object construction.
+- Azure stores and offline test doubles share ports. Protocols describe contracts;
+  service composition wires only needed Azure dependencies. Readiness checks live
+  dependencies and installed implementations. SQLite/file helpers live under
+  `tests/support` and are excluded from the runtime package. The former local
+  upload handler and synthetic work endpoint have been removed.
 - Immutable source evidence is independent of serving indexes. Revision identity
   includes study, logical document and content hash. Reindexing cannot discard
   citations or rewrite historical audit provenance.
@@ -414,19 +416,18 @@ release provenance. A failed probe withdraws a backend, while `/healthz` remains
 available for diagnosis. Qdrant snapshots belong in Blob and must be restored to
 separate storage for verification; replicas alone are not a backup.
 
-The existing local cluster is `medw`, at `http://192.168.49.2:30080/version`, with
-Calico and NGINX NodePorts 30080/30443. Its original state and Qdrant PVC bindings
-are retained. Dedicated verification harnesses must never target this installation.
-
 ## Verification and file walkthrough
 
-`make check` runs Ruff, mypy, import contracts, tests, six chart renders, five Flux
+`make check` runs Ruff, mypy, import contracts, tests, six chart renders, four Flux
 configurations and the pinned NGINX controller contract. It needs network access
 to fetch the official controller chart. Tests include signed JWTs, forged identity
 rejection, lease/checkpoint races, interrupted dual-index publication, immutable
 evidence, audit failure, specific draft acceptance and retained revisions.
 Image smoke tests also enable telemetry against loopback endpoints; this catches
-missing Azure Monitor packages without sending test telemetry to Azure.
+missing Azure Monitor packages without sending test telemetry to Azure. The
+focused `scripts/verify_qdrant_recovery.py` Docker harness is retained for its
+pinned historical storage contract; it does not deploy the application or replace
+current Azure backup/restore acceptance.
 
 [docs/verification.json](docs/verification.json) retains historical real SQL,
 Qdrant backup/restore, enforced NetworkPolicy, Flux rollout/rollback and KEDA

@@ -2,7 +2,6 @@
 from fastapi import Depends, FastAPI, Request, Response
 
 from medw_core.auth import Principal, current_user, study_user
-from medw_core.composition import effective_settings
 from medw_core.service import (
     add_platform_routes,
     attach_request_instrumentation,
@@ -13,7 +12,7 @@ from medw_core.settings import get_settings
 
 from .routes import authorization, documents, draft
 
-s = effective_settings(get_settings().model_copy(update={"service_name": "gateway"}))
+s = get_settings().model_copy(update={"service_name": "gateway"})
 app = FastAPI(title="gateway", lifespan=lifespan_for("gateway", s))
 
 # Attach request wrappers here; lifespan configures telemetry exporters once.
@@ -23,7 +22,6 @@ add_platform_routes(app, s)
 # Backend request/response bodies travel through NGINX. This app retains the
 # access decision and writer operations that need its own dependencies.
 app.include_router(authorization.router)
-app.include_router(documents.upload_router)
 for router in (draft.router, documents.router):
     app.include_router(router, dependencies=[Depends(study_user)])
 

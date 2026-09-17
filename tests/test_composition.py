@@ -1,34 +1,24 @@
-# The composition root, and the claim it exists to support.
-#
-# Ten Protocols are only worth the indirection if something other than the
-# Azure SDK satisfies them. Until the local backend existed, every port had
-# exactly one implementation and "abstraction" was an unfalsifiable claim.
-# These tests make it falsifiable: each local implementation is checked
-# against its Protocol by signature, not by isinstance, because
-# runtime_checkable only verifies attribute names.
+"""Azure composition contracts and independent offline implementations of shared ports."""
 
 import dataclasses
 import inspect
-from contextlib import AsyncExitStack
 
 import pytest
-
-from medw_core import ports
-from medw_core.composition import Services, build
-from medw_core.local.audit import InMemoryAuditSink
-from medw_core.local.chat import ScriptedChatClient
-from medw_core.local.embedder import HashEmbedder
-from medw_core.local.jobs import InMemoryJobStore
-from medw_core.local.stores import (
+from support.audit import InMemoryAuditSink
+from support.models import HashEmbedder, ScriptedChatClient
+from support.state import InMemoryJobStore
+from support.stores import (
     DictionaryEntityExtractor,
     FixtureLayoutExtractor,
     InMemoryDocumentStore,
     InMemorySessionStore,
     InMemorySparseIndex,
 )
+
+from medw_core import ports
+from medw_core.composition import Services
 from medw_core.placeholders import PlaceholderLayoutExtractor, PlaceholderTableClassifier
 from medw_core.schemas import Chunk, DocType, RetrievalFilter
-from medw_core.settings import Settings
 
 
 def _params(fn) -> list[str]:
@@ -61,7 +51,7 @@ def assert_conforms(impl: type, port: type, methods: list[str]) -> None:
     ],
     ids=lambda x: getattr(x, "__name__", str(x)) if isinstance(x, type) else "",
 )
-def test_local_implementation_conforms_to_its_port(impl, port, methods):
+def test_offline_implementation_conforms_to_its_port(impl, port, methods):
     assert_conforms(impl, port, methods)
 
 
@@ -77,25 +67,12 @@ def test_sparse_port_is_not_azure_shaped():
     assert "flt" in _params(InMemorySparseIndex.search)
 
 
-async def test_local_backend_wires_every_port_without_azure():
-    """MEDW_BACKEND=local must start with no credential and no network.
-
-    If this needs `az login`, the local backend is not local and CI cannot run
-    anything that touches the composition root.
-    """
-    async with AsyncExitStack() as stack:
-        svc = await build(Settings(backend="local"), stack)
-    assert svc.backend == "local"
-    for field in ("embedder", "sparse", "chat", "classifier", "layout", "reranker",
-                  "jobs", "sessions", "documents", "audit", "uploads", "drafts"):
-        assert getattr(svc, field) is not None, f"{field} unwired under local"
 
 
 async def test_services_is_frozen():
     """A service cannot swap a dependency after startup. If it could, the
     composition root would only describe what things were wired to initially."""
-    async with AsyncExitStack() as stack:
-        svc = await build(Settings(backend="local"), stack, service="gateway")
+    svc = Services()
     with pytest.raises(dataclasses.FrozenInstanceError):
         svc.embedder = None            # type: ignore[misc]
 
@@ -103,8 +80,7 @@ async def test_services_is_frozen():
 async def test_require_names_the_missing_dependency():
     """Services get only what they need. Reaching for something absent should
     say which thing and where to fix it, not raise AttributeError on None."""
-    async with AsyncExitStack() as stack:
-        svc = await build(Settings(backend="local"), stack, service="gateway")
+    svc = Services()
     with pytest.raises(RuntimeError, match="classifier"):
         svc.require("classifier")
 
@@ -115,12 +91,12 @@ def test_services_fields_are_all_optional_ports():
     hints = Services.__annotations__
     concrete = [
         name for name, ann in hints.items()
-        if name != "backend" and "ports." not in str(ann)
+        if "ports." not in str(ann)
     ]
     assert not concrete, f"non-port fields on Services: {concrete}"
 
 
-# --- the local implementations actually behave ---------------------------
+# --- the offline implementations actually behave ---------------------------
 
 
 async def test_hash_embedder_is_deterministic_and_correctly_shaped():
@@ -192,7 +168,7 @@ async def test_scripted_chat_records_prompts_and_streams():
 
 
 async def test_cosmos_repos_satisfy_the_new_ports():
-    """The azure backend wires SessionRepo and DocumentRepo into those fields.
+    """Azure composition wires SessionRepo and DocumentRepo into those fields.
 
     Checked by signature here rather than at startup, because a mismatch would
     otherwise only appear the first time a handler called the store - which is
@@ -225,29 +201,18 @@ async def test_document_store_upsert_is_idempotent():
 # --- readiness -----------------------------------------------------------
 
 
-async def test_readiness_is_true_locally_when_dependencies_are_wired():
-    """Under the local backend the dependencies are in-process objects. If the
-    composition root wired them they are available, and there is nothing
-    further to check."""
-    from medw_core.composition import readiness
-
-    async with AsyncExitStack() as stack:
-        svc = await build(Settings(backend="local"), stack)
-    ready, reason = readiness(svc, ("jobs", "sessions"))
-    assert ready and "local" in reason
 
 
 async def test_readiness_is_false_when_a_dependency_is_unwired():
     """A gateway cannot claim availability of a model it does not own."""
     from medw_core.composition import readiness
 
-    async with AsyncExitStack() as stack:
-        svc = await build(Settings(backend="local"), stack, service="gateway")
+    svc = Services()
     ready, reason = readiness(svc, ("classifier",))
     assert not ready and "classifier" in reason
 
 
-def test_readiness_never_claims_ready_on_the_azure_backend_from_wiring_alone():
+def test_wiring_alone_does_not_establish_readiness():
     """The important asymmetry.
 
     Constructing an AsyncAzureOpenAI does no I/O, so a wired Azure client
@@ -257,7 +222,7 @@ def test_readiness_never_claims_ready_on_the_azure_backend_from_wiring_alone():
     """
     from medw_core.composition import Services, readiness
 
-    svc = Services(backend="azure", jobs=object(), sessions=object())  # type: ignore[arg-type]
+    svc = Services(jobs=object(), sessions=object())  # type: ignore[arg-type]
     ready, reason = readiness(svc, ("jobs", "sessions"))
     assert not ready
     assert "reachability is not established by wiring" in reason

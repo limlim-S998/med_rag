@@ -9,7 +9,6 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from medw_core import tracing
-from medw_core.composition import effective_settings
 from medw_core.persistence import Conflict
 from medw_core.projections import SECTION_FIELD, TEXT_FIELD
 from medw_core.schemas import Citation, DocType, Hit, RetrievalRequest, RetrievalResponse
@@ -25,7 +24,7 @@ from .fusion import rrf
 from .qdrant_repo import QdrantRepo
 from .sparse_repo import SparseRepo
 
-s = effective_settings(get_settings().model_copy(update={"service_name": "retrieval"}))
+s = get_settings().model_copy(update={"service_name": "retrieval"})
 app = FastAPI(title="retrieval", lifespan=lifespan_for(
     "retrieval", s, vector_factory=QdrantRepo, sparse_factory=SparseRepo))
 attach_request_instrumentation(app, "retrieval")
