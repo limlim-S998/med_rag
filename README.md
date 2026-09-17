@@ -61,14 +61,26 @@ Owned Azure resources, the managed node group, temporary DevOps objects and API
 registrations were removed afterwards. Borrowed free-tier account settings and
 the stopped local installation were preserved.
 
-Nightly Airflow ingestion is now implemented, with a configurable 02:00
-Australia/Brisbane schedule. Offline tests exercise deferred submission, frozen
-batch membership, retries, revision ordering and access control. The packaged DAG
-also runs against a real disposable PostgreSQL database, with loopback identity
-and ingestion API fixtures. These checks do not establish a deployed Airflow
-installation: its AKS startup, real workload-token exchange and overnight run
-remain to be verified in Azure. The earlier twelve-area Azure result predates
-this addition; the acceptance suite now includes a thirteenth, Airflow batch check.
+Airflow was deployed and exercised in Azure on 17 September 2026. Azure Pipelines
+run 10 built and verified all six images; Flux brought all seven application
+releases to Ready. An API client running in AKS used its own Entra workload
+identity to complete immediate upload, ingestion, retrieval, streamed drafting
+and acceptance without an interactive application sign-in. Two further uploads
+remained scheduled until the installed `ingest_study` DAG admitted them into one
+batch. Both became searchable, and all three DAG tasks succeeded on their first
+attempt. Direct Blob reads and SQL queries confirmed checksums, job/batch IDs,
+the requesting identity and the accepted draft.
+
+The deployed DAG is enabled for 02:00 Australia/Brisbane. The rehearsal triggered
+that DAG on demand; an actual overnight trigger has not been observed. Replacing
+the PostgreSQL and scheduler pods preserved the completed run and task records
+on the same persistent volumes. Prometheus scraped Airflow and all five services.
+Offline tests also cover frozen batch membership, retries, revision ordering and
+access control. This targeted rehearsal did not rerun the entire thirteen-area
+acceptance suite or exercise an Airflow release upgrade/rollback. Its evidence
+and cleanup outcome are recorded under `azure-airflow-rehearsal-20260917`.
+The rehearsal's owned infrastructure was removed afterwards; run `azure-up`
+before using the walkthrough. Borrowed free-tier accounts were preserved.
 
 The retired `medw` minikube installation remains stopped, with its original data
 and volumes preserved. Its historical application source is
@@ -428,6 +440,11 @@ saved under `data/azure/walkthrough-*.json`, excluding credentials and SAS URLs.
 success or failure; the application remains deployed for the meeting. Use
 `azure-down` after the session. The full `azure-verify` command is separate and
 still tears the entire owned deployment down.
+
+Allow time to deploy and rehearse before the meeting: the recorded cold setup
+took approximately 37 minutes through the hosted pipeline and Flux installation.
+The two-document DAG then completed in approximately 34 seconds. Those timings
+describe this small placeholder workload, not a service-level guarantee.
 
 | Command | Behavior |
 |---|---|

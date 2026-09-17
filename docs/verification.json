@@ -3307,6 +3307,465 @@
         "Client Jobs are cleaned on success/failure; full application teardown remains an explicit separate operator command"
       ],
       "live_azure_execution": "not yet run at this record timestamp"
+    },
+    "azure-airflow-rehearsal-20260917": {
+      "verified_at": "2026-09-17T08:43:20.482466+00:00",
+      "scope": "Targeted Azure-only meeting rehearsal: immediate workflow, installed Airflow batch, storage/audit checks and Airflow metadata recovery. This is not a rerun of the complete acceptance suite.",
+      "source_sha": "6dd57f5d824b59194e9bd3dc88b7142726a31e96",
+      "release_selection_commit": "4e65db2",
+      "release_bundle_sha": "sha256:f6fd335b3926706bb281794e0ad050ba96bfc47b51cc43211ad3499dc39ef0be",
+      "pipeline": {
+        "id": 10,
+        "run_id": 10,
+        "result": "succeeded",
+        "definition": "medwriter-delivery",
+        "finishTime": "2026-09-17T08:33:31.198671+00:00",
+        "sourceVersion": "6dd57f5d824b59194e9bd3dc88b7142726a31e96",
+        "startTime": "2026-09-17T08:20:54.537741+00:00",
+        "status": "completed"
+      },
+      "validation": {
+        "project_tests_passed": 365,
+        "make_check": "passed",
+        "hosted_pipeline": "succeeded",
+        "packaged_airflow_success_and_failure_smoke": "passed"
+      },
+      "resources": {
+        "storage": "/subscriptions/f60eae2b-d738-4d0e-8096-9f3f952e0cea/resourceGroups/rg-medw-dev/providers/Microsoft.Storage/storageAccounts/medwdev9528fa20sa",
+        "blob_url": "https://medwdev9528fa20sa.blob.core.windows.net",
+        "search": "/subscriptions/f60eae2b-d738-4d0e-8096-9f3f952e0cea/resourceGroups/med-rag-tester/providers/Microsoft.Search/searchServices/medrag325744d5search",
+        "search_url": "https://medrag325744d5search.search.windows.net",
+        "cosmos": "/subscriptions/f60eae2b-d738-4d0e-8096-9f3f952e0cea/resourceGroups/med-rag-tester/providers/Microsoft.DocumentDB/databaseAccounts/medrag325744d5cosmos",
+        "cosmos_url": "https://medrag325744d5cosmos.documents.azure.com:443/",
+        "sql": "/subscriptions/f60eae2b-d738-4d0e-8096-9f3f952e0cea/resourceGroups/rg-medw-dev/providers/Microsoft.Sql/servers/medwdev9528fa20sql",
+        "sql_server": "medwdev9528fa20sql.database.windows.net",
+        "registry": "/subscriptions/f60eae2b-d738-4d0e-8096-9f3f952e0cea/resourceGroups/rg-medw-dev/providers/Microsoft.ContainerRegistry/registries/medwdev9528fa20acr",
+        "registry_host": "medwdev9528fa20acr.azurecr.io",
+        "cluster": "/subscriptions/f60eae2b-d738-4d0e-8096-9f3f952e0cea/resourcegroups/rg-medw-dev/providers/Microsoft.ContainerService/managedClusters/medwdev9528fa20aks",
+        "oidc_issuer": "https://australiaeast.oic.prod-aks.azure.com/721342f3-ed34-4553-93ea-4fbe8f7149eb/61a5a0c0-9f92-43fe-8431-91e854c5fb47/",
+        "insights": "/subscriptions/f60eae2b-d738-4d0e-8096-9f3f952e0cea/resourceGroups/rg-medw-dev/providers/Microsoft.Insights/components/medwdev9528fa20ai"
+      },
+      "helm": [
+        {
+          "name": "airflow",
+          "ready": true,
+          "revision": 1,
+          "image": {
+            "digest": "sha256:94f7324da7c815c78cb5ec4248145ffe64809c8a5cfa170a66b42862eaecdad4",
+            "repository": "medwdev9528fa20acr.azurecr.io/airflow",
+            "sourceSha": "6dd57f5d824b59194e9bd3dc88b7142726a31e96"
+          }
+        },
+        {
+          "name": "gateway",
+          "ready": true,
+          "revision": 1,
+          "image": {
+            "digest": "sha256:b95d0d8adfcb078bc0083f0896dc1f4bb75f5c1393a0d9121a71e84906656226",
+            "repository": "medwdev9528fa20acr.azurecr.io/gateway",
+            "sourceSha": "6dd57f5d824b59194e9bd3dc88b7142726a31e96"
+          }
+        },
+        {
+          "name": "generation",
+          "ready": true,
+          "revision": 1,
+          "image": {
+            "digest": "sha256:657fc1b8b632189d0137e938bb27a57e92793b9e0df015d3948aa1c94800d953",
+            "repository": "medwdev9528fa20acr.azurecr.io/generation",
+            "sourceSha": "6dd57f5d824b59194e9bd3dc88b7142726a31e96"
+          }
+        },
+        {
+          "name": "ingestion-worker",
+          "ready": true,
+          "revision": 1,
+          "image": {
+            "digest": "sha256:bb7cb0efda5f8bc0997633ee75975b9878ea5b9e2579217a81299189313615ec",
+            "repository": "medwdev9528fa20acr.azurecr.io/ingestion-worker",
+            "sourceSha": "6dd57f5d824b59194e9bd3dc88b7142726a31e96"
+          }
+        },
+        {
+          "name": "qdrant",
+          "ready": true,
+          "revision": 1,
+          "image": {}
+        },
+        {
+          "name": "reranker",
+          "ready": true,
+          "revision": 1,
+          "image": {
+            "digest": "sha256:27138da81517b28208a62fc402002fd184612c8bda37f72af0b85216df21010d",
+            "repository": "medwdev9528fa20acr.azurecr.io/reranker",
+            "sourceSha": "6dd57f5d824b59194e9bd3dc88b7142726a31e96"
+          }
+        },
+        {
+          "name": "retrieval",
+          "ready": true,
+          "revision": 1,
+          "image": {
+            "digest": "sha256:21598539bb271b5abd446554f4b157666a4918322f4c51da174e9633ac47e9a2",
+            "repository": "medwdev9528fa20acr.azurecr.io/retrieval",
+            "sourceSha": "6dd57f5d824b59194e9bd3dc88b7142726a31e96"
+          }
+        }
+      ],
+      "immediate": {
+        "passed": true,
+        "client_job": "walkthrough-7085825c91",
+        "actor_oid": "8e59cc7a-5c1b-4e9b-9604-3d40cfe0a469",
+        "input": {
+          "sha256": "717703842abd4f2aea0c80e35ccff707f2fd4a82ecc79214b1ad744a0f8b50e4",
+          "size_bytes": 95
+        },
+        "document_id": "28c250b13df548b9984627d64b5f8168",
+        "job_id": "89acbc4892910633ea2d9341b437d6833c06f63e98b134b12dfb065d3beeea2b",
+        "source_revision": "3038ae669ac32e94f0cae8975c7eb4e908381f1b1c5204d076a71864fa82fd85",
+        "correlation_id": "aae66304500f49ada585a7c1130db88e",
+        "checks": {
+          "idempotent_submission": true,
+          "ingestion_done": true,
+          "retrieved_uploaded_source": true,
+          "streamed_draft": true,
+          "accepted_specific_draft": true,
+          "medical_verification_not_performed": true
+        },
+        "draft_id": "10168c89-d478-4897-ba81-9e174b12a1b9",
+        "status": "accepted",
+        "output_sha256": "b2fab0e435043929d9c65525aaeb9e55b23d6e918870b3c0b00c06052409f715",
+        "stream": {
+          "events": 8,
+          "delta_events": 6,
+          "first_event_seconds": 0.20741929700011497,
+          "duration_seconds": 0.33590515600008075
+        },
+        "unauthenticated_rejected": true
+      },
+      "nightly": {
+        "passed": true,
+        "client_job": "walkthrough-35f3ff68d0",
+        "actor_oid": "8e59cc7a-5c1b-4e9b-9604-3d40cfe0a469",
+        "initial_states": [
+          "scheduled",
+          "scheduled"
+        ],
+        "batch_id": "135a6cc475a15f75c3e64359368c3178b42701d8bb2e44acbba6584c1ecbc6b0",
+        "run_id": "walkthrough-35f3ff68d0",
+        "status": "completed",
+        "counts": {
+          "waiting": 0,
+          "running": 0,
+          "done": 2,
+          "failed": 0,
+          "superseded": 0,
+          "excluded": 0
+        },
+        "documents": [
+          {
+            "input": {
+              "sha256": "def047ca5d08796b4cb7d9263f0f7b00f2dbf92300e90704a23c513bf705a4e5",
+              "size_bytes": 95
+            },
+            "doc_id": "a48e137b969a4c9f985850bdee819768",
+            "job_id": "5c75dabd044200bcdbd384e8c4937eecafb3fdbd7e2b32d52f1ce054c9bc50d9",
+            "source_revision": "012c60c5dc323dd308e2c0740fe7823f6e48bc98fd3c1ba8e2969851342aae53",
+            "correlation_id": "56d65f3fcf6044008749fd19c938691a",
+            "state": "done",
+            "batch_id": "135a6cc475a15f75c3e64359368c3178b42701d8bb2e44acbba6584c1ecbc6b0",
+            "job_checkpoints": {
+              "extracting": "sha256:0339755568eba2273828d41db75f14830820e2bdd6eb50af647b4c12cb4c06c1",
+              "classifying": "sha256:83415f058bd0fe67bf88a3aca94b2bba3e7c0d9317ee770e9eeea81ab09b1337",
+              "chunking": "sha256:33d0b11560757ffee44602a4546f500a45f4d07988727c2c1273af26e080ea23",
+              "annotating": "sha256:edd28f150f82f2e774a2badcb6d044639688517e42e29b67ba224aed1e95f295",
+              "embedding": "sha256:3c0411a5d862b58c291463bb6a414d6346d45dc87644bc6cf802fadba7f179e8",
+              "indexing": "sha256:65ae04924591cd2de30e87a151f2815eee80cd21d33c39825e718fbd1032f3c9"
+            },
+            "checks": {
+              "idempotent_submission": true,
+              "source_preserved": true,
+              "scheduled_for_batch": true,
+              "ingestion_done": true,
+              "retrieved_uploaded_source": true
+            }
+          },
+          {
+            "input": {
+              "sha256": "9d8339f6c87a84689ec0150de5975f52fab75081f15941eda9f460ba91a336f7",
+              "size_bytes": 95
+            },
+            "doc_id": "6e45b5fa03364df187985a820556fe9d",
+            "job_id": "4710ec7fb10947d75159c125a725a33f0beeedbde19797dfe12640abdc7dd1df",
+            "source_revision": "f7fa885d95aa624e915ee91ea15dbce626c52f3b187a8356e771f513cdddbc61",
+            "correlation_id": "46f92a86dc0e4682a4199770a24df47d",
+            "state": "done",
+            "batch_id": "135a6cc475a15f75c3e64359368c3178b42701d8bb2e44acbba6584c1ecbc6b0",
+            "job_checkpoints": {
+              "extracting": "sha256:437c5714723de999144dbb553a43caedd072164fb39ca2f5e6569684d916b536",
+              "classifying": "sha256:bbd44d593e8d754fb0b87f2761832a7e4e06b55a6f43ff1944782c30053f3117",
+              "chunking": "sha256:df84958f0cee1d063394a36c6063a7c17d300d1ee9be51a6e55c7063881015f9",
+              "annotating": "sha256:8e68fa188cc38157d74718356a0439d3921d663580666acbec4bd34ceb37feef",
+              "embedding": "sha256:ced3147d335e0dd26aa1e0bbbae5a99bfcec4e72b75f79d3bc37381c541bcd6f",
+              "indexing": "sha256:3f1ea7bbc6aa03b8b37b7fdf297afb9ed8099081a701377ad0991da56bac17c4"
+            },
+            "checks": {
+              "idempotent_submission": true,
+              "source_preserved": true,
+              "scheduled_for_batch": true,
+              "ingestion_done": true,
+              "retrieved_uploaded_source": true
+            }
+          }
+        ],
+        "dag": {
+          "run_id": "walkthrough-35f3ff68d0",
+          "state": "success",
+          "started_at": "2026-09-17 08:36:24.230684+00:00",
+          "ended_at": "2026-09-17 08:36:58.165247+00:00",
+          "paused": false,
+          "next_scheduled_run": "2026-09-17 16:00:00+00:00",
+          "tasks": [
+            {
+              "task_id": "report",
+              "state": "success",
+              "try_number": 1
+            },
+            {
+              "task_id": "select_and_admit",
+              "state": "success",
+              "try_number": 1
+            },
+            {
+              "task_id": "wait_for_documents",
+              "state": "success",
+              "try_number": 1
+            }
+          ],
+          "timetable": {
+            "expression": "0 2 * * *",
+            "timezone": "Australia/Brisbane",
+            "interval": 0.0,
+            "run_immediately": false
+          }
+        },
+        "unauthenticated_rejected": true
+      },
+      "direct_blob_checks": [
+        {
+          "sha256": "717703842abd4f2aea0c80e35ccff707f2fd4a82ecc79214b1ad744a0f8b50e4",
+          "size_bytes": 95
+        },
+        {
+          "sha256": "def047ca5d08796b4cb7d9263f0f7b00f2dbf92300e90704a23c513bf705a4e5",
+          "size_bytes": 95
+        },
+        {
+          "sha256": "9d8339f6c87a84689ec0150de5975f52fab75081f15941eda9f460ba91a336f7",
+          "size_bytes": 95
+        }
+      ],
+      "sql": {
+        "indexing": [
+          {
+            "event_id": "3C4A9F38-8034-54BC-B635-05F813E6F947",
+            "job_id": "89acbc4892910633ea2d9341b437d6833c06f63e98b134b12dfb065d3beeea2b",
+            "batch_id": null,
+            "requested_by_oid": "8e59cc7a-5c1b-4e9b-9604-3d40cfe0a469",
+            "source_revision": "3038ae669ac32e94f0cae8975c7eb4e908381f1b1c5204d076a71864fa82fd85",
+            "correlation_id": "aae66304500f49ada585a7c1130db88e",
+            "index_generation_id": "0ef8c98722ee456d8d1acd36d3917972"
+          },
+          {
+            "event_id": "1D7E3903-BADF-55DF-A498-0D1CFE8D5287",
+            "job_id": "4710ec7fb10947d75159c125a725a33f0beeedbde19797dfe12640abdc7dd1df",
+            "batch_id": "135a6cc475a15f75c3e64359368c3178b42701d8bb2e44acbba6584c1ecbc6b0",
+            "requested_by_oid": "8e59cc7a-5c1b-4e9b-9604-3d40cfe0a469",
+            "source_revision": "f7fa885d95aa624e915ee91ea15dbce626c52f3b187a8356e771f513cdddbc61",
+            "correlation_id": "46f92a86dc0e4682a4199770a24df47d",
+            "index_generation_id": "7b85c4e4abf24b399df275067437bd04"
+          },
+          {
+            "event_id": "E726F136-B8DE-5D31-AE73-2DB8CFDAB74B",
+            "job_id": "5c75dabd044200bcdbd384e8c4937eecafb3fdbd7e2b32d52f1ce054c9bc50d9",
+            "batch_id": "135a6cc475a15f75c3e64359368c3178b42701d8bb2e44acbba6584c1ecbc6b0",
+            "requested_by_oid": "8e59cc7a-5c1b-4e9b-9604-3d40cfe0a469",
+            "source_revision": "012c60c5dc323dd308e2c0740fe7823f6e48bc98fd3c1ba8e2969851342aae53",
+            "correlation_id": "56d65f3fcf6044008749fd19c938691a",
+            "index_generation_id": "10ab59d32aa740f2b633a6de647621b0"
+          }
+        ],
+        "generation": [
+          {
+            "event_id": "10168C89-D478-4897-BA81-9E174B12A1B9",
+            "user_oid": "8e59cc7a-5c1b-4e9b-9604-3d40cfe0a469",
+            "correlation_id": "aae66304500f49ada585a7c1130db88e",
+            "image_sha": "6dd57f5d824b59194e9bd3dc88b7142726a31e96",
+            "image_digest": "sha256:657fc1b8b632189d0137e938bb27a57e92793b9e0df015d3948aa1c94800d953",
+            "release_bundle_sha": "sha256:f6fd335b3926706bb281794e0ad050ba96bfc47b51cc43211ad3499dc39ef0be",
+            "output_sha256": "b2fab0e435043929d9c65525aaeb9e55b23d6e918870b3c0b00c06052409f715"
+          }
+        ],
+        "draft": [
+          {
+            "draft_id": "10168C89-D478-4897-BA81-9E174B12A1B9",
+            "status": "accepted",
+            "accepted_by_oid": "8e59cc7a-5c1b-4e9b-9604-3d40cfe0a469",
+            "output_sha256": "b2fab0e435043929d9c65525aaeb9e55b23d6e918870b3c0b00c06052409f715"
+          }
+        ],
+        "acceptance": [
+          {
+            "draft_id": "10168C89-D478-4897-BA81-9E174B12A1B9",
+            "user_oid": "8e59cc7a-5c1b-4e9b-9604-3d40cfe0a469",
+            "correlation_id": "aae66304500f49ada585a7c1130db88e"
+          }
+        ]
+      },
+      "airflow_restart_recovery": {
+        "passed": true,
+        "pods": [
+          {
+            "pod": "airflow-db-0",
+            "before_uid": "35ec6b29-0476-444f-9ba5-e26e107f1b6d",
+            "after_uid": "4d8254f5-9608-4ccc-9475-2fd5422f0485",
+            "ready": true
+          },
+          {
+            "pod": "airflow-scheduler-0",
+            "before_uid": "b2f78b52-e080-487d-843a-782b5bce3add",
+            "after_uid": "d0a8752e-6495-40be-87fa-8791dbdb83be",
+            "ready": true
+          }
+        ],
+        "persistent_volume_claims_unchanged": true,
+        "retained_dag": {
+          "state": "success",
+          "tasks": {
+            "report": "success",
+            "select_and_admit": "success",
+            "wait_for_documents": "success"
+          }
+        }
+      },
+      "prometheus_targets": [
+        {
+          "service": "retrieval",
+          "up": true
+        },
+        {
+          "service": "reranker",
+          "up": true
+        },
+        {
+          "service": "ingestion-worker",
+          "up": true
+        },
+        {
+          "service": "gateway",
+          "up": true
+        },
+        {
+          "service": "generation",
+          "up": true
+        },
+        {
+          "service": "airflow-statsd",
+          "up": true
+        }
+      ],
+      "evidence_files": [
+        {
+          "path": "data/azure/rg-medw-dev/immediate-cloud-evidence.json",
+          "sha256": "8edddd2b4ec4a084f1bb995a18a43be455ecf07435a764e7a3ed60cb2c9d756d"
+        },
+        {
+          "path": "data/azure/rg-medw-dev/airflow-cloud-evidence.json",
+          "sha256": "5b42ca0c124914834461f0684c579fa21c47d9afa95d9651a3cf41a0221e6900"
+        },
+        {
+          "path": "data/azure/rg-medw-dev/cloud-rehearsal-proof.json",
+          "sha256": "22d3809266124cd1abb6b6eb53324198456c008934a10ef55f5fe8a0002c199a"
+        },
+        {
+          "path": "data/azure/rg-medw-dev/prometheus-targets.json",
+          "sha256": "17ca9d49271b38783a39b47c4c7329f680d28a465c3cbc231b4a611e57c6ae88"
+        },
+        {
+          "path": "data/azure/rg-medw-dev/pipeline-run-10.json",
+          "sha256": "b8fe1d992e48707300d425bb492eb0a242eb2804db4739c05906bfee6448f2f6"
+        },
+        {
+          "path": "data/azure/rg-medw-dev/pipeline-timeline-10.json",
+          "sha256": "87bab6b202398751a84a142b43b5190093add8e049b057ed7c545eaddc099160"
+        },
+        {
+          "path": "data/azure/rg-medw-dev/cleanup-initial-rehearsal.json",
+          "sha256": "ae4ebcd5d9133eacbf2bcc8dbeeda32af6a6bdd2a60318c04a322ef07d22f357"
+        },
+        {
+          "path": "data/azure/rg-medw-dev/cleanup.json",
+          "sha256": "469ed90fc4406fdae86403bf9460470c8dfe63712930af176ab7c11d90dc86b8"
+        }
+      ],
+      "cleanup": {
+        "verified_at": "2026-09-17T08:55:00.916026+00:00",
+        "client_jobs_removed": true,
+        "initial_attempt": {
+          "remaining_or_failed": [
+            {
+              "resource": "azure-service-connection",
+              "error": {
+                "type": "SetupError"
+              }
+            }
+          ],
+          "complete": false,
+          "borrowed_accounts_preserved": true
+        },
+        "final_attempt": {
+          "remaining_or_failed": [],
+          "complete": true,
+          "borrowed_accounts_preserved": true
+        },
+        "service_connection_retry": "The owned service connection deletion was retried successfully; a second azure-down confirmed absence and completed its journal.",
+        "owned_resource_group_exists": false,
+        "managed_node_resource_group_exists": false,
+        "borrowed_search": {
+          "name": "medrag325744d5search",
+          "sku": "free",
+          "status": "running"
+        },
+        "borrowed_cosmos": {
+          "name": "medrag325744d5cosmos",
+          "free_tier": true,
+          "provisioning_state": "Succeeded"
+        },
+        "local_running_containers": 0,
+        "existing_local_installation_started": false
+      },
+      "operator_corrections": [
+        "The first preflight consulted the previously deleted AKS cluster; quota checks now ignore completed teardown journals.",
+        "Prometheus has no wget binary in its container; scrape status was read through the Kubernetes service proxy without changing the workload.",
+        "The first cleanup recorded a service-connection SetupError. Its deletion retry succeeded; the original failed cleanup report is retained alongside the successful rerun."
+      ],
+      "not_verified": [
+        "Actual overnight cron-triggered execution; the enabled 02:00 Australia/Brisbane schedule was inspected and the exact DAG was triggered manually.",
+        "Airflow release upgrades and rollback through live Flux/Helm.",
+        "Full thirteen-area acceptance suite on this release.",
+        "The operator script was controlled from this workstation; Cloud Shell browser execution itself was not exercised.",
+        "Restart recovery while an Airflow task is running; the cloud restart check retained a completed run."
+      ],
+      "deliberate_gaps": [
+        "Clinical processing remains placeholder logic; medical verification is explicitly not performed.",
+        "No frontend was built. The demonstration client runs temporarily in AKS and uses normal APIs.",
+        "Single-node Airflow/PostgreSQL; high availability and automated Airflow metadata backups remain future work."
+      ],
+      "evidence_archive": {
+        "path": "data/azure/airflow-rehearsal-20260917.zip",
+        "sha256": "98a30f8b1c31eb55e8b24d705887a7bce1f3d3fc19e6ecd3dc7dfabacfcc9836"
+      }
     }
   },
   "documentation_cleanup": {
