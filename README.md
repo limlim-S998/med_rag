@@ -39,15 +39,27 @@ and Qdrant to Ready. Real Entra-authenticated HTTPS requests passed, an
 unauthenticated request was rejected, and a binary file uploaded directly to Blob
 completed durable ingestion and indexing. Azure SQL initialization and federated
 pipeline migrations also passed. The host checks at commissioning passed 334 tests.
-Cleanup verification is recorded under `azure-only-cleanup` and the subsequent
-`backend-setting-removal` record in the verification JSON.
+Checks for the subsequent retirement of local deployment are recorded under
+`azure-only-cleanup` and `backend-setting-removal` in the verification JSON.
 
-Work stopped at the user's request after that initial deployment, followed by
-teardown. Full cloud acceptance is still outstanding: the complete streamed
-draft/acceptance workflow, recovery, backup restore, correlated traces, scaling,
-release B, rollback and deliberate failed-deployment remediation were not run.
-Local proofs do not substitute for those Azure checks. Recorded resource and
-release identities, observed checks and cleanup results are in the verification JSON.
+The Azure exercise resumed from a cold start on 17 September 2026, using the
+Azure-only source. Binary and text files completed upload, durable ingestion,
+retrieval, streamed drafting, SQL audit and acceptance. Previously ingested
+documents remained searchable. Worker/publication recovery, Qdrant persistence,
+Blob snapshot restore, authentication rejections and correlated traces passed.
+Azure Pipelines runs 8 and 9 published releases A and B; Flux/Helm applied the
+upgrade, remediated a deliberately failed deployment and rolled back to A.
+Earlier SQL audit identities remained unchanged.
+
+All twelve acceptance areas have passing observations across the run and targeted
+rechecks. The original suite and unsuccessful rechecks are retained, not relabelled
+as passes; a single uninterrupted green suite was not rerun after the verifier
+corrections. The final bounded scaling check completed 470 drafts with zero failed
+requests and observed one, two, then one generation replica. The verification JSON
+records the tested releases, corrections, individual evidence and cleanup outcome.
+Owned Azure resources, the managed node group, temporary DevOps objects and API
+registrations were removed afterwards. Borrowed free-tier account settings and
+the stopped local installation were preserved.
 
 The retired `medw` minikube installation remains stopped, with its original data
 and volumes preserved. Its historical application source is
@@ -248,6 +260,21 @@ option supported by the operator commands.
   snapshots and verify the collection set and content before and after capture.
   Modern multi-peer backups require coordinated writer quiescence and currently
   refuse to run; multi-node availability remains outside this increment.
+- Restart verification waits for public retrieval to recover after Qdrant is
+  ready; downstream probes and routing updates can still briefly return 503.
+  Monitoring verification waits for actual Prometheus samples and uses the
+  authenticated Kubernetes service proxy, avoiding a fragile local port-forward.
+- The 400 RU/s Cosmos allocation cannot sustain the earlier unpaced eight-client,
+  eight-citation load: it produced a real 429 and an uncommitted draft. Scaling
+  verification now uses two clients, one citation, a 100 ms pause between requests
+  and a fresh connection per draft. Reused connections also failed during an
+  earlier scaling run with NGINX worker reloads. No failed draft is retried or
+  counted as successful. This bounded proof does not establish production
+  throughput or connection continuity during every deployment transition.
+- Cleanup checks the recorded DevOps connection ID before deletion. A successful
+  authenticated listing can establish that it is already gone; a permission
+  failure cannot. This corrects retries that previously treated an already-deleted
+  connection as a cleanup failure, while preserving other connections.
 
 ## Azure commissioning
 

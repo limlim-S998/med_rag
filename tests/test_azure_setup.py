@@ -96,6 +96,40 @@ def test_cleanup_requires_recorded_ownership(tmp_path, monkeypatch):
         deployment.down()
 
 
+@pytest.mark.parametrize("scenario", ["exists", "absent", "denied"])
+def test_service_connection_cleanup_retries_preserve_other_connections(tmp_path, monkeypatch, scenario):
+    deployment = azure.Deployment(config(), root=tmp_path)
+    deployment.state["service_connection"] = {"id": "owned", "name": "medw-azure"}
+    endpoints = [{"id": "borrowed", "name": "medw-azure"}]
+    if scenario == "exists":
+        endpoints.append({"id": "owned", "name": "renamed-owned-connection"})
+    deleted = []
+
+    def listing(path):
+        assert path == "serviceendpoint/endpoints?api-version=7.1"
+        if scenario == "denied":
+            raise azure.SetupError("access denied")
+        return {"value": endpoints}
+
+    def remove(*args, **kwargs):
+        assert args[:3] == ("devops", "service-endpoint", "delete")
+        identifier = args[args.index("--id") + 1]
+        assert identifier == "owned"
+        deleted.append(identifier)
+        endpoints[:] = [item for item in endpoints if item["id"] != identifier]
+
+    monkeypatch.setattr(deployment, "devops", listing)
+    monkeypatch.setattr(azure, "az", remove)
+    if scenario == "denied":
+        with pytest.raises(azure.SetupError, match="access denied"):
+            deployment._delete_service_connection()
+    else:
+        deployment._delete_service_connection()
+        deployment._delete_service_connection()
+    assert deleted == (["owned"] if scenario == "exists" else [])
+    assert endpoints == [{"id": "borrowed", "name": "medw-azure"}]
+
+
 def test_environment_generation_uses_azure_resources_and_bounded_scaling(tmp_path):
     deployment = azure.Deployment(config(), root=tmp_path)
     deployment.root = ROOT

@@ -1338,6 +1338,18 @@ class Deployment:
                              + str(self.directory / "verification.json"))
         return summary
 
+    def _delete_service_connection(self):
+        identifier = self.state["service_connection"]["id"]
+        # DevOps CLI deletion reports a missing endpoint differently from ARM.
+        # An authenticated listing establishes absence on a cleanup retry;
+        # matching only the journalled ID preserves other users' connections.
+        endpoints = self.devops("serviceendpoint/endpoints?api-version=7.1")["value"]
+        if not any(endpoint["id"] == identifier for endpoint in endpoints):
+            return
+        az("devops", "service-endpoint", "delete", "--id", identifier,
+           "--organization", self.config["devops"]["organization"],
+           "--project", self.config["devops"]["project"], "--yes")
+
     def down(self):
         """Delete only journalled owned infrastructure and scoped borrowed data."""
         if not self.journal_path.exists():
@@ -1402,9 +1414,7 @@ class Deployment:
             attempt("pipeline", lambda: self.devops("build/definitions/" + str(self.state["pipeline_id"])
                     + "?api-version=7.1", method="DELETE"))
         if self.state.get("service_connection"):
-            attempt("azure-service-connection", lambda: az("devops", "service-endpoint", "delete",
-                "--id", self.state["service_connection"]["id"], "--organization", self.config["devops"]["organization"],
-                "--project", self.config["devops"]["project"], "--yes", missing_ok=True))
+            attempt("azure-service-connection", self._delete_service_connection)
         for kind, app in self.state.get("applications", {}).items():
             attempt("application-" + kind, lambda app=app: az("ad", "app", "delete", "--id", app["id"]))
         group = az("group", "show", "-n", self.config["resource_group"], missing_ok=True)

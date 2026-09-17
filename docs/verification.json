@@ -1739,6 +1739,1368 @@
         "running_containers": [],
         "git_push_or_release_selection": false
       }
+    },
+    "azure-end-to-end-20260917": {
+      "verified_at": "2026-09-17T03:24:28.690941+00:00",
+      "result": "passed_after_rechecks",
+      "scope": "Normal Azure-only placeholder application, provisioned from a cold start. All twelve acceptance areas passed across the original run and explicit rechecks. No local deployment was started.",
+      "single_uninterrupted_suite_pass": false,
+      "original_azure_verify_exit_code": 2,
+      "final_azure_down_exit_code": 0,
+      "verifier_source": {
+        "base_commit": "99330eef1729c7c2dc5e3e7014642e0297a7026e",
+        "azure_verify_sha256": "f01ee95bcf6568dc8b1ce49b290f6526be176773c146bc19667267583512b28c",
+        "azure_operator_sha256": "bf8e8e25535db7372a65502ad3af1bb2d8c0cbec967c44082025c3aaacce7269"
+      },
+      "checks": {
+        "release_readiness": {
+          "status": "passed",
+          "observed_in": "original_run"
+        },
+        "public_access": {
+          "status": "passed",
+          "observed_in": "original_run"
+        },
+        "access_and_checksum_rejections": {
+          "status": "passed",
+          "observed_in": "original_run"
+        },
+        "expired_upload_rejections": {
+          "status": "passed",
+          "observed_in": "original_run"
+        },
+        "application_workflow": {
+          "status": "passed",
+          "observed_in": "original_run"
+        },
+        "blob_source_checksum": {
+          "status": "passed",
+          "observed_in": "original_run"
+        },
+        "worker_restart_recovery": {
+          "status": "passed",
+          "observed_in": "original_run"
+        },
+        "qdrant_persistence": {
+          "status": "passed",
+          "observed_in": "recovery_recheck"
+        },
+        "blob_snapshot_restore": {
+          "status": "passed",
+          "observed_in": "original_run"
+        },
+        "metrics_and_scaling": {
+          "status": "passed",
+          "observed_in": "final_scaling_recheck"
+        },
+        "correlated_traces": {
+          "status": "passed",
+          "observed_in": "original_run"
+        },
+        "release_upgrade_rollback": {
+          "status": "passed",
+          "observed_in": "original_run"
+        }
+      },
+      "original_check_statuses": {
+        "release_readiness": "passed",
+        "public_access": "passed",
+        "access_and_checksum_rejections": "passed",
+        "expired_upload_rejections": "passed",
+        "application_workflow": "passed",
+        "blob_source_checksum": "passed",
+        "worker_restart_recovery": "passed",
+        "qdrant_persistence": "failed",
+        "blob_snapshot_restore": "passed",
+        "metrics_and_scaling": "failed",
+        "correlated_traces": "passed",
+        "release_upgrade_rollback": "passed"
+      },
+      "host_checks": {
+        "result": "passed",
+        "tests_passed": 339,
+        "import_contracts": 4,
+        "mypy_modules": 39,
+        "charts": 6,
+        "flux_configurations": 4,
+        "nginx_contract": "passed"
+      },
+      "resources": {
+        "storage": "/subscriptions/f60eae2b-d738-4d0e-8096-9f3f952e0cea/resourceGroups/rg-medw-dev/providers/Microsoft.Storage/storageAccounts/medwdev9528fa20sa",
+        "blob_url": "https://medwdev9528fa20sa.blob.core.windows.net",
+        "search": "/subscriptions/f60eae2b-d738-4d0e-8096-9f3f952e0cea/resourceGroups/med-rag-tester/providers/Microsoft.Search/searchServices/medrag325744d5search",
+        "search_url": "https://medrag325744d5search.search.windows.net",
+        "cosmos": "/subscriptions/f60eae2b-d738-4d0e-8096-9f3f952e0cea/resourceGroups/med-rag-tester/providers/Microsoft.DocumentDB/databaseAccounts/medrag325744d5cosmos",
+        "cosmos_url": "https://medrag325744d5cosmos.documents.azure.com:443/",
+        "sql": "/subscriptions/f60eae2b-d738-4d0e-8096-9f3f952e0cea/resourceGroups/rg-medw-dev/providers/Microsoft.Sql/servers/medwdev9528fa20sql",
+        "sql_server": "medwdev9528fa20sql.database.windows.net",
+        "registry": "/subscriptions/f60eae2b-d738-4d0e-8096-9f3f952e0cea/resourceGroups/rg-medw-dev/providers/Microsoft.ContainerRegistry/registries/medwdev9528fa20acr",
+        "registry_host": "medwdev9528fa20acr.azurecr.io",
+        "cluster": "/subscriptions/f60eae2b-d738-4d0e-8096-9f3f952e0cea/resourcegroups/rg-medw-dev/providers/Microsoft.ContainerService/managedClusters/medwdev9528fa20aks",
+        "oidc_issuer": "https://australiaeast.oic.prod-aks.azure.com/721342f3-ed34-4553-93ea-4fbe8f7149eb/74d27c37-4e64-4f5b-ac92-23eaf9123e27/",
+        "insights": "/subscriptions/f60eae2b-d738-4d0e-8096-9f3f952e0cea/resourceGroups/rg-medw-dev/providers/Microsoft.Insights/components/medwdev9528fa20ai"
+      },
+      "final_resource_status": {
+        "timestamp": "2026-09-17T03:22:56.580124+00:00",
+        "resource_groups_exist": {
+          "rg-medw-dev": false,
+          "MC_rg-medw-dev_medwdev9528fa20aks_australiaeast": false
+        },
+        "owned_apps_exist": {
+          "api": false,
+          "client": false
+        },
+        "owned_pipeline_present": false,
+        "owned_service_connection_present": false,
+        "github_connection_preserved": true,
+        "api_token_cache_removed": true,
+        "teardown_complete": true
+      },
+      "preflight": {
+        "passed": true,
+        "cost": {
+          "currency": "AUD",
+          "hours": 4,
+          "hourly_aud": 0.4413,
+          "usage_reserve_aud": 5.0,
+          "estimated_aud": 6.77,
+          "quotes": {
+            "node": {
+              "hourly_aud": 0.3337,
+              "meter": "D4s v5",
+              "price_aud": 0.3337,
+              "unit": "1 Hour"
+            },
+            "registry": {
+              "hourly_aud": 0.009654166666666667,
+              "meter": "Basic Registry Unit",
+              "price_aud": 0.2317,
+              "unit": "1/Day"
+            },
+            "sql": {
+              "hourly_aud": 0.010262499999999999,
+              "meter": "B DTU",
+              "price_aud": 0.2463,
+              "unit": "1/Day"
+            },
+            "disk": {
+              "hourly_aud": 0.019442602739726027,
+              "meter": "P6 LRS Disk",
+              "price_aud": 14.1931,
+              "unit": "1/Month"
+            },
+            "load_balancer": {
+              "hourly_aud": 0.0348,
+              "meter": "Standard Included LB Rules and Outbound Rules",
+              "price_aud": 0.0348,
+              "unit": "1 Hour"
+            },
+            "public_ip": {
+              "hourly_aud": 0.007,
+              "meter": "Standard IPv4 Static Public IP",
+              "price_aud": 0.007,
+              "unit": "1 Hour"
+            }
+          },
+          "is_hard_cap": false,
+          "quoted_at": "2026-09-17T02:10:14.176061+00:00",
+          "quote_age_seconds": 0,
+          "price_source": "https://prices.azure.com/api/retail/prices"
+        }
+      },
+      "binary_workflow": {
+        "input": {
+          "sha256": "6304ae0533004fbbed513e1e263b66332d3b8cae08d89301bb2c9c8211e8782c",
+          "size_bytes": 1091
+        },
+        "correlation_id": "0a6259980b6544cbbca491aff4804628",
+        "job_id": "ddd63c4bd454b0bdb15b37a2c97e38b1342cdedab056e710641531ab480a6870",
+        "source_revision": "155d061ffea98b10038c2fe9a71702c8f022bdd7d9c13d2ff6ba7b7fcda29faa",
+        "job_checkpoints": {
+          "extracting": "sha256:79fc0a6116dc9b3435e419168034880c4203b940dfaf31003dd4dcbaaf3b68cc",
+          "classifying": "sha256:9f9bc7324331df0a37184d982d5d0c7d80b48a9424dc332d65d4e00ee5208bef",
+          "chunking": "sha256:2cd7775d0263f2e89ccebda7ddaea9841d5b19c16aeac371c07dbd444c65122b",
+          "annotating": "sha256:e04df5ed5060a6b52888cf60b7dec22b45fb8d0a80c652069774da855d68e075",
+          "embedding": "sha256:a8373527599f83127eace32cd1647f61221bb41a3837b11a14904aabe0e096b8",
+          "indexing": "sha256:fb3397c4fa85d14cd36ba31476ed61d155b281ec04c2cb48781057801bb8db49"
+        },
+        "checks": {
+          "idempotent_submission": true,
+          "ingestion_done": true,
+          "retrieved_uploaded_source": true,
+          "streamed_draft": true,
+          "accepted_specific_draft": true,
+          "medical_verification_not_performed": true
+        },
+        "stream": {
+          "events": 20,
+          "delta_events": 18,
+          "first_event_seconds": 0.2018297579998034,
+          "duration_seconds": 0.29165610099880723
+        },
+        "output_sha256": "7862ad9456209919284942495d194d485f1ccf95fda77eb4162cd989a1ae6dc0"
+      },
+      "binary_draft_id": "4e22ed53-6a52-47bd-b61c-75f378527a2d",
+      "binary_acceptance_status": "accepted",
+      "binary_blob_readback": {
+        "artifact_uri": "sha256:6304ae0533004fbbed513e1e263b66332d3b8cae08d89301bb2c9c8211e8782c",
+        "sha256": "6304ae0533004fbbed513e1e263b66332d3b8cae08d89301bb2c9c8211e8782c",
+        "size_bytes": 1091
+      },
+      "retained_document": {
+        "passed": true,
+        "prior_source_revision": "155d061ffea98b10038c2fe9a71702c8f022bdd7d9c13d2ff6ba7b7fcda29faa",
+        "new_source_revision": "c15297f41d5df1ba47cfb09c2172b3a4f4af47479bc37542d62c37b532f9e344",
+        "index_generation": {
+          "generation_id": "ae945f1bda6741619db8f8ce77380970",
+          "study_id": "ABC-101",
+          "dense_collection": "csr_bb12d44b3568bf4b_ae945f1bda6741619db8f8ce77380970",
+          "sparse_generation": "ae945f1bda6741619db8f8ce77380970",
+          "parser_version": "placeholder-text-1",
+          "embed_version": "hash-1",
+          "embed_deployment": "hash-1",
+          "embed_model_version": "1",
+          "embed_model_name": "token-hash",
+          "dimensions": 64,
+          "payload_sha256": "d230cfb55e3b9f7cc48829c7649d094f688ac090f1b25df6d50c27d59d8f12dd",
+          "chunk_count": 7
+        },
+        "retained_citations": [
+          {
+            "study_id": "ABC-101",
+            "chunk_id": "034b62ce-087f-58d0-966a-f88f708238fd",
+            "source_revision": "155d061ffea98b10038c2fe9a71702c8f022bdd7d9c13d2ff6ba7b7fcda29faa",
+            "parser_version": "placeholder-text-1",
+            "source_location": "placeholder decoded characters 1000:2000"
+          },
+          {
+            "study_id": "ABC-101",
+            "chunk_id": "bd3942ac-9673-546f-84c5-0b07e3365283",
+            "source_revision": "155d061ffea98b10038c2fe9a71702c8f022bdd7d9c13d2ff6ba7b7fcda29faa",
+            "parser_version": "placeholder-text-1",
+            "source_location": "placeholder decoded characters 0:1000"
+          }
+        ]
+      },
+      "text_workflow": {
+        "input": {
+          "sha256": "99e1ee53346a8d76ed83a7ec9c374ab55c4ac790ad300d5915470b385a6fee1e",
+          "size_bytes": 4500
+        },
+        "correlation_id": "2b3ac495d3dc4371b56a5078e220e609",
+        "job_id": "43df2813677350d9899830dd69eeb0369da153863247e08710a97c1886a0c7c6",
+        "source_revision": "c15297f41d5df1ba47cfb09c2172b3a4f4af47479bc37542d62c37b532f9e344",
+        "stream": {
+          "events": 79,
+          "delta_events": 77,
+          "first_event_seconds": 0.24353881000570254,
+          "duration_seconds": 0.5077684280040557
+        },
+        "output_sha256": "b337ab71a72196c637af299cd832067e4f71dbeadd21cb0b894b4e3a97963896"
+      },
+      "recovery": {
+        "job_id": "7b3232232c4c5875803526459873849b92efce08fa465c3e7d3f60f4bd6fdfdc",
+        "state_before": "indexing",
+        "checkpoints_before": {
+          "extracting": "sha256:0875e1c32e76fb5f4a078681d362252451426576601eeee566f82ee2c88bab03",
+          "classifying": "sha256:ca4c5a176929bf9a565269b90bcf37ee807fcf2ffce27280123c85d2854c3d27",
+          "chunking": "sha256:9696d60bee393395c1ca439c570d22c2b090459d480298842d2120a611c9d6da",
+          "annotating": "sha256:7f161993ea6ac334a0c50deaac9be16d6444c5af4d12b1f326af4cf20be41f91",
+          "embedding": "sha256:7342c2643793b8c5109e05cba8e5b42b8b761bc0061e42e11066208ef8352f22"
+        },
+        "attempts_before": 1,
+        "publication": {
+          "generation_id": "ae945f1bda6741619db8f8ce77380970",
+          "study_id": "ABC-101",
+          "dense_collection": "csr_bb12d44b3568bf4b_ae945f1bda6741619db8f8ce77380970",
+          "sparse_generation": "ae945f1bda6741619db8f8ce77380970",
+          "parser_version": "placeholder-text-1",
+          "embed_version": "hash-1",
+          "embed_deployment": "hash-1",
+          "embed_model_version": "1",
+          "embed_model_name": "token-hash",
+          "dimensions": 64,
+          "payload_sha256": "d230cfb55e3b9f7cc48829c7649d094f688ac090f1b25df6d50c27d59d8f12dd",
+          "chunk_count": 7
+        },
+        "prior_active_generation": "9a7d124a1781472fbd9fdf910ad12815",
+        "old_uids": [
+          "f6f81e4f-b644-4994-a99f-31685944b0d6"
+        ],
+        "new_uids": [
+          "34611ecf-af24-4583-bdea-08645fe312c8"
+        ]
+      },
+      "qdrant_persistence": {
+        "pvc_uid": "51371fe6-e4e0-4323-b573-8912ddc10198",
+        "volume": "pvc-51371fe6-e4e0-4323-b573-8912ddc10198",
+        "pod_uid": "a17714c5-4ec6-4e91-a43b-4387725c0546",
+        "search_statuses": [
+          503,
+          503,
+          200
+        ],
+        "retained_citations": [
+          {
+            "study_id": "ABC-101",
+            "chunk_id": "012dc7bb-5e41-5119-887d-8b70744aa4a0",
+            "source_revision": "c15297f41d5df1ba47cfb09c2172b3a4f4af47479bc37542d62c37b532f9e344",
+            "parser_version": "placeholder-text-1",
+            "source_location": "placeholder decoded characters 1000:2000"
+          },
+          {
+            "study_id": "ABC-101",
+            "chunk_id": "390d833b-9930-5b1c-8cff-28719c58ded7",
+            "source_revision": "c15297f41d5df1ba47cfb09c2172b3a4f4af47479bc37542d62c37b532f9e344",
+            "parser_version": "placeholder-text-1",
+            "source_location": "placeholder decoded characters 4000:5000"
+          },
+          {
+            "study_id": "ABC-101",
+            "chunk_id": "60e0f532-c41d-5098-b5dc-b17e3d92e6e2",
+            "source_revision": "c15297f41d5df1ba47cfb09c2172b3a4f4af47479bc37542d62c37b532f9e344",
+            "parser_version": "placeholder-text-1",
+            "source_location": "placeholder decoded characters 0:1000"
+          },
+          {
+            "study_id": "ABC-101",
+            "chunk_id": "67f9cf54-0b2e-533e-84b0-3fd165f67693",
+            "source_revision": "c15297f41d5df1ba47cfb09c2172b3a4f4af47479bc37542d62c37b532f9e344",
+            "parser_version": "placeholder-text-1",
+            "source_location": "placeholder decoded characters 2000:3000"
+          },
+          {
+            "study_id": "ABC-101",
+            "chunk_id": "a5726dd8-71af-5bee-a717-2c99c75989a5",
+            "source_revision": "c15297f41d5df1ba47cfb09c2172b3a4f4af47479bc37542d62c37b532f9e344",
+            "parser_version": "placeholder-text-1",
+            "source_location": "placeholder decoded characters 3000:4000"
+          }
+        ]
+      },
+      "backup_restore": {
+        "blob_manifest_key": "qdrant/20260917T024419Z-21154872/manifest.json",
+        "restore_target": "medw-restore-1a99480fd0",
+        "target_storage": "isolated emptyDir",
+        "restore": [
+          {
+            "event": "restore_succeeded",
+            "backup_id": "20260917T024419Z-21154872",
+            "collections": 3,
+            "consistency_strategy": "native-single-peer-verified-content"
+          }
+        ]
+      },
+      "scaling": {
+        "metric_services": [
+          "gateway",
+          "generation",
+          "ingestion-worker",
+          "reranker",
+          "retrieval"
+        ],
+        "replicas": [
+          1,
+          2,
+          1
+        ],
+        "real_drafts": {
+          "completed": 470,
+          "failed": 0
+        },
+        "inflight_sample": [
+          {
+            "metric": {},
+            "value": [
+              1789614355.441,
+              "2"
+            ]
+          }
+        ]
+      },
+      "scaling_workload": {
+        "clients": 2,
+        "top_k": 1,
+        "pause_seconds": 0.1,
+        "connection_reuse": false,
+        "real_drafts": {
+          "completed": 470,
+          "failed": 0
+        },
+        "failures": {}
+      },
+      "traces": {
+        "correlation_ids": [
+          "2b3ac495d3dc4371b56a5078e220e609",
+          "74ebbbf79b754530b733552f12a84a4f"
+        ],
+        "rows": [
+          {
+            "correlation_id": "2b3ac495d3dc4371b56a5078e220e609",
+            "roles": [
+              "retrieval",
+              "generation",
+              "gateway",
+              "reranker",
+              "ingestion-worker"
+            ],
+            "records": 33
+          },
+          {
+            "correlation_id": "74ebbbf79b754530b733552f12a84a4f",
+            "roles": [
+              "gateway",
+              "ingestion-worker",
+              "retrieval",
+              "reranker",
+              "generation"
+            ],
+            "records": 100
+          }
+        ]
+      },
+      "release_A": {
+        "gateway": {
+          "bundle_sha": "sha256:ea810abec1d2f8e615e942ffc8382df805a11b89f9e44184a96cda14b5ffcbda",
+          "pods": [
+            {
+              "uid": "427b465e-0605-4871-806e-024724011865",
+              "source_sha": "4fa0536becf1bbfd9b2bb88eb00eb611de5241ae",
+              "image_digest": "sha256:d56704b95f350bc1fc6f00dba0959c4750c7f2ffed62a8bc3f3645b8f3905b85",
+              "prompt_bundle_sha": "sha256:500b813e155a44de5f1b2a229bdea7043c86f03f1baa9b4779bb5e6873279048"
+            }
+          ]
+        },
+        "retrieval": {
+          "bundle_sha": "sha256:ea810abec1d2f8e615e942ffc8382df805a11b89f9e44184a96cda14b5ffcbda",
+          "pods": [
+            {
+              "uid": "f917e05a-dc83-4bae-a19f-814dee884f38",
+              "source_sha": "4fa0536becf1bbfd9b2bb88eb00eb611de5241ae",
+              "image_digest": "sha256:a32f67b831be017dbc2c9f77d7ec410f57bc275ae3d0de474f128eab0893b9ba",
+              "prompt_bundle_sha": "sha256:500b813e155a44de5f1b2a229bdea7043c86f03f1baa9b4779bb5e6873279048"
+            }
+          ]
+        },
+        "generation": {
+          "bundle_sha": "sha256:ea810abec1d2f8e615e942ffc8382df805a11b89f9e44184a96cda14b5ffcbda",
+          "pods": [
+            {
+              "uid": "fb3b4e17-432e-4cec-a76e-6f19e82845da",
+              "source_sha": "4fa0536becf1bbfd9b2bb88eb00eb611de5241ae",
+              "image_digest": "sha256:7f77114e08482cf0e93ae530a95f4fde485e91636bc023abc2856edf0e711d34",
+              "prompt_bundle_sha": "sha256:500b813e155a44de5f1b2a229bdea7043c86f03f1baa9b4779bb5e6873279048"
+            },
+            {
+              "uid": "2ae93391-9e5b-43f5-aa34-3241cfdbee00",
+              "source_sha": "4fa0536becf1bbfd9b2bb88eb00eb611de5241ae",
+              "image_digest": "sha256:7f77114e08482cf0e93ae530a95f4fde485e91636bc023abc2856edf0e711d34",
+              "prompt_bundle_sha": "sha256:500b813e155a44de5f1b2a229bdea7043c86f03f1baa9b4779bb5e6873279048"
+            }
+          ]
+        },
+        "ingestion-worker": {
+          "bundle_sha": "sha256:ea810abec1d2f8e615e942ffc8382df805a11b89f9e44184a96cda14b5ffcbda",
+          "pods": [
+            {
+              "uid": "34611ecf-af24-4583-bdea-08645fe312c8",
+              "source_sha": "4fa0536becf1bbfd9b2bb88eb00eb611de5241ae",
+              "image_digest": "sha256:25a315af29e0c711caf9893d026080fa0a122197fcc8b446ead7ab0c2f17e277",
+              "prompt_bundle_sha": "sha256:500b813e155a44de5f1b2a229bdea7043c86f03f1baa9b4779bb5e6873279048"
+            }
+          ]
+        },
+        "reranker": {
+          "bundle_sha": "sha256:ea810abec1d2f8e615e942ffc8382df805a11b89f9e44184a96cda14b5ffcbda",
+          "pods": [
+            {
+              "uid": "faca7709-f1b5-49bf-a1b3-11932b5cb4bb",
+              "source_sha": "4fa0536becf1bbfd9b2bb88eb00eb611de5241ae",
+              "image_digest": "sha256:a44656de860ae9e2c5c5abf7f227467e40c2592eb106a1d59974d5b778db5d88",
+              "prompt_bundle_sha": "sha256:500b813e155a44de5f1b2a229bdea7043c86f03f1baa9b4779bb5e6873279048"
+            }
+          ]
+        }
+      },
+      "release_B": {
+        "gateway": {
+          "bundle_sha": "sha256:be5565e40fceb67413af72cfe36313c5e1190843db870912f898a9f26c9f6b73",
+          "pods": [
+            {
+              "uid": "81f4935d-6883-4058-b9ee-627fe91af549",
+              "source_sha": "274d8fb9ce745a2eb8dd30524388282525f38c79",
+              "image_digest": "sha256:c775fe1912ad3b5b9b53b17139d00e9ad081fdcc90c1de5f6a4393da440a5713",
+              "prompt_bundle_sha": "sha256:93f853b0699a095b2fc81f011b2e299b46244210036a3748d989ea9c6f30d958"
+            }
+          ]
+        },
+        "retrieval": {
+          "bundle_sha": "sha256:be5565e40fceb67413af72cfe36313c5e1190843db870912f898a9f26c9f6b73",
+          "pods": [
+            {
+              "uid": "6cf8b0cc-6769-464a-aeac-ccc068ce9ef0",
+              "source_sha": "274d8fb9ce745a2eb8dd30524388282525f38c79",
+              "image_digest": "sha256:ff752709f3e4ba19e04c790d22d9a79b2bef9f609f2c5bd384bd0246acb2bd38",
+              "prompt_bundle_sha": "sha256:93f853b0699a095b2fc81f011b2e299b46244210036a3748d989ea9c6f30d958"
+            }
+          ]
+        },
+        "generation": {
+          "bundle_sha": "sha256:be5565e40fceb67413af72cfe36313c5e1190843db870912f898a9f26c9f6b73",
+          "pods": [
+            {
+              "uid": "81aba103-bb73-47b8-805f-b42332d0aa0a",
+              "source_sha": "274d8fb9ce745a2eb8dd30524388282525f38c79",
+              "image_digest": "sha256:83ccb6fd527db4dab6c77174e69a9ed8ac3d0ffb52dc5987278191276b389046",
+              "prompt_bundle_sha": "sha256:93f853b0699a095b2fc81f011b2e299b46244210036a3748d989ea9c6f30d958"
+            }
+          ]
+        },
+        "ingestion-worker": {
+          "bundle_sha": "sha256:be5565e40fceb67413af72cfe36313c5e1190843db870912f898a9f26c9f6b73",
+          "pods": [
+            {
+              "uid": "e7423aa0-7b77-4a05-a434-3e06ca4a1333",
+              "source_sha": "274d8fb9ce745a2eb8dd30524388282525f38c79",
+              "image_digest": "sha256:538b48fef3a50e78ae72acf90b0646e38b59a09fd11772a35d013d99313f5a20",
+              "prompt_bundle_sha": "sha256:93f853b0699a095b2fc81f011b2e299b46244210036a3748d989ea9c6f30d958"
+            }
+          ]
+        },
+        "reranker": {
+          "bundle_sha": "sha256:be5565e40fceb67413af72cfe36313c5e1190843db870912f898a9f26c9f6b73",
+          "pods": [
+            {
+              "uid": "be5487b1-28e4-4c92-89a2-8a256ac5c0e3",
+              "source_sha": "274d8fb9ce745a2eb8dd30524388282525f38c79",
+              "image_digest": "sha256:eeb68cf669888b1352e0e3211740bd2ce3ca367a12704a694240d24f5cdf4362",
+              "prompt_bundle_sha": "sha256:93f853b0699a095b2fc81f011b2e299b46244210036a3748d989ea9c6f30d958"
+            }
+          ]
+        }
+      },
+      "rollback": {
+        "gateway": {
+          "bundle_sha": "sha256:ea810abec1d2f8e615e942ffc8382df805a11b89f9e44184a96cda14b5ffcbda",
+          "pods": [
+            {
+              "uid": "f2d95132-7682-431e-aad2-2423f7479ee3",
+              "source_sha": "4fa0536becf1bbfd9b2bb88eb00eb611de5241ae",
+              "image_digest": "sha256:d56704b95f350bc1fc6f00dba0959c4750c7f2ffed62a8bc3f3645b8f3905b85",
+              "prompt_bundle_sha": "sha256:500b813e155a44de5f1b2a229bdea7043c86f03f1baa9b4779bb5e6873279048"
+            }
+          ]
+        },
+        "retrieval": {
+          "bundle_sha": "sha256:ea810abec1d2f8e615e942ffc8382df805a11b89f9e44184a96cda14b5ffcbda",
+          "pods": [
+            {
+              "uid": "98d7f871-7e2f-4782-8067-71fd45d29237",
+              "source_sha": "4fa0536becf1bbfd9b2bb88eb00eb611de5241ae",
+              "image_digest": "sha256:a32f67b831be017dbc2c9f77d7ec410f57bc275ae3d0de474f128eab0893b9ba",
+              "prompt_bundle_sha": "sha256:500b813e155a44de5f1b2a229bdea7043c86f03f1baa9b4779bb5e6873279048"
+            }
+          ]
+        },
+        "generation": {
+          "bundle_sha": "sha256:ea810abec1d2f8e615e942ffc8382df805a11b89f9e44184a96cda14b5ffcbda",
+          "pods": [
+            {
+              "uid": "f554b409-d4fe-4557-a7a9-91b54cd4a3f0",
+              "source_sha": "4fa0536becf1bbfd9b2bb88eb00eb611de5241ae",
+              "image_digest": "sha256:7f77114e08482cf0e93ae530a95f4fde485e91636bc023abc2856edf0e711d34",
+              "prompt_bundle_sha": "sha256:500b813e155a44de5f1b2a229bdea7043c86f03f1baa9b4779bb5e6873279048"
+            }
+          ]
+        },
+        "ingestion-worker": {
+          "bundle_sha": "sha256:ea810abec1d2f8e615e942ffc8382df805a11b89f9e44184a96cda14b5ffcbda",
+          "pods": [
+            {
+              "uid": "268fde06-2ea5-4276-a448-91cdfa9102b8",
+              "source_sha": "4fa0536becf1bbfd9b2bb88eb00eb611de5241ae",
+              "image_digest": "sha256:25a315af29e0c711caf9893d026080fa0a122197fcc8b446ead7ab0c2f17e277",
+              "prompt_bundle_sha": "sha256:500b813e155a44de5f1b2a229bdea7043c86f03f1baa9b4779bb5e6873279048"
+            }
+          ]
+        },
+        "reranker": {
+          "bundle_sha": "sha256:ea810abec1d2f8e615e942ffc8382df805a11b89f9e44184a96cda14b5ffcbda",
+          "pods": [
+            {
+              "uid": "cbe81c6c-286c-41ac-99c3-b17f791e5642",
+              "source_sha": "4fa0536becf1bbfd9b2bb88eb00eb611de5241ae",
+              "image_digest": "sha256:a44656de860ae9e2c5c5abf7f227467e40c2592eb106a1d59974d5b778db5d88",
+              "prompt_bundle_sha": "sha256:500b813e155a44de5f1b2a229bdea7043c86f03f1baa9b4779bb5e6873279048"
+            }
+          ]
+        }
+      },
+      "audit_rows": [
+        {
+          "event_id": "32f60c41-4396-4db1-b2c9-d43e6ca59787",
+          "release_bundle_sha": "sha256:ea810abec1d2f8e615e942ffc8382df805a11b89f9e44184a96cda14b5ffcbda",
+          "image_sha": "4fa0536becf1bbfd9b2bb88eb00eb611de5241ae",
+          "prompt_bundle_sha": "sha256:500b813e155a44de5f1b2a229bdea7043c86f03f1baa9b4779bb5e6873279048",
+          "output_sha256": "b337ab71a72196c637af299cd832067e4f71dbeadd21cb0b894b4e3a97963896"
+        },
+        {
+          "event_id": "6217515a-ea79-410a-83f5-669fe4ba3fcc",
+          "release_bundle_sha": "sha256:be5565e40fceb67413af72cfe36313c5e1190843db870912f898a9f26c9f6b73",
+          "image_sha": "274d8fb9ce745a2eb8dd30524388282525f38c79",
+          "prompt_bundle_sha": "sha256:93f853b0699a095b2fc81f011b2e299b46244210036a3748d989ea9c6f30d958",
+          "output_sha256": "fab466f61f96f6a6a12512f5a459ef898ae9b120230c28517c4cf6a0d4a55e01"
+        }
+      ],
+      "failed_deployment": {
+        "config_revision": "8a41f0a50eb3d730d30b0a7296142572dd858005",
+        "conditions": [
+          {
+            "lastTransitionTime": "2026-09-17T02:58:19Z",
+            "message": "Running 'upgrade' action with timeout of 1m0s",
+            "observedGeneration": 3,
+            "reason": "Progressing",
+            "status": "True",
+            "type": "Reconciling"
+          },
+          {
+            "lastTransitionTime": "2026-09-17T02:58:19Z",
+            "message": "Running 'upgrade' action with timeout of 1m0s",
+            "observedGeneration": 3,
+            "reason": "Progressing",
+            "status": "Unknown",
+            "type": "Ready"
+          },
+          {
+            "lastTransitionTime": "2026-09-17T02:58:02Z",
+            "message": "Helm upgrade failed for release medw/generation with chart generation@0.7.0+274d8fb9ce74: timeout waiting for: [Deployment/medw/generation status: 'InProgress']",
+            "observedGeneration": 3,
+            "reason": "UpgradeFailed",
+            "status": "False",
+            "type": "Released"
+          },
+          {
+            "lastTransitionTime": "2026-09-17T02:58:08Z",
+            "message": "Helm rollback to previous release medw/generation.v3 with chart generation@0.7.0+274d8fb9ce74 succeeded",
+            "observedGeneration": 3,
+            "reason": "RollbackSucceeded",
+            "status": "True",
+            "type": "Remediated"
+          }
+        ]
+      },
+      "pipeline_runs": [
+        {
+          "id": 8,
+          "state": "completed",
+          "result": "succeeded",
+          "createdDate": "2026-09-17T02:29:23.5404613Z",
+          "finishedDate": "2026-09-17T02:38:18.2349458Z",
+          "source_sha": "4fa0536becf1bbfd9b2bb88eb00eb611de5241ae",
+          "steps": [
+            {
+              "type": "Task",
+              "name": "Finalize Job",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:36:22.9766667Z",
+              "finishTime": "2026-09-17T02:36:22.9933333Z"
+            },
+            {
+              "type": "Job",
+              "name": "installed_implementations",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:36:41.1666667Z",
+              "finishTime": "2026-09-17T02:36:49.3333333Z"
+            },
+            {
+              "type": "Task",
+              "name": "Post-job: Checkout limlim-S998/med_rag@main to s",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:36:22.6433333Z",
+              "finishTime": "2026-09-17T02:36:22.9766667Z"
+            },
+            {
+              "type": "Task",
+              "name": "Post-job: Checkout limlim-S998/med_rag@main to s",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:37:43.9133333Z",
+              "finishTime": "2026-09-17T02:37:44.18Z"
+            },
+            {
+              "type": "Job",
+              "name": "commit_release",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:38:05.9733333Z",
+              "finishTime": "2026-09-17T02:38:15.77Z"
+            },
+            {
+              "type": "Task",
+              "name": "HelmInstaller",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:29:47.59Z",
+              "finishTime": "2026-09-17T02:29:49.6533333Z"
+            },
+            {
+              "type": "Task",
+              "name": "Initialize job",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:29:35.7466667Z",
+              "finishTime": "2026-09-17T02:29:44.3766667Z"
+            },
+            {
+              "type": "Task",
+              "name": "Finalize Job",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:37:44.18Z",
+              "finishTime": "2026-09-17T02:37:44.2066667Z"
+            },
+            {
+              "type": "Job",
+              "name": "all_images",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:29:35.6233333Z",
+              "finishTime": "2026-09-17T02:36:22.9966667Z"
+            },
+            {
+              "type": "Task",
+              "name": "Post-job: Checkout limlim-S998/med_rag@main to s",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:36:49.06Z",
+              "finishTime": "2026-09-17T02:36:49.3066667Z"
+            },
+            {
+              "type": "Task",
+              "name": "PublishPipelineArtifact",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:36:19.54Z",
+              "finishTime": "2026-09-17T02:36:22.6433333Z"
+            },
+            {
+              "type": "Stage",
+              "name": "promote_to_dev",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:38:05.9733333Z",
+              "finishTime": "2026-09-17T02:38:17.81Z"
+            },
+            {
+              "type": "Task",
+              "name": "Verify installed model identity and target infrastructure",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:36:46.99Z",
+              "finishTime": "2026-09-17T02:36:49.06Z"
+            },
+            {
+              "type": "Stage",
+              "name": "migrate",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:37:13.72Z",
+              "finishTime": "2026-09-17T02:37:57.8133333Z"
+            },
+            {
+              "type": "Task",
+              "name": "Build, smoke, publish and verify exact artifacts",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:31:52.8333333Z",
+              "finishTime": "2026-09-17T02:36:19.54Z"
+            },
+            {
+              "type": "Task",
+              "name": "Initialize job",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:36:41.27Z",
+              "finishTime": "2026-09-17T02:36:41.9Z"
+            },
+            {
+              "type": "Task",
+              "name": "KubectlInstaller",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:29:49.8433333Z",
+              "finishTime": "2026-09-17T02:29:54.7233333Z"
+            },
+            {
+              "type": "Task",
+              "name": "UsePythonVersion",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:29:47.33Z",
+              "finishTime": "2026-09-17T02:29:47.59Z"
+            },
+            {
+              "type": "Task",
+              "name": "Apply tracked migrations with federated deployment identity",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:37:22.7033333Z",
+              "finishTime": "2026-09-17T02:37:43.91Z"
+            },
+            {
+              "type": "Task",
+              "name": "Initialize job",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:37:13.8566667Z",
+              "finishTime": "2026-09-17T02:37:18.24Z"
+            },
+            {
+              "type": "Task",
+              "name": "Checkout limlim-S998/med_rag@main to s",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:29:44.3833333Z",
+              "finishTime": "2026-09-17T02:29:47.33Z"
+            },
+            {
+              "type": "Task",
+              "name": "Check code, contracts and deployment manifests",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:29:54.7266667Z",
+              "finishTime": "2026-09-17T02:31:52.8333333Z"
+            },
+            {
+              "type": "Stage",
+              "name": "validate_models",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:36:41.1666667Z",
+              "finishTime": "2026-09-17T02:36:51.86Z"
+            },
+            {
+              "type": "Task",
+              "name": "Initialize job",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:38:06.07Z",
+              "finishTime": "2026-09-17T02:38:06.6466667Z"
+            },
+            {
+              "type": "Task",
+              "name": "Select release in Git after successful migrations",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:38:10.34Z",
+              "finishTime": "2026-09-17T02:38:15.4Z"
+            },
+            {
+              "type": "Task",
+              "name": "Post-job: Checkout limlim-S998/med_rag@main to s",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:38:15.4Z",
+              "finishTime": "2026-09-17T02:38:15.74Z"
+            },
+            {
+              "type": "Job",
+              "name": "sql_migrations",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:37:13.72Z",
+              "finishTime": "2026-09-17T02:37:44.21Z"
+            },
+            {
+              "type": "Task",
+              "name": "Checkout limlim-S998/med_rag@main to s",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:36:41.91Z",
+              "finishTime": "2026-09-17T02:36:45.0233333Z"
+            },
+            {
+              "type": "Task",
+              "name": "Finalize Job",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:38:15.7433333Z",
+              "finishTime": "2026-09-17T02:38:15.7666667Z"
+            },
+            {
+              "type": "Stage",
+              "name": "build",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:29:35.6233333Z",
+              "finishTime": "2026-09-17T02:36:32.26Z"
+            },
+            {
+              "type": "Task",
+              "name": "Download",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:36:45.0233333Z",
+              "finishTime": "2026-09-17T02:36:46.9866667Z"
+            },
+            {
+              "type": "Task",
+              "name": "Checkout limlim-S998/med_rag@main to s",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:37:18.2466667Z",
+              "finishTime": "2026-09-17T02:37:20.8133333Z"
+            },
+            {
+              "type": "Task",
+              "name": "Download",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:38:08.7833333Z",
+              "finishTime": "2026-09-17T02:38:10.34Z"
+            },
+            {
+              "type": "Task",
+              "name": "Download",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:37:20.8133333Z",
+              "finishTime": "2026-09-17T02:37:22.7033333Z"
+            },
+            {
+              "type": "Task",
+              "name": "Checkout limlim-S998/med_rag@main to s",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:38:06.6533333Z",
+              "finishTime": "2026-09-17T02:38:08.7833333Z"
+            },
+            {
+              "type": "Task",
+              "name": "Finalize Job",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:36:49.31Z",
+              "finishTime": "2026-09-17T02:36:49.3333333Z"
+            }
+          ]
+        },
+        {
+          "id": 9,
+          "state": "completed",
+          "result": "succeeded",
+          "createdDate": "2026-09-17T02:45:40.5719864Z",
+          "finishedDate": "2026-09-17T02:54:43.3683639Z",
+          "source_sha": "274d8fb9ce745a2eb8dd30524388282525f38c79",
+          "steps": [
+            {
+              "type": "Job",
+              "name": "installed_implementations",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:52:58.1966667Z",
+              "finishTime": "2026-09-17T02:53:16.9433333Z"
+            },
+            {
+              "type": "Task",
+              "name": "Post-job: Checkout limlim-S998/med_rag@main to s",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:53:16.6633333Z",
+              "finishTime": "2026-09-17T02:53:16.9033333Z"
+            },
+            {
+              "type": "Job",
+              "name": "commit_release",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:54:32.2066667Z",
+              "finishTime": "2026-09-17T02:54:40.67Z"
+            },
+            {
+              "type": "Task",
+              "name": "Finalize Job",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:54:14.3433333Z",
+              "finishTime": "2026-09-17T02:54:14.37Z"
+            },
+            {
+              "type": "Task",
+              "name": "Post-job: Checkout limlim-S998/med_rag@main to s",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:52:46.0666667Z",
+              "finishTime": "2026-09-17T02:52:46.3833333Z"
+            },
+            {
+              "type": "Task",
+              "name": "HelmInstaller",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:46:03.0933333Z",
+              "finishTime": "2026-09-17T02:46:09.6Z"
+            },
+            {
+              "type": "Task",
+              "name": "Initialize job",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:54:32.3033333Z",
+              "finishTime": "2026-09-17T02:54:32.9033333Z"
+            },
+            {
+              "type": "Job",
+              "name": "all_images",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:45:52.8433333Z",
+              "finishTime": "2026-09-17T02:52:46.4066667Z"
+            },
+            {
+              "type": "Task",
+              "name": "PublishPipelineArtifact",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:52:43.1833333Z",
+              "finishTime": "2026-09-17T02:52:46.0633333Z"
+            },
+            {
+              "type": "Task",
+              "name": "Post-job: Checkout limlim-S998/med_rag@main to s",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:54:40.3133333Z",
+              "finishTime": "2026-09-17T02:54:40.6433333Z"
+            },
+            {
+              "type": "Stage",
+              "name": "promote_to_dev",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:54:32.2066667Z",
+              "finishTime": "2026-09-17T02:54:42.9666667Z"
+            },
+            {
+              "type": "Task",
+              "name": "Verify installed model identity and target infrastructure",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:53:13.8966667Z",
+              "finishTime": "2026-09-17T02:53:16.6633333Z"
+            },
+            {
+              "type": "Stage",
+              "name": "migrate",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:53:34.34Z",
+              "finishTime": "2026-09-17T02:54:24.3866667Z"
+            },
+            {
+              "type": "Task",
+              "name": "Build, smoke, publish and verify exact artifacts",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:48:17.97Z",
+              "finishTime": "2026-09-17T02:52:43.18Z"
+            },
+            {
+              "type": "Task",
+              "name": "Finalize Job",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:53:16.9066667Z",
+              "finishTime": "2026-09-17T02:53:16.94Z"
+            },
+            {
+              "type": "Task",
+              "name": "KubectlInstaller",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:46:09.6Z",
+              "finishTime": "2026-09-17T02:46:22.9Z"
+            },
+            {
+              "type": "Task",
+              "name": "UsePythonVersion",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:46:02.8333333Z",
+              "finishTime": "2026-09-17T02:46:03.0933333Z"
+            },
+            {
+              "type": "Task",
+              "name": "Apply tracked migrations with federated deployment identity",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:53:53.34Z",
+              "finishTime": "2026-09-17T02:54:14.07Z"
+            },
+            {
+              "type": "Task",
+              "name": "Initialize job",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:45:52.9866667Z",
+              "finishTime": "2026-09-17T02:46:00.5866667Z"
+            },
+            {
+              "type": "Task",
+              "name": "Checkout limlim-S998/med_rag@main to s",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:46:00.5933333Z",
+              "finishTime": "2026-09-17T02:46:02.8333333Z"
+            },
+            {
+              "type": "Task",
+              "name": "Check code, contracts and deployment manifests",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:46:22.9Z",
+              "finishTime": "2026-09-17T02:48:17.97Z"
+            },
+            {
+              "type": "Stage",
+              "name": "validate_models",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:52:58.1966667Z",
+              "finishTime": "2026-09-17T02:53:26.01Z"
+            },
+            {
+              "type": "Task",
+              "name": "Initialize job",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:53:34.44Z",
+              "finishTime": "2026-09-17T02:53:38.1266667Z"
+            },
+            {
+              "type": "Task",
+              "name": "Select release in Git after successful migrations",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:54:36.6733333Z",
+              "finishTime": "2026-09-17T02:54:40.3133333Z"
+            },
+            {
+              "type": "Job",
+              "name": "sql_migrations",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:53:34.34Z",
+              "finishTime": "2026-09-17T02:54:14.3733333Z"
+            },
+            {
+              "type": "Task",
+              "name": "Checkout limlim-S998/med_rag@main to s",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:52:58.84Z",
+              "finishTime": "2026-09-17T02:53:00.98Z"
+            },
+            {
+              "type": "Task",
+              "name": "Finalize Job",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:54:40.6433333Z",
+              "finishTime": "2026-09-17T02:54:40.6666667Z"
+            },
+            {
+              "type": "Stage",
+              "name": "build",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:45:52.8433333Z",
+              "finishTime": "2026-09-17T02:52:50.3666667Z"
+            },
+            {
+              "type": "Task",
+              "name": "Initialize job",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:52:58.2933333Z",
+              "finishTime": "2026-09-17T02:52:58.8333333Z"
+            },
+            {
+              "type": "Task",
+              "name": "Download",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:53:00.98Z",
+              "finishTime": "2026-09-17T02:53:13.8966667Z"
+            },
+            {
+              "type": "Task",
+              "name": "Checkout limlim-S998/med_rag@main to s",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:53:38.1333333Z",
+              "finishTime": "2026-09-17T02:53:40.2633333Z"
+            },
+            {
+              "type": "Task",
+              "name": "Download",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:54:35.0466667Z",
+              "finishTime": "2026-09-17T02:54:36.6733333Z"
+            },
+            {
+              "type": "Task",
+              "name": "Download",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:53:40.2666667Z",
+              "finishTime": "2026-09-17T02:53:53.3366667Z"
+            },
+            {
+              "type": "Task",
+              "name": "Checkout limlim-S998/med_rag@main to s",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:54:32.9133333Z",
+              "finishTime": "2026-09-17T02:54:35.0466667Z"
+            },
+            {
+              "type": "Task",
+              "name": "Finalize Job",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:52:46.3866667Z",
+              "finishTime": "2026-09-17T02:52:46.4033333Z"
+            },
+            {
+              "type": "Task",
+              "name": "Post-job: Checkout limlim-S998/med_rag@main to s",
+              "state": "completed",
+              "result": "succeeded",
+              "startTime": "2026-09-17T02:54:14.0733333Z",
+              "finishTime": "2026-09-17T02:54:14.3433333Z"
+            }
+          ]
+        }
+      ],
+      "corrections": [
+        "Wait for successful public retrieval after Qdrant replacement; the passing recheck observed 503, 503, then 200 with the same volume and retained citations.",
+        "Unpaced eight-client/eight-citation load encountered Cosmos 429 at 400 RU/s. The bounded check uses two clients, one citation and 100 ms pauses, without changing database throughput.",
+        "A pooled-connection recheck completed 341 drafts and recorded two RemoteProtocolErrors. Fresh connections avoid idle-connection reuse during NGINX worker replacement; failed draft requests are never retried.",
+        "Wait for actual Prometheus samples after pod replacement. Use authenticated Kubernetes service-proxy reads instead of a local port-forward that disappeared during verification.",
+        "Check the exact journalled DevOps connection ID before deletion so an already-removed endpoint can be recorded as absent. Permission errors still fail cleanup."
+      ],
+      "initial_cleanup": {
+        "remaining_or_failed": [
+          {
+            "resource": "azure-service-connection",
+            "error": {
+              "type": "SetupError"
+            }
+          }
+        ],
+        "complete": false,
+        "borrowed_accounts_preserved": true
+      },
+      "cleanup": {
+        "remaining_or_failed": [],
+        "complete": true,
+        "borrowed_accounts_preserved": true
+      },
+      "preservation": {
+        "timestamp": "2026-09-17T03:12:46.004039+00:00",
+        "borrowed": {
+          "search": {
+            "settings": {
+              "id": "/subscriptions/f60eae2b-d738-4d0e-8096-9f3f952e0cea/resourceGroups/med-rag-tester/providers/Microsoft.Search/searchServices/medrag325744d5search",
+              "location": "Australia East",
+              "sku": {
+                "capacity": null,
+                "family": null,
+                "model": null,
+                "name": "free",
+                "size": null,
+                "tier": null
+              },
+              "properties": {
+                "authOptions": {
+                  "aadOrApiKey": {
+                    "aadAuthFailureMode": "http401WithBearerChallenge"
+                  }
+                },
+                "disableLocalAuth": false,
+                "networkRuleSet": {
+                  "bypass": "None",
+                  "ipRules": []
+                },
+                "publicNetworkAccess": "Enabled"
+              }
+            },
+            "settings_unchanged": true,
+            "remaining_namespaces": [],
+            "application_namespace_absent": true
+          },
+          "cosmos": {
+            "settings": {
+              "id": "/subscriptions/f60eae2b-d738-4d0e-8096-9f3f952e0cea/resourceGroups/med-rag-tester/providers/Microsoft.DocumentDB/databaseAccounts/medrag325744d5cosmos",
+              "location": "Australia East",
+              "sku": null,
+              "properties": {
+                "capabilities": [],
+                "consistencyPolicy": {
+                  "defaultConsistencyLevel": "Session",
+                  "maxIntervalInSeconds": 5,
+                  "maxStalenessPrefix": 100
+                },
+                "databaseAccountOfferType": "Standard",
+                "disableLocalAuth": false,
+                "enableFreeTier": true,
+                "ipRules": [],
+                "isVirtualNetworkFilterEnabled": false,
+                "locations": [
+                  {
+                    "documentEndpoint": "https://medrag325744d5cosmos-australiaeast.documents.azure.com:443/",
+                    "failoverPriority": 0,
+                    "id": "medrag325744d5cosmos-australiaeast",
+                    "isZoneRedundant": false,
+                    "locationName": "Australia East",
+                    "provisioningState": "Succeeded"
+                  }
+                ],
+                "minimalTlsVersion": "Tls12",
+                "publicNetworkAccess": "Enabled"
+              }
+            },
+            "settings_unchanged": true,
+            "remaining_namespaces": [],
+            "application_namespace_absent": true,
+            "owned_roles_remaining": []
+          }
+        },
+        "local": {
+          "profile": "medw",
+          "status": {
+            "Name": "medw",
+            "Host": "Stopped",
+            "Kubelet": "Stopped",
+            "APIServer": "Stopped",
+            "Kubeconfig": "Stopped",
+            "Worker": false
+          },
+          "unchanged": true
+        }
+      },
+      "evidence_file": "data/azure/rg-medw-dev/session-evidence.json",
+      "evidence_sha256": "5519efa01366c08f2a59fa742de8507891dc72b32c40aecda5360f43fd1574f4",
+      "limitations": [
+        "Results were collected across the initial suite and targeted rechecks; no single uninterrupted green invocation followed all verifier corrections.",
+        "The bounded scaling proof does not establish production throughput or connection continuity during every rollout.",
+        "Models, parsing and medical verification remain placeholders; Airflow and real model integration are subsequent work."
+      ]
     }
   },
   "documentation_cleanup": {

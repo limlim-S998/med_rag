@@ -505,15 +505,26 @@ asyncio.run(read())
         if not self.completed_workflows:
             raise NotVerified("indexing workflow must run before persistence verification")
         # Search retained indexed bytes before uploading any new source.
+        statuses = []
         with httpx.Client(verify=self.tls, timeout=30, headers={"Authorization": "Bearer " + self.token}) as client:
-            response = client.post(self.base + f"/studies/{quote(self.d.config['study_id'])}/search",
-                                   json={"query": "Operational acceptance", "top_k": 5})
-            hits = response.raise_for_status().json()["hits"]
+            def recovered_search():
+                response = client.post(self.base + f"/studies/{quote(self.d.config['study_id'])}/search",
+                                       json={"query": "Operational acceptance", "top_k": 5})
+                statuses.append(response.status_code)
+                # Qdrant readiness precedes downstream probes, endpoint updates
+                # and NGINX recovery. A bounded wait must observe a real success.
+                if response.status_code in (502, 503):
+                    return None
+                return response.raise_for_status().json()
+            result = await_value(recovered_search, timeout=90, interval=3,
+                                 label="public retrieval after Qdrant replacement")
+            hits = result["hits"]
             expected_source = self.completed_workflows[-1]["source_revision"]
             if not any(hit.get("citation", {}).get("source_revision") == expected_source for hit in hits):
                 raise AssertionError("uploaded source was not searchable after restart")
         return {"pvc_uid": after["metadata"]["uid"], "volume": after["spec"]["volumeName"],
-                "pod_uid": current[0]["metadata"]["uid"], "retained_citations": [h["citation"] for h in hits]}
+                "pod_uid": current[0]["metadata"]["uid"], "search_statuses": statuses,
+                "retained_citations": [h["citation"] for h in hits]}
 
     def _job(self, name, template):
         metadata = {"name": name, "namespace": "medw", "labels": {"medw-verification": self.run_id}}
@@ -585,53 +596,78 @@ asyncio.run(read())
     def monitoring_and_scaling(self):
         if not self.token or not self.completed_workflows:
             raise NotVerified("a completed authenticated workflow is required before load verification")
+        self.ready_releases()
         def replicas():
             value = self.d.kube("-n", "medw", "get", "deployment", "generation", "-o", "json", json_result=True)
             return value["status"].get("readyReplicas", 0)
         await_value(lambda: replicas() == 1, timeout=240, label="generation baseline of one replica")
         stop = threading.Event()
         counts = {"completed": 0, "failed": 0}
+        failures = {}
         lock = threading.Lock()
 
         def load():
-            with httpx.Client(verify=self.tls, timeout=60, headers={"Authorization": "Bearer " + self.token}) as client:
+            # Each draft has its own connection. NGINX replaces workers when
+            # endpoints change; don't reuse an idle connection from that worker.
+            # Failed requests are still counted, and drafts are never retried.
+            with httpx.Client(verify=self.tls, timeout=60,
+                              limits=httpx.Limits(max_keepalive_connections=0),
+                              headers={"Authorization": "Bearer " + self.token}) as client:
                 while not stop.is_set():
                     try:
                         response = client.post(self.base + f"/studies/{quote(self.d.config['study_id'])}/sections/"
                             + quote(self.d.config["section_path"]) + "/draft",
-                            json={"query": "Operational acceptance", "top_k": 8, "max_tokens": 128})
+                            json={"query": "Operational acceptance", "top_k": 1, "max_tokens": 128})
                         response.raise_for_status()
                         if not any(json.loads(line).get("type") == "complete" for line in response.text.splitlines()):
                             raise ValueError("uncommitted draft")
                         with lock:
                             counts["completed"] += 1
-                    except (httpx.HTTPError, ValueError, OSError):
+                    except (httpx.HTTPError, ValueError, OSError) as exc:
                         with lock:
                             counts["failed"] += 1
-        with self.forward("monitoring", "svc/prometheus-operated", 9090) as address, httpx.Client(timeout=20) as prometheus:
-            def query(expression):
-                result = prometheus.get(address + "/api/v1/query", params={"query": expression}).raise_for_status().json()
-                if result.get("status") != "success":
-                    raise AssertionError("Prometheus query failed")
-                return result["data"]["result"]
+                            reason = ("http_" + str(exc.response.status_code)
+                                      if isinstance(exc, httpx.HTTPStatusError) else type(exc).__name__)
+                            if isinstance(exc, httpx.RemoteProtocolError) and "without sending a response" in str(exc):
+                                reason = "connection_closed_before_response"
+                            failures[reason] = failures.get(reason, 0) + 1
+                    # Bound offered load against the shared 400 RU/s database.
+                    # This verifies scaling, not maximum sustainable throughput.
+                    stop.wait(0.1)
+        def query(expression):
+            # Use the authenticated Kubernetes service proxy for each read;
+            # a long-lived local port-forward can disappear during the load.
+            path = ("/api/v1/namespaces/monitoring/services/http:prometheus-operated:9090"
+                    "/proxy/api/v1/query?query=" + quote(expression, safe=""))
+            result = self.d.kube("--request-timeout=30s", "get", "--raw", path, json_result=True)
+            if result.get("status") != "success":
+                raise AssertionError("Prometheus query failed")
+            return result["data"]["result"]
+
+        def metric_services():
             series = query(f"sum by(app) ({INFLIGHT_METRIC})")
             observed = {row["metric"].get("app") for row in series}
-            if not set(SERVICES) <= observed:
-                raise AssertionError("Prometheus is missing application metrics")
-            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
-                futures = [pool.submit(load) for _ in range(8)]
-                try:
-                    await_value(lambda: replicas() == 2, timeout=180, label="KEDA scale-up under real drafting")
-                    gauge = query(f'sum({INFLIGHT_METRIC}{{app="generation"}})')
-                finally:
-                    stop.set()
-                    for future in futures:
-                        future.result(timeout=70)
-            if not counts["completed"] or counts["failed"]:
-                raise AssertionError("load included unsuccessful or uncommitted requests")
-            await_value(lambda: replicas() == 1, timeout=240, label="KEDA scale-down after drafting")
-            return {"metric_services": sorted(observed), "replicas": [1, 2, 1],
-                    "real_drafts": counts, "inflight_sample": gauge}
+            return observed if set(SERVICES) <= observed else None
+        observed = await_value(metric_services, timeout=120, interval=3,
+                               label="Prometheus samples from every ready service")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(load) for _ in range(2)]
+            try:
+                await_value(lambda: replicas() == 2, timeout=180, label="KEDA scale-up under real drafting")
+                gauge = query(f'sum({INFLIGHT_METRIC}{{app="generation"}})')
+            finally:
+                stop.set()
+                for future in futures:
+                    future.result(timeout=70)
+                self.report["load_observation"] = {"clients": 2, "top_k": 1,
+                    "pause_seconds": 0.1, "connection_reuse": False,
+                    "real_drafts": counts, "failures": failures}
+                self.save()
+        await_value(lambda: replicas() == 1, timeout=240, label="KEDA scale-down after drafting")
+        if not counts["completed"] or counts["failed"]:
+            raise AssertionError("load included unsuccessful or uncommitted requests")
+        return {"metric_services": sorted(observed), "replicas": [1, 2, 1],
+                "real_drafts": counts, "inflight_sample": gauge}
 
     def traces(self):
         ids = sorted(set(correlation_ids(self.completed_workflows)))

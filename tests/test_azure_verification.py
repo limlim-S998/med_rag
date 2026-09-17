@@ -8,6 +8,7 @@ import pytest
 
 from scripts.azure_verify import (
     CORRELATION_DIMENSION,
+    INFLIGHT_METRIC,
     SERVICES,
     Acceptance,
     NotVerified,
@@ -151,6 +152,53 @@ def test_correlation_query_ignores_unsafe_values():
     assert set(correlation_ids(value)) == {"safe-123", "abc:1"}
 
 
+@pytest.mark.parametrize("scenario", ["recover", "unavailable", "forbidden", "lost_source"])
+def test_persistence_requires_recovered_public_search_and_retained_source(tmp_path, monkeypatch, scenario):
+    import httpx
+
+    value = collector(tmp_path)
+    value.base, value.tls, value.token = "https://api.invalid", True, "PRIVATE-TOKEN"
+    value.d.config = {"study_id": "S1"}
+    value.completed_workflows = [{"source_revision": "retained"}]
+    restarted = False
+    requests = []
+
+    def kube(*args, **kwargs):
+        nonlocal restarted
+        if "restart" in args:
+            restarted = True
+        return {"metadata": {"uid": "same-pvc"}, "spec": {"volumeName": "same-volume"}}
+
+    def handle(request):
+        requests.append(request)
+        status = (403 if scenario == "forbidden" else 503
+                  if scenario == "unavailable" or (scenario == "recover" and len(requests) == 1) else 200)
+        return httpx.Response(status, json={"hits": [{"citation": {
+            "source_revision": "wrong" if scenario == "lost_source" else "retained"}}]})
+
+    value.d.kube = kube
+    monkeypatch.setattr(value, "pods", lambda _: [{"metadata": {
+        "uid": "new-pod" if restarted else "old-pod"}}])
+    real_client = httpx.Client
+    monkeypatch.setattr("scripts.azure_verify.httpx.Client",
+                        lambda **kwargs: real_client(transport=httpx.MockTransport(handle), **kwargs))
+    ticks = iter(range(0, 1000, 10))
+    monkeypatch.setattr("scripts.azure_verify.time.monotonic", lambda: next(ticks))
+    monkeypatch.setattr("scripts.azure_verify.time.sleep", lambda _: None)
+    if scenario == "recover":
+        result = value.persistence()
+        assert result["search_statuses"] == [503, 200]
+        assert result["pvc_uid"] == "same-pvc"
+        assert result["pod_uid"] == "new-pod"
+        assert result["retained_citations"] == [{"source_revision": "retained"}]
+    else:
+        error = {"unavailable": NotVerified, "forbidden": httpx.HTTPStatusError,
+                 "lost_source": AssertionError}[scenario]
+        with pytest.raises(error):
+            value.persistence()
+        assert len(requests) == (8 if scenario == "unavailable" else 1)
+
+
 def test_collector_scaling_metric_matches_actual_prometheus_export_and_chart():
     import sys
 
@@ -167,6 +215,76 @@ assert any(sample.name==INFLIGHT_METRIC and sample.labels.get('app')=='generatio
 chart=yaml.safe_load(pathlib.Path('deploy/charts/generation/values.yaml').read_text())
 assert 'medw_'+chart['autoscaling']['metric']==INFLIGHT_METRIC
 """], check=True)
+
+
+@pytest.mark.parametrize("scenario", ["pass", "uncommitted", "missing_metrics"])
+def test_scaling_waits_for_scrapes_and_rejects_incomplete_drafts(tmp_path, monkeypatch, scenario):
+    import threading
+    from urllib.parse import parse_qs, urlsplit
+
+    import httpx
+
+    value = collector(tmp_path)
+    value.base, value.tls, value.token = "https://api.invalid", True, "PRIVATE-TOKEN"
+    value.d.config = {"study_id": "S1", "section_path": "section"}
+    value.completed_workflows = [{"source_revision": "retained"}]
+    monkeypatch.setattr(value, "ready_releases", lambda: None)
+    barrier = threading.Barrier(3, timeout=5)
+    replica_reads = 0
+    metric_reads = 0
+    requests = []
+
+    def kube(*args, **kwargs):
+        nonlocal replica_reads, metric_reads
+        if "--raw" in args:
+            assert "--request-timeout=30s" in args
+            path = args[args.index("--raw") + 1]
+            assert path.startswith("/api/v1/namespaces/monitoring/services/http:prometheus-operated:9090/proxy/")
+            expression = parse_qs(urlsplit(path).query)["query"][0]
+            if "sum by(app)" in expression:
+                metric_reads += 1
+                rows = [] if metric_reads == 1 or scenario == "missing_metrics" else [
+                    {"metric": {"app": name}} for name in SERVICES]
+            else:
+                assert expression == f'sum({INFLIGHT_METRIC}{{app="generation"}})'
+                rows = [{"value": [1, "2"]}]
+            return {"status": "success", "data": {"result": rows}}
+        replica_reads += 1
+        if replica_reads == 2:
+            barrier.wait()
+        return {"status": {"readyReplicas": 2 if replica_reads == 2 else 1}}
+
+    def handle(request):
+        requests.append(request)
+        assert request.method == "POST" and request.url.path.endswith("/draft")
+        assert json.loads(request.content)["top_k"] == 1
+        barrier.wait()
+        return httpx.Response(200, text=json.dumps({
+            "type": "error" if scenario == "uncommitted" else "complete"}) + "\n")
+
+    real_client = httpx.Client
+    def client(**kwargs):
+        assert kwargs["limits"].max_keepalive_connections == 0
+        return real_client(transport=httpx.MockTransport(handle), **kwargs)
+    monkeypatch.setattr("scripts.azure_verify.httpx.Client", client)
+    ticks = iter(range(0, 10000, 10))
+    monkeypatch.setattr("scripts.azure_verify.time.monotonic", lambda: next(ticks))
+    monkeypatch.setattr("scripts.azure_verify.time.sleep", lambda _: None)
+    value.d.kube = kube
+    result = value.check("scaling", value.monitoring_and_scaling)
+    if scenario == "pass":
+        assert result["replicas"] == [1, 2, 1]
+        assert result["real_drafts"] == {"completed": 2, "failed": 0}
+        assert metric_reads == 2
+    else:
+        assert result is None
+        assert value.report["checks"]["scaling"]["status"] == (
+            "not_verified" if scenario == "missing_metrics" else "failed")
+    assert len(requests) == (0 if scenario == "missing_metrics" else 2)
+    if scenario == "uncommitted":
+        assert replica_reads == 3  # Scale-down is checked even when drafts failed.
+        assert value.report["load_observation"]["real_drafts"] == {"completed": 0, "failed": 2}
+    assert "PRIVATE-TOKEN" not in (tmp_path / "acceptance.json").read_text()
 
 
 @pytest.mark.asyncio
