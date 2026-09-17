@@ -12,8 +12,8 @@ spec:
   values:
     releaseRequired: true
     image:
-      digest: sha256:c775fe1912ad3b5b9b53b17139d00e9ad081fdcc90c1de5f6a4393da440a5713
-      sourceSha: 274d8fb9ce745a2eb8dd30524388282525f38c79
+      digest: sha256:d56704b95f350bc1fc6f00dba0959c4750c7f2ffed62a8bc3f3645b8f3905b85
+      sourceSha: 4fa0536becf1bbfd9b2bb88eb00eb611de5241ae
     config:
       chat_model_name: scripted-placeholder
       chat_model_version: '1'
@@ -22,13 +22,13 @@ spec:
       embed_model_version: '1'
       embed_version: hash-1
       fusion_top_n: '30'
-      prompt_bundle_sha: sha256:93f853b0699a095b2fc81f011b2e299b46244210036a3748d989ea9c6f30d958
+      prompt_bundle_sha: sha256:500b813e155a44de5f1b2a229bdea7043c86f03f1baa9b4779bb5e6873279048
       rerank_top_k: '8'
       rrf_k: '60'
       search_ef: '128'
       table_classifier_version: placeholder-1
       temperature: '0'
-      release_bundle_sha: sha256:be5565e40fceb67413af72cfe36313c5e1190843db870912f898a9f26c9f6b73
+      release_bundle_sha: sha256:ea810abec1d2f8e615e942ffc8382df805a11b89f9e44184a96cda14b5ffcbda
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -44,8 +44,8 @@ spec:
   values:
     releaseRequired: true
     image:
-      digest: sha256:83ccb6fd527db4dab6c77174e69a9ed8ac3d0ffb52dc5987278191276b389046
-      sourceSha: 274d8fb9ce745a2eb8dd30524388282525f38c79
+      digest: sha256:7f77114e08482cf0e93ae530a95f4fde485e91636bc023abc2856edf0e711d34
+      sourceSha: 4fa0536becf1bbfd9b2bb88eb00eb611de5241ae
     config:
       chat_model_name: scripted-placeholder
       chat_model_version: '1'
@@ -54,13 +54,13 @@ spec:
       embed_model_version: '1'
       embed_version: hash-1
       fusion_top_n: '30'
-      prompt_bundle_sha: sha256:93f853b0699a095b2fc81f011b2e299b46244210036a3748d989ea9c6f30d958
+      prompt_bundle_sha: sha256:500b813e155a44de5f1b2a229bdea7043c86f03f1baa9b4779bb5e6873279048
       rerank_top_k: '8'
       rrf_k: '60'
       search_ef: '128'
       table_classifier_version: placeholder-1
       temperature: '0'
-      release_bundle_sha: sha256:be5565e40fceb67413af72cfe36313c5e1190843db870912f898a9f26c9f6b73
+      release_bundle_sha: sha256:ea810abec1d2f8e615e942ffc8382df805a11b89f9e44184a96cda14b5ffcbda
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -76,8 +76,8 @@ spec:
   values:
     releaseRequired: true
     image:
-      digest: sha256:538b48fef3a50e78ae72acf90b0646e38b59a09fd11772a35d013d99313f5a20
-      sourceSha: 274d8fb9ce745a2eb8dd30524388282525f38c79
+      digest: sha256:25a315af29e0c711caf9893d026080fa0a122197fcc8b446ead7ab0c2f17e277
+      sourceSha: 4fa0536becf1bbfd9b2bb88eb00eb611de5241ae
     config:
       chat_model_name: scripted-placeholder
       chat_model_version: '1'
@@ -86,13 +86,13 @@ spec:
       embed_model_version: '1'
       embed_version: hash-1
       fusion_top_n: '30'
-      prompt_bundle_sha: sha256:93f853b0699a095b2fc81f011b2e299b46244210036a3748d989ea9c6f30d958
+      prompt_bundle_sha: sha256:500b813e155a44de5f1b2a229bdea7043c86f03f1baa9b4779bb5e6873279048
       rerank_top_k: '8'
       rrf_k: '60'
       search_ef: '128'
       table_classifier_version: placeholder-1
       temperature: '0'
-      release_bundle_sha: sha256:be5565e40fceb67413af72cfe36313c5e1190843db870912f898a9f26c9f6b73
+      release_bundle_sha: sha256:ea810abec1d2f8e615e942ffc8382df805a11b89f9e44184a96cda14b5ffcbda
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -108,8 +108,8 @@ spec:
   values:
     releaseRequired: true
     image:
-      digest: sha256:eeb68cf669888b1352e0e3211740bd2ce3ca367a12704a694240d24f5cdf4362
-      sourceSha: 274d8fb9ce745a2eb8dd30524388282525f38c79
+      digest: sha256:a44656de860ae9e2c5c5abf7f227467e40c2592eb106a1d59974d5b778db5d88
+      sourceSha: 4fa0536becf1bbfd9b2bb88eb00eb611de5241ae
     config:
       chat_model_name: scripted-placeholder
       chat_model_version: '1'
@@ -118,13 +118,13 @@ spec:
       embed_model_version: '1'
       embed_version: hash-1
       fusion_top_n: '30'
-      prompt_bundle_sha: sha256:93f853b0699a095b2fc81f011b2e299b46244210036a3748d989ea9c6f30d958
+      prompt_bundle_sha: sha256:500b813e155a44de5f1b2a229bdea7043c86f03f1baa9b4779bb5e6873279048
       rerank_top_k: '8'
       rrf_k: '60'
       search_ef: '128'
       table_classifier_version: placeholder-1
       temperature: '0'
-      release_bundle_sha: sha256:be5565e40fceb67413af72cfe36313c5e1190843db870912f898a9f26c9f6b73
+      release_bundle_sha: sha256:ea810abec1d2f8e615e942ffc8382df805a11b89f9e44184a96cda14b5ffcbda
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -140,8 +140,8 @@ spec:
   values:
     releaseRequired: true
     image:
-      digest: sha256:ff752709f3e4ba19e04c790d22d9a79b2bef9f609f2c5bd384bd0246acb2bd38
-      sourceSha: 274d8fb9ce745a2eb8dd30524388282525f38c79
+      digest: sha256:a32f67b831be017dbc2c9f77d7ec410f57bc275ae3d0de474f128eab0893b9ba
+      sourceSha: 4fa0536becf1bbfd9b2bb88eb00eb611de5241ae
     config:
       chat_model_name: scripted-placeholder
       chat_model_version: '1'
@@ -150,13 +150,13 @@ spec:
       embed_model_version: '1'
       embed_version: hash-1
       fusion_top_n: '30'
-      prompt_bundle_sha: sha256:93f853b0699a095b2fc81f011b2e299b46244210036a3748d989ea9c6f30d958
+      prompt_bundle_sha: sha256:500b813e155a44de5f1b2a229bdea7043c86f03f1baa9b4779bb5e6873279048
       rerank_top_k: '8'
       rrf_k: '60'
       search_ef: '128'
       table_classifier_version: placeholder-1
       temperature: '0'
-      release_bundle_sha: sha256:be5565e40fceb67413af72cfe36313c5e1190843db870912f898a9f26c9f6b73
+      release_bundle_sha: sha256:ea810abec1d2f8e615e942ffc8382df805a11b89f9e44184a96cda14b5ffcbda
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -171,8 +171,8 @@ spec:
   values:
     snapshots:
       image:
-        digest: sha256:538b48fef3a50e78ae72acf90b0646e38b59a09fd11772a35d013d99313f5a20
-        sourceSha: 274d8fb9ce745a2eb8dd30524388282525f38c79
+        digest: sha256:25a315af29e0c711caf9893d026080fa0a122197fcc8b446ead7ab0c2f17e277
+        sourceSha: 4fa0536becf1bbfd9b2bb88eb00eb611de5241ae
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: GitRepository
@@ -182,4 +182,4 @@ metadata:
 spec:
   suspend: false
   ref:
-    commit: 274d8fb9ce745a2eb8dd30524388282525f38c79
+    commit: 4fa0536becf1bbfd9b2bb88eb00eb611de5241ae
