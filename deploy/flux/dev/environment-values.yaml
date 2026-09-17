@@ -25,6 +25,7 @@ spec:
       qdrant_write_consistency_factor: 1
       reranker_url: http://reranker:8000
       retrieval_url: http://retrieval:8000
+      upload_ttl_seconds: 5
     image:
       repository: medwdev9528fa20acr.azurecr.io/gateway
     serviceAccount:
