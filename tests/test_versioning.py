@@ -120,9 +120,19 @@ def test_generation_promotion_depends_on_successful_migration():
 
 
 @pytest.mark.skipif(not shutil.which("kubectl"), reason="kubectl required")
-def test_selected_release_pins_chart_source_without_changing_other_environments(bundle, tmp_path):
+@pytest.mark.parametrize("selected_schema_version", [1, 2])
+def test_selected_release_pins_chart_source_without_changing_other_environments(bundle, tmp_path,
+                                                                               selected_schema_version):
+    historical = bundle
+    bundle = create({**bundle["images"], "airflow": {
+        "digest": "sha256:" + "6" * 64, "source_sha": "a" * 40}}, bundle["behavior"], tmp_path / "prompts")
     working = tmp_path / "checkout"
     shutil.copytree(ROOT / "deploy/flux", working / "deploy/flux")
+    # The checked-in selection changes after deployment. Establish each starting
+    # contract explicitly, then promote a complete release including Airflow.
+    existing = historical if selected_schema_version == 1 else bundle
+    (working / "deploy/flux/dev/release-values.yaml").write_text(
+        yaml.safe_dump_all(release_patches(existing), sort_keys=False))
     staging_before = (working / "deploy/flux/staging/release-values.yaml").read_bytes()
     select(bundle, "dev", root=working)
     rendered = subprocess.check_output(["kubectl", "kustomize", str(working / "deploy/flux/dev")], text=True)
@@ -136,6 +146,9 @@ def test_selected_release_pins_chart_source_without_changing_other_environments(
         name = release["metadata"]["name"]
         if name in SERVICES:
             assert release["spec"]["values"]["image"]["digest"] == bundle["images"][name]["digest"]
+            assert release["spec"]["suspend"] is False
+        elif name == "airflow":
+            assert release["spec"]["values"]["airflow"]["images"]["airflow"]["digest"] == bundle["images"][name]["digest"]
             assert release["spec"]["suspend"] is False
     assert (working / "deploy/flux/staging/release-values.yaml").read_bytes() == staging_before
 

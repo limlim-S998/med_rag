@@ -96,6 +96,22 @@ def test_preflight_failure_never_provisions(monkeypatch, tmp_path):
     assert json.loads((deployment.directory / "preflight.json").read_text())["passed"] is False
 
 
+def test_preflight_checks_application_insights_automatic_alert_dependency(monkeypatch, tmp_path):
+    deployment = azure.Deployment(config(), root=tmp_path)
+    registered = False
+
+    def provider(*args):
+        assert args[:3] == ("provider", "show", "-n")
+        state = "NotRegistered" if args[3] == "Microsoft.AlertsManagement" and not registered else "Registered"
+        return {"registrationState": state}
+
+    monkeypatch.setattr(azure, "az", provider)
+    with pytest.raises(azure.SetupError, match=r"Microsoft\.AlertsManagement"):
+        deployment._providers()
+    registered = True
+    assert deployment._providers() == "Required resource providers registered"
+
+
 def test_cost_reserves_os_qdrant_airflow_metadata_and_log_disks():
     quote = {kind: {"hourly_aud": 0.1} for kind in
              ("node", "registry", "sql", "disk", "load_balancer", "public_ip")}

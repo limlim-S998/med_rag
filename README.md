@@ -848,6 +848,17 @@ option supported by the operator commands.
   authenticated listing can establish that it is already gone; a permission
   failure cannot. This corrects retries that previously treated an already-deleted
   connection as a cleanup failure, while preserving other connections.
+- Application Insights creates its failure-anomaly alert separately from the
+  telemetry component. A missing `Microsoft.AlertsManagement` registration can
+  leave that alert deployment failed even when Application Insights itself is
+  ready. Preflight now checks this supporting provider before paid creation.
+  An alert failure in Azure's activity log is distinct from a delivery pipeline
+  failure; inspect the failed pipeline task to identify what stopped `azure-up`.
+- Release-rendering tests explicitly establish both legacy and Airflow-enabled
+  starting selections and promote a complete six-image release. Previously one
+  test copied the current Git selection but submitted a legacy five-image fixture,
+  so the next build failed after the first Airflow release. The production guard
+  against rolling a live Airflow installation back to that older contract remains.
 
 ## Azure configuration reference
 

@@ -41,6 +41,8 @@ if str(ROOT) not in sys.path:
 SERVICES = ("gateway", "retrieval", "generation", "ingestion-worker", "reranker")
 PROVIDERS = ("Microsoft.ContainerService", "Microsoft.ContainerRegistry", "Microsoft.Storage",
              "Microsoft.Sql", "Microsoft.DocumentDB", "Microsoft.Search", "Microsoft.Insights",
+             # Application Insights creates its failure-anomaly alert asynchronously.
+             "Microsoft.AlertsManagement",
              "Microsoft.OperationalInsights", "Microsoft.ManagedIdentity", "Microsoft.Network", "Microsoft.Compute")
 API = "https://management.azure.com"
 
