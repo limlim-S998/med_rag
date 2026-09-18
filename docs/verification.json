@@ -3766,6 +3766,52 @@
         "path": "data/azure/airflow-rehearsal-20260917.zip",
         "sha256": "98a30f8b1c31eb55e8b24d705887a7bce1f3d3fc19e6ecd3dc7dfabacfcc9836"
       }
+    },
+    "azure-startup-repair-20260918": {
+      "schema_version": 1,
+      "recorded_at": "2026-09-18T05:34:57.596902+00:00",
+      "scope": "Recovery of the 2026-09-18 mentor setup; alert repair and failed delivery checks.",
+      "original_source_sha": "b034f07181d8a5ece7c99874eeeea08d6a825a20",
+      "fixed_source_sha": "3f04e63536446df377d0d9f55b14833aeb527f30",
+      "original_pipeline": {
+        "pipeline_id": 11,
+        "run_id": 12,
+        "result": "failed",
+        "failed_task": "Check code, contracts and deployment manifests",
+        "tests_passed": 364,
+        "tests_failed": 1,
+        "failure": "Legacy five-image test fixture attempted to replace the selected six-image Airflow release."
+      },
+      "alert": {
+        "original_error": "MissingSubscriptionRegistration",
+        "namespace": "Microsoft.AlertsManagement",
+        "registration_state": "Registered",
+        "deployment_name": "Failure-Anomalies-Alert-Rule-Deployment-a383c0ca",
+        "repair_deployment_state": "Succeeded",
+        "repair_correlation_id": "3a13a344-21bb-4d75-b631-c2347893c584",
+        "application_insights_state": "Succeeded"
+      },
+      "local_validation": {
+        "focused_tests_passed": 74,
+        "make_check": "passed",
+        "tests_passed": 367,
+        "warnings": 3,
+        "charts": 7,
+        "flux_configurations": 4,
+        "nginx_contract": "passed"
+      },
+      "deployment_resume": {
+        "run_id": 13,
+        "setup_process": "stopped",
+        "pipeline_cancellation": "completed",
+        "reason": "User requested to perform startup from README step 6 personally.",
+        "application_readiness": "not yet verified",
+        "pipeline_result": "canceled"
+      },
+      "cleanup": {
+        "performed": false,
+        "reason": "Existing resources intentionally preserved for the user to resume setup."
+      }
     }
   },
   "documentation_cleanup": {
