@@ -18,6 +18,11 @@ current verification records live in [docs/verification.json](docs/verification.
 Each record identifies its own tested artifacts; older results are not evidence
 that a later build has passed the same exercise.
 
+**For the mentor demonstration, follow [Mentor walkthrough](#mentor-walkthrough)
+from preparation through cleanup.** It is the complete sequence for the existing
+machine and Azure configuration. The development commands elsewhere in this
+README are not deployment or presentation steps.
+
 ## Current state
 
 Before retirement of the local deployment option, the application workflow passed
@@ -88,7 +93,471 @@ and volumes preserved. Its historical application source is
 Removing local deployment support does not migrate, restart or delete that
 installation. Current Azure deployments use Qdrant 1.19.0.
 
+## Mentor walkthrough
+
+Follow preparation steps **1–7** before presenting, demonstration steps **8–12**
+with your mentor, and cleanup steps **13–14** afterwards. Use the same terminal
+throughout. Copy one command block at a time and wait for it to finish before
+continuing. If a command fails, stop that sequence; the failure instructions
+below explain how to leave the resources safely.
+
+This walkthrough uses the existing checkout, Python environment,
+`data/azure/config.json`, Azure DevOps project and `medw-github` connection.
+Do not recreate them or copy the example configuration over the existing file.
+The previous rehearsal's Azure deployment was removed, so it must be provisioned
+again before the demonstration.
+
+Allow **60–90 minutes for preparation** and **10–15 minutes for the presentation**.
+The previous cold deployment took about 37 minutes, but that is not a guarantee.
+Deploy shortly before the meeting: the configured estimate covers a four-hour
+session, including setup, rehearsal and presentation. Four hours is an estimate
+input, not an automatic shutdown. If you practise on a different day, complete
+cleanup that day and repeat preparation before the meeting.
+
+You will show exactly these three places:
+
+| Where | What to show |
+|---|---|
+| A terminal on this computer | Input file, real API progress, generated text, accepted draft, Airflow batch results and deployment status |
+| [Azure Portal](https://portal.azure.com/) | The uploaded file in the application's Blob Storage account |
+| [Azure Pipelines](https://dev.azure.com/gzwhbosons/medwriter-assist/_build) | The successful build, checks, database migration and release selection |
+
+The terminal controls Azure remotely. The application, databases, Airflow and
+temporary API client all run in Azure. The input file and saved evidence are on
+your computer. **There is no localhost page to open for this walkthrough.**
+The public API address is not a frontend website, and Airflow's private UI is not
+needed for these steps. The API client authenticates automatically through its
+Azure workload identity; your operator sign-in in step 3 is separate.
+
+### Preparation
+
+#### 1. Open a terminal in the project
+
+Open your usual terminal, or the editor's integrated terminal, and run:
+
+```sh
+cd /home/kusanagi/Downloads/med_RAG/medwriter-assist
+.venv/bin/python --version
+ls data/azure/config.json
+```
+
+Expect a Python version and the configuration filename, with no missing-file
+errors. All Python commands below explicitly use this existing environment;
+activating it with `source` is unnecessary. You do not need to run `make dev`,
+`make check`, `pytest` or `build_images.py` for this walkthrough. The deployment
+pipeline performs its own checks and image builds.
+
+#### 2. Put the input outside Git's working files and check the checkout
+
+You already have `mentor.txt` in the project root. Deployment requires a clean
+Git checkout, so move that input into the ignored data directory. This block
+preserves its contents and will not overwrite an existing destination. If neither
+file exists, it creates a small synthetic input instead:
+
+```sh
+mkdir -p data/azure/mentor
+if [ -f mentor.txt ]; then
+    mv -n mentor.txt data/azure/mentor/mentor.txt
+fi
+if [ ! -f data/azure/mentor/mentor.txt ]; then
+    printf '%s\n' 'Synthetic mentor demonstration. The study enrolled 17 fictional participants.' > data/azure/mentor/mentor.txt
+fi
+git branch --show-current
+git status --short
+```
+
+Expect `main` from the branch command and **no output** from the status command.
+If filenames appear, stop: they represent uncommitted work. Do not delete or
+reset them to force deployment through. If both copies of `mentor.txt` existed,
+the block deliberately left the original in place for you to resolve.
+
+Once the checkout is clean, bring it up to date:
+
+```sh
+git pull --ff-only origin main
+```
+
+Expect a successful update or “Already up to date.” A Git error must be resolved
+before continuing; setup publishes configuration to this branch.
+
+#### 3. Check your Azure operator login
+
+```sh
+az account show --output table
+```
+
+If it asks you to log in, or the credentials have expired, run:
+
+```sh
+az login
+```
+
+Complete the browser sign-in with the Azure account used for this project.
+If the CLI presents a subscription selection, choose the project's subscription.
+Then run the following block whether or not a new sign-in was needed. It selects
+the exact subscription already recorded in the deployment configuration:
+
+```sh
+az account set --subscription "$(.venv/bin/python -c 'import json; print(json.load(open("data/azure/config.json"))["subscription_id"])')"
+az account show --query '{subscription:name,id:id}' --output table
+```
+
+The ID for the current configuration is
+`f60eae2b-d738-4d0e-8096-9f3f952e0cea`. Use this same subscription in Azure Portal.
+No application token, device code or localhost sign-in is required by this guide.
+
+#### 4. Check Docker is available to the setup script
+
+```sh
+docker info --format '{{.ServerVersion}}'
+```
+
+Expect a server version. If it says it cannot connect to the Docker daemon, start
+the installed Docker service on this Linux computer, then retry the check:
+
+```sh
+sudo systemctl start docker
+docker info --format '{{.ServerVersion}}'
+```
+
+Docker is used for a temporary administration tool during setup. It does not
+deploy the application locally. Azure CLI, kubectl, Helm, Flux, Git and OpenSSL
+are already installed on this machine; the next step checks them too.
+
+#### 5. Validate access, capacity and the cost estimate
+
+```sh
+make azure-preflight
+```
+
+Wait for the final JSON report. Every check and the report's overall `passed`
+must be `true`; `billable_resources_created` should be `false`.
+Find the `estimated-cost` check and read its `estimated_aud` and `hours` values.
+The current configuration uses four hours and an A$20 budget target. This is an
+estimate, not a spending cap. Do not continue if a check fails or the planned
+session would exceed that duration without revisiting the estimate.
+
+Preflight may create a temporary Azure DevOps pipeline to verify free build
+capacity and Git access. Its notification is expected; it removes that temporary
+pipeline afterwards. The application pipeline is created in the next step.
+
+#### 6. Create the Azure deployment and wait for the release
+
+```sh
+make azure-up
+```
+
+Keep this terminal open and wait for it to return. This command creates the
+owned Azure resources, configures identities and the test study, initializes
+storage and SQL, installs the cluster components, and starts Azure Pipelines.
+The pipeline checks and builds all six images, publishes them to the registry,
+applies migrations and commits the selected release. Flux reads that selection
+and installs the application and Airflow. You do not need to click “Run pipeline”
+or issue separate Helm installation commands.
+
+Success ends with JSON containing `url`, `ca_file` and `pipeline`, without an
+error. For the current configuration the API URL is
+`https://medwdev9528fa20.australiaeast.cloudapp.azure.com`. The client automatically
+uses the matching trust certificate; do not bypass browser or client TLS checks.
+
+If setup fails, do not start the presentation. Some paid resources may already
+exist. After resolving the reported issue, the same `make azure-up` command can
+resume using its journal. If abandoning the attempt, run cleanup step 13 even
+though setup did not finish. Closing the terminal does not delete cloud resources.
+
+#### 7. Check readiness, open the browser pages and rehearse
+
+Point this terminal at the Azure cluster explicitly, so it cannot accidentally
+use the old local Kubernetes installation:
+
+```sh
+export KUBECONFIG="$PWD/data/azure/rg-medw-dev/kubeconfig"
+kubectl get nodes
+kubectl -n flux-system get kustomization medw-dev
+kubectl -n medw get helmreleases
+```
+
+Expect one node with status `Ready`, the `medw-dev` configuration with `READY=True`,
+and **seven Helm releases with `READY=True`**: `airflow`, `gateway`, `generation`,
+`ingestion-worker`, `qdrant`, `reranker` and `retrieval`.
+
+In your browser:
+
+1. Open [Azure Portal](https://portal.azure.com/) and sign in. Search for
+   **Resource groups**, open `rg-medw-dev`, then open the storage account
+   `medwdev9528fa20sa`. In its left menu choose **Data storage → Containers → raw**.
+   Leave this tab open. If the group is absent after successful setup, check the
+   portal's directory/subscription filter against step 3.
+2. Open [the project's Pipelines page](https://dev.azure.com/gzwhbosons/medwriter-assist/_build).
+   Choose **Pipelines → Pipelines** if needed, then `medwriter-delivery` and its
+   newest successful run from this setup. Leave the run summary open. Historical
+   run numbers from previous rehearsals are not the new run: cleanup removed
+   the previous pipeline.
+
+Practise steps 8–12 once before your mentor arrives. At the meeting, repeat 8–12;
+step 8 gives each walkthrough its own evidence directory. Do not run cleanup
+between that rehearsal and the meeting if they are part of the same short session.
+**Do not run `make azure-verify`: that separate acceptance suite injects failures
+and tears the deployment down when it finishes.**
+
+### Demonstration
+
+#### 8. Introduce the system and start a new evidence directory
+
+Show the terminal. Say: “This demonstrates the Azure infrastructure and application
+workflow. The document processing and writing models are placeholders; the storage,
+authentication, service calls, scheduling and release pipeline are real.”
+
+Run this block, including when repeating the demonstration after rehearsal:
+
+```sh
+cd /home/kusanagi/Downloads/med_RAG/medwriter-assist
+export KUBECONFIG="$PWD/data/azure/rg-medw-dev/kubeconfig"
+export MEDW_DEMO_EVIDENCE="$PWD/data/azure/mentor/run-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$MEDW_DEMO_EVIDENCE"
+echo "$MEDW_DEMO_EVIDENCE"
+```
+
+Keep using this terminal. `KUBECONFIG` selects Azure, and `MEDW_DEMO_EVIDENCE`
+is simply the folder where this walkthrough's reports will be written.
+
+#### 9. Show a file going through immediate processing
+
+First show the file contents and their SHA-256 checksum, the fingerprint of the
+exact bytes:
+
+```sh
+cat data/azure/mentor/mentor.txt
+sha256sum data/azure/mentor/mentor.txt
+```
+
+Then run:
+
+```sh
+.venv/bin/python scripts/cloud_demo.py run \
+    --kubeconfig "$KUBECONFIG" \
+    --processing immediate \
+    --file data/azure/mentor/mentor.txt \
+    --output "$MEDW_DEMO_EVIDENCE/immediate.json"
+```
+
+This launches a temporary API client in AKS. Watch the terminal for these events:
+
+| Output | What to explain |
+|---|---|
+| `connected` | The Azure client has authenticated and obtained the installed release identity |
+| `uploaded` | The file has been uploaded through a restricted URL; its checksum identifies the source |
+| `submitted`, followed by job progress | A durable ingestion job was created and processed |
+| `retrieved` | Search returned the uploaded source through the retrieval service |
+| The generated text | Generation called retrieval and streamed placeholder output; this can finish very quickly |
+| `accepted` and `complete` | The draft was persisted and that specific draft was accepted through the API |
+
+The script performs acceptance automatically; there is no browser form to fill
+in. It finishes by printing the evidence filename and removes its temporary client
+Job. The application stays running. Allow a few minutes; do not treat the initial
+`uploaded` event alone as completion.
+
+#### 10. Show the concise result and the actual Blob
+
+Run this read-only block to print the important fields from the saved result:
+
+```sh
+.venv/bin/python - <<'PY'
+import json, os
+from pathlib import Path
+report = json.loads((Path(os.environ['MEDW_DEMO_EVIDENCE']) / 'immediate.json').read_text())
+complete = next(event for event in report['events'] if event['stage'] == 'complete')
+item = complete['evidence'][0]
+print('Walkthrough passed:', report['passed'])
+print('Input SHA-256 / raw blob name:', item['input']['sha256'])
+print('Ingestion job:', item['job_id'])
+print('Job state:', item['state'])
+print('Uploaded source retrieved:', item['checks']['retrieved_uploaded_source'])
+print('Draft / SQL audit event:', item['draft']['event_id'])
+print('Acceptance:', item['acceptance']['status'])
+print('Release bundle:', item['release']['release_bundle_sha'])
+print('Unauthenticated request rejected:', complete['unauthenticated_rejected'])
+PY
+```
+
+Expect `Walkthrough passed: True`, job state `done`, retrieved source `True`,
+acceptance `accepted` and unauthenticated request rejected `True`. The checksum
+must match step 9. These IDs let you trace the file to ingestion, the persisted
+draft and the release that produced it. Acceptance is a workflow status, not a
+claim that the placeholder text has been medically reviewed.
+
+Switch to the Azure Portal tab opened in step 7:
+
+1. Refresh the `raw` container's blob list.
+2. Find the blob whose name is the full checksum just printed. You can paste
+   that checksum into the blob-name filter.
+3. Open the blob, show its size, choose **Download**, and open the downloaded
+   file as text. Its contents should match the input shown in step 9.
+
+The preserved source blob is named by its checksum, **not `mentor.txt`**. A
+`staging` folder may also appear; the checksum-named blob is the preserved source.
+Microsoft documents the portal's container and download controls in its
+[Blob Storage quickstart](https://learn.microsoft.com/en-us/azure/storage/blobs/storage-quickstart-blobs-portal).
+
+Say: “The original file is in Azure Blob Storage, and its source identity follows
+it through indexing, retrieval and the saved draft.”
+
+#### 11. Show deferred processing through the real Airflow DAG
+
+Return to the same terminal and run:
+
+```sh
+.venv/bin/python scripts/cloud_demo.py run \
+    --kubeconfig "$KUBECONFIG" \
+    --processing nightly \
+    --output "$MEDW_DEMO_EVIDENCE/nightly.json"
+```
+
+No extra input files are needed: this command creates two small synthetic
+documents. It uploads both through the normal APIs and checks that both initially
+remain `scheduled`. After `awaiting_batch`, the operator script automatically
+triggers the installed `ingest_study` DAG. You will see
+`Triggered the installed nightly DAG`, followed by job progress and completion.
+Do not trigger it separately in another terminal or UI.
+
+Say: “These uploads were marked for nightly processing. Normally the schedule
+admits them at 2:00 am Brisbane time. I am triggering that same DAG now so we can
+watch it without waiting until tomorrow.”
+
+After the command finishes, print its result:
+
+```sh
+.venv/bin/python - <<'PY'
+import json, os
+from pathlib import Path
+report = json.loads((Path(os.environ['MEDW_DEMO_EVIDENCE']) / 'nightly.json').read_text())
+complete = next(event for event in report['events'] if event['stage'] == 'complete')
+print('Walkthrough passed:', report['passed'])
+print('Initial states:', [event['state'] for event in report['events'] if event['stage'] == 'submitted'])
+print('Airflow run:', report['dag_run_id'])
+print('Airflow final state:', report['dag_state'])
+for item in complete['evidence']:
+    print('Job:', item['job_id'])
+    print('  State:', item['state'], '| Batch:', item['batch_id'])
+    print('  Uploaded source retrieved:', item['checks']['retrieved_uploaded_source'])
+PY
+```
+
+Expect initial states `['scheduled', 'scheduled']`, Airflow final state `success`,
+two jobs in state `done`, the **same batch ID** for both, and retrieved source
+`True` for each. The script checks Airflow's actual recorded run state as well as
+the application jobs. It is not merely submitting two immediate requests.
+The previous two-document DAG took about 34 seconds; allow a few minutes here.
+
+This part demonstrates deferred ingestion and retrieval. The immediate part
+already demonstrated drafting and acceptance. An actual overnight firing of the
+schedule is outside this short presentation.
+
+#### 12. Show how the software reached Azure
+
+Switch to the Azure Pipelines run summary opened in step 7. Show its green stages:
+
+| Stage | Plain-language explanation |
+|---|---|
+| `build` | Checks the code, builds and smoke-tests six container images, then publishes them to Azure Container Registry |
+| `validate_models` | Checks that the declared placeholder model identities match the packaged implementations |
+| `migrate` | Applies the application's tracked SQL schema changes |
+| `promote_to_dev` | Commits the exact release selection to Git after the previous stages pass |
+
+Click a stage to show its job/task results if useful. These controls are on the
+[pipeline run summary](https://learn.microsoft.com/en-us/azure/devops/pipelines/create-first-pipeline?view=azure-devops).
+Show the successful run produced during preparation; you do not need to start a
+second build during the meeting.
+
+Then return to the terminal:
+
+```sh
+kubectl -n flux-system get gitrepository medwriter-assist
+kubectl -n flux-system get kustomization medw-dev
+kubectl -n medw get helmreleases
+```
+
+Point out the Git revision and the `READY=True` results. Explain: “The pipeline
+builds and records a release. Flux watches that Git selection and uses Helm to
+apply it to the Azure cluster. These seven ready releases are the deployed
+application, Qdrant and Airflow.”
+
+This presentation shows initial delivery and the application workflows. It does
+not perform a live release upgrade, rollback, load test or failure injection;
+those separate exercises have their own records in `docs/verification.json`.
+
+### Cleanup
+
+#### 13. Save the pipeline result, then remove the deployment
+
+Do this **after the meeting**, while still in the project terminal. The two
+workflow reports are already saved. Export the recent pipeline summaries too,
+because teardown removes the pipeline created for this deployment:
+
+```sh
+az pipelines runs list \
+    --organization https://dev.azure.com/gzwhbosons \
+    --project medwriter-assist \
+    --top 5 --output json > "$MEDW_DEMO_EVIDENCE/pipeline-runs.json"
+```
+
+Then remove the cloud deployment:
+
+```sh
+make azure-down
+```
+
+Wait for the command to finish; deletion can take several minutes. This removes
+the owned application resources and its test data, including the deployment's
+pipeline and Azure service connection. It preserves the borrowed free Search and
+Cosmos accounts, unrelated experiments and the existing GitHub connection.
+
+If a preparation or presentation step failed, still run `make azure-down` when
+abandoning the attempt. It does not depend on the evidence export succeeding or
+on an active `KUBECONFIG`. From a new terminal, first repeat the `cd` command from
+step 1. Keep `data/azure/config.json` and the deployment's `state.json`; cleanup
+uses them to identify what it owns.
+
+#### 14. Confirm cleanup and keep the reports
+
+```sh
+cat data/azure/rg-medw-dev/cleanup.json
+az group exists --name rg-medw-dev
+az group exists --name MC_rg-medw-dev_medwdev9528fa20aks_australiaeast
+```
+
+Expect the cleanup report to contain:
+
+```json
+{
+  "remaining_or_failed": [],
+  "complete": true,
+  "borrowed_accounts_preserved": true
+}
+```
+
+Both resource-group checks should return `false`. If cleanup reports failures,
+read the listed error, resolve it and rerun `make azure-down`; do not assume
+closing the terminal has stopped charges. Keep the journal for that retry.
+
+After successful cleanup, in the original walkthrough terminal copy its report
+beside the application evidence:
+
+```sh
+cp data/azure/rg-medw-dev/cleanup.json "$MEDW_DEMO_EVIDENCE/cleanup.json"
+echo "$MEDW_DEMO_EVIDENCE"
+```
+
+That printed folder contains `immediate.json`, `nightly.json`,
+`pipeline-runs.json` and `cleanup.json`. Keep it for the mentor discussion and
+future troubleshooting. Share those reports rather than the entire deployment
+state directory, which also contains operator configuration and credentials.
+The input file remains at `data/azure/mentor/mentor.txt` for the next session.
+
 ## Development and offline tests
+
+These commands are for code development. For the prepared Azure demonstration,
+use the [mentor walkthrough](#mentor-walkthrough) above.
 
 Requires Python 3.11+; full checks also use Helm 3.19+ and kubectl. Service images use
 Python 3.11 with exact hash-checked dependencies; the host environment resolves
@@ -140,7 +609,7 @@ creation on a rerun. It does not deploy an alternate application. To check only 
 python scripts/build_images.py --service airflow --tag batch-check
 ```
 
-For a browser-controlled cloud walkthrough, `scripts/cloud_demo.py` runs an API
+For the cloud walkthrough, `scripts/cloud_demo.py` runs an API
 client as a temporary AKS Job using the selected ingestion image. Its separate
 `demo-client` workload identity receives membership in the configured test study,
 with no direct Blob/Cosmos/Search/SQL grants. Audit attributes its actions to that
@@ -380,7 +849,11 @@ option supported by the operator commands.
   failure cannot. This corrects retries that previously treated an already-deleted
   connection as a cleanup failure, while preserving other connections.
 
-## Azure commissioning
+## Azure configuration reference
+
+For the existing machine and configured Azure project, follow the complete
+[mentor walkthrough](#mentor-walkthrough). This section explains configuration
+and other operator commands; it is not an additional preparation checklist.
 
 Install Azure CLI, Docker, kubectl, Helm 3.19+, Flux and OpenSSL, then run `az login`
 and select the intended subscription with `az account set --subscription ID`.
@@ -393,21 +866,17 @@ Use OAuth to authorize the repository and save the connection as `medw-github`.
 Copy its connection ID from its settings URL into `devops.github_service_connection_id`;
 set `devops.organization` and `devops.project` in the same configuration. Setup
 creates the Azure federation connection and pipeline. Browser authorization and
-the later API browser sign-in are the interactive steps; no password or token is
-needed in chat or the configuration file.
+operator Azure sign-in are interactive steps; no password or token is needed in
+chat or the configuration file. This project's existing `medw-github` connection
+is already configured and survives teardown.
 
-Use one ignored configuration file, initially copied from
-[infra/azure.example.json](infra/azure.example.json):
+Use one ignored configuration file. Only for an entirely new setup with no
+existing file, copy [infra/azure.example.json](infra/azure.example.json) and fill
+its values. The no-overwrite copy below preserves an existing configuration:
 
 ```sh
 mkdir -p data/azure
-cp infra/azure.example.json data/azure/config.json
-# Fill configuration once; commands below reuse it.
-make azure-preflight
-make azure-up
-make demo-run FILE=/absolute/path/to/a/file
-make azure-verify
-make azure-down
+cp -n infra/azure.example.json data/azure/config.json
 ```
 
 `AZURE_CONFIG=/path/to/config.json` overrides the same file for every command.
@@ -417,40 +886,18 @@ index/database names, study membership and Azure DevOps organization/project.
 The current project is `https://dev.azure.com/gzwhbosons/medwriter-assist`.
 Passwords, SAS tokens and service credentials do not belong in that file or Git.
 
-After deployment, the meeting walkthrough can be controlled from Azure Cloud
-Shell with Python and kubectl; no local application or localhost login callback
-is involved. Obtain AKS credentials for the configured cluster in Cloud Shell,
-clone this repository, and run:
-
-```sh
-python3 scripts/cloud_demo.py run --processing immediate
-python3 scripts/cloud_demo.py run --processing nightly
-# Optionally use files uploaded into Cloud Shell instead of generated synthetic documents:
-python3 scripts/cloud_demo.py run --processing nightly --file first.txt --file second.txt
-```
-
-Immediate processing displays upload/job progress, retrieval and streamed text,
-then accepts the persisted draft. The nightly command defaults to two documents,
-proves they are deferred, triggers the installed `ingest_study` DAG, and checks
-the batch, retrieval and Airflow's final run state. Only the operator triggers
-Airflow; the client identity cannot coordinate batches. Files are transferred to
-temporary pod storage, then uploaded through the ordinary SAS flow. Evidence is
-saved under `data/azure/walkthrough-*.json`, excluding credentials and SAS URLs.
-`--kubeconfig PATH` and `--output PATH` are available. Client Jobs are removed on
-success or failure; the application remains deployed for the meeting. Use
-`azure-down` after the session. The full `azure-verify` command is separate and
-still tears the entire owned deployment down.
-
-Allow time to deploy and rehearse before the meeting: the recorded cold setup
-took approximately 37 minutes through the hosted pipeline and Flux installation.
-The two-document DAG then completed in approximately 34 seconds. Those timings
-describe this small placeholder workload, not a service-level guarantee.
+The mentor walkthrough uses `scripts/cloud_demo.py` with an explicit Azure
+kubeconfig. It transfers inputs to a temporary AKS client, which calls the normal
+public APIs using workload identity. Client Jobs are removed on success or
+failure; the application stays deployed until cleanup. Only the operator can
+trigger Airflow; the client identity cannot coordinate batches. The full
+`azure-verify` suite is separate and tears the owned deployment down.
 
 | Command | Behavior |
 |---|---|
 | `azure-preflight` | Access, provider registration, VM capacity/quota, borrowed resource compatibility, nonbillable build-access proof and current price estimate; blocks paid creation on failure |
 | `azure-up` | Journalled resource creation, schema/membership setup, Entra/workload identities, controller/TLS/telemetry, pipeline and initial Flux release |
-| `demo-run FILE=…` | Normal authenticated upload-to-acceptance API workflow; verifies stream completion and saves evidence |
+| `demo-run FILE=…` | Alternative human-client API exercise with interactive application sign-in; not used in the mentor walkthrough |
 | `demo-run FILE=… PROCESSING=nightly` | Preserves an upload and schedules its durable job for the next Airflow batch |
 | `azure-verify` | Actual deployment/recovery/observability/delivery checks, evidence export and teardown on success or failure; unperformed checks cannot count as passed |
 | `azure-down` | Deletes journalled owned resources and application test data; preserves borrowed accounts and unrelated experiments |
@@ -500,12 +947,14 @@ For this initial exercise, the SQL firewall permits Azure-origin connections
 using `AllowAzureServices`; Entra authentication and SQL grants still control
 access. This is broader than a private endpoint or a fixed outbound-IP allowlist.
 Setup creates the API registration and seeds explicit study membership as an
-administrative operation. The API client uses browser sign-in with PKCE and a
-localhost callback. It keeps a private MSAL cache in the ignored deployment
-directory; teardown removes that cache. A locally supplied `MEDW_DEMO_TOKEN` is
-also supported. Optional `api_login_method: "device"` suits headless clients when
-tenant policy permits it. This tenant rejected device sign-in with error 530035;
-normal browser sign-in passed without changing security settings.
+administrative operation. The AKS walkthrough client uses Entra workload
+identity with no interactive application sign-in. The alternative human-client
+command, `make demo-run`, uses browser sign-in with PKCE and a localhost callback.
+It keeps a private MSAL cache in the ignored deployment directory; teardown
+removes that cache. A locally supplied `MEDW_DEMO_TOKEN` is also supported for
+that command. Optional `api_login_method: "device"` suits headless human clients
+when tenant policy permits it. This tenant rejected device sign-in with error
+530035; normal browser sign-in passed without changing security settings.
 
 The load balancer uses an Azure-provided DNS label. Setup generates a certificate
 for that hostname and stores its trust certificate under the private deployment
