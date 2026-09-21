@@ -252,11 +252,14 @@ def test_cleanup_requires_recorded_ownership(tmp_path, monkeypatch):
 @pytest.mark.parametrize("scenario", ["exists", "absent", "denied"])
 def test_service_connection_cleanup_retries_preserve_other_connections(tmp_path, monkeypatch, scenario):
     deployment = azure.Deployment(config(), root=tmp_path)
+    deployment.config["subscription_id"] = "owned-subscription"
     deployment.state["service_connection"] = {"id": "owned", "name": "medw-azure"}
+    deployment.state["identities"] = {"delivery": {"name": "owned-delivery"}}
     endpoints = [{"id": "borrowed", "name": "medw-azure"}]
     if scenario == "exists":
         endpoints.append({"id": "owned", "name": "renamed-owned-connection"})
     deleted = []
+    credentials_deleted = []
 
     def listing(path):
         assert path == "serviceendpoint/endpoints?api-version=7.1"
@@ -265,7 +268,16 @@ def test_service_connection_cleanup_retries_preserve_other_connections(tmp_path,
         return {"value": endpoints}
 
     def remove(*args, **kwargs):
+        if args[:3] == ("identity", "federated-credential", "delete"):
+            assert args[args.index("-g") + 1] == deployment.config["resource_group"]
+            assert args[args.index("--identity-name") + 1] == "owned-delivery"
+            assert args[args.index("--name") + 1] == "azure-pipelines"
+            assert "--yes" in args
+            assert kwargs == {"subscription": "owned-subscription", "missing_ok": True}
+            credentials_deleted.append("azure-pipelines")
+            return
         assert args[:3] == ("devops", "service-endpoint", "delete")
+        assert credentials_deleted == ["azure-pipelines"]
         identifier = args[args.index("--id") + 1]
         assert identifier == "owned"
         deleted.append(identifier)
@@ -280,7 +292,51 @@ def test_service_connection_cleanup_retries_preserve_other_connections(tmp_path,
         deployment._delete_service_connection()
         deployment._delete_service_connection()
     assert deleted == (["owned"] if scenario == "exists" else [])
+    assert credentials_deleted == (["azure-pipelines"] if scenario == "exists" else [])
     assert endpoints == [{"id": "borrowed", "name": "medw-azure"}]
+
+
+@pytest.mark.parametrize("scenario", ["propagates", "still_blocked", "access_denied", "credential_denied"])
+def test_service_connection_cleanup_retries_only_federation_propagation(tmp_path, monkeypatch, scenario):
+    deployment = azure.Deployment(config(), root=tmp_path)
+    deployment.config["subscription_id"] = "sub"
+    deployment.state.update(service_connection={"id": "owned"},
+                            completed={"identity-delivery": {"name": "delivery"}},
+                            pending={"delivery-federation": {}})
+    monkeypatch.setattr(deployment, "devops", lambda path: {"value": [{"id": "owned"}]})
+    deletions, sleeps = [], []
+
+    def command(*args, **kwargs):
+        if args[:3] == ("identity", "federated-credential", "delete"):
+            if scenario == "credential_denied":
+                raise azure.SetupError("AuthorizationFailed")
+            # Also covers reruns after the resource group/identity is gone.
+            assert kwargs["missing_ok"]
+            return
+        assert args[:3] == ("devops", "service-endpoint", "delete")
+        deletions.append(args)
+        if scenario == "access_denied":
+            raise azure.SetupError("access denied")
+        if scenario == "still_blocked" or len(deletions) == 1:
+            raise azure.SetupError(azure.FEDERATION_DELETE_BLOCK + " for app secret-token exist")
+
+    monkeypatch.setattr(azure, "az", command)
+    monkeypatch.setattr(azure.time, "sleep", sleeps.append)
+    if scenario == "propagates":
+        deployment._delete_service_connection()
+        assert len(deletions) == 2 and sleeps == [10]
+    else:
+        with pytest.raises(azure.SetupError) as error:
+            deployment._delete_service_connection()
+        assert len(deletions) == {"still_blocked": 6, "access_denied": 1, "credential_denied": 0}[scenario]
+        assert sleeps == ([10] * 5 if scenario == "still_blocked" else [])
+        evidence = azure.evidence_error(error.value)
+        assert "secret-token" not in json.dumps(evidence)
+        if scenario == "still_blocked":
+            assert evidence["code"] == "FederatedCredentialDeletionPending"
+            assert "make azure-down" in evidence["hint"]
+        else:
+            assert evidence == {"type": "SetupError"}
 
 
 def test_environment_generation_uses_azure_resources_and_bounded_scaling(tmp_path):

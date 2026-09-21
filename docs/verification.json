@@ -3899,6 +3899,57 @@
         ],
         "application_recovery_verified": false
       }
+    },
+    "azure-cleanup-federation-order-20260921": {
+      "verified_at": "2026-09-21T05:04:24.476489+00:00",
+      "scope": "Read-only diagnosis of the operator cleanup failure and offline regression checks; no live cleanup retry or startup.",
+      "observations": {
+        "cleanup_complete": false,
+        "remaining_resource": "azure-service-connection",
+        "service_connection": {
+          "id": "50b8ecf4-54d9-4499-98f4-e76d1ac7f45f",
+          "name": "medw-azure",
+          "still_present": true
+        },
+        "owned_resource_group_exists": false,
+        "managed_node_resource_group_exists": false,
+        "delivery_service_principal_present": false,
+        "cleanup_journal_records_borrowed_application_data_removed": true,
+        "original_error_source": "Azure CLI command log 2026-09-21.14-48-39.devops_service-endpoint_delete.115426.log",
+        "original_error_category": "DevOps refused connection deletion while its federated credential still existed."
+      },
+      "root_cause": "Cleanup tried to remove the DevOps service connection before the azure-pipelines federated credential on the owned delivery identity. The later resource-group deletion removed that identity, leaving only the connection cleanup incomplete.",
+      "changes": [
+        "Remove only the azure-pipelines credential from the journalled delivery identity before deleting the journalled connection ID.",
+        "Support missing identities after resource-group deletion and interrupted credential creation.",
+        "Retry the specific federated-credential propagation rejection up to six attempts, ten seconds apart; preserve other errors.",
+        "Store a credential-free error code and retry hint when propagation remains pending.",
+        "Document the recovery within the existing cleanup steps."
+      ],
+      "validation": {
+        "focused_tests_passed": 77,
+        "ruff": "passed",
+        "cases": [
+          "credential deletion precedes connection deletion",
+          "other connections preserved",
+          "already absent connection",
+          "interrupted federation setup",
+          "identity already deleted",
+          "propagation retry succeeds",
+          "propagation retries bounded",
+          "permission errors not retried or ignored",
+          "evidence excludes raw credentials"
+        ]
+      },
+      "handoff": {
+        "live_resource_mutations": false,
+        "cleanup_retry_executed": false,
+        "live_fix_verified": false,
+        "next_operator_actions": [
+          "make azure-down; require complete=true and no remaining failures",
+          "make azure-up; then continue README step 7"
+        ]
+      }
     }
   },
   "documentation_cleanup": {

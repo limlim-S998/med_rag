@@ -558,6 +558,10 @@ Expect the cleanup report to contain:
 Both resource-group checks should return `false`. If cleanup reports failures,
 read the listed error, resolve it and rerun `make azure-down`; do not assume
 closing the terminal has stopped charges. Keep the journal for that retry.
+If the remaining failure is `azure-service-connection` with code
+`FederatedCredentialDeletionPending`, wait a minute and rerun the same command.
+Cleanup removes the pipeline's federated credential before its DevOps connection
+and retries briefly while that removal propagates. A retry skips completed work.
 
 After successful cleanup, in the original walkthrough terminal copy its report
 beside the application evidence:
@@ -867,6 +871,10 @@ option supported by the operator commands.
   authenticated listing can establish that it is already gone; a permission
   failure cannot. This corrects retries that previously treated an already-deleted
   connection as a cleanup failure, while preserving other connections.
+  The pipeline's `azure-pipelines` federated credential must be removed first:
+  deleting the connection before its identity caused DevOps to reject cleanup.
+  Removal now follows that dependency order and retries only the specific
+  federation-propagation error, with a safe explanation in the cleanup report.
 - Application Insights creates its failure-anomaly alert separately from the
   telemetry component. A missing `Microsoft.AlertsManagement` registration can
   leave that alert deployment failed even when Application Insights itself is

@@ -45,6 +45,7 @@ PROVIDERS = ("Microsoft.ContainerService", "Microsoft.ContainerRegistry", "Micro
              "Microsoft.AlertsManagement",
              "Microsoft.OperationalInsights", "Microsoft.ManagedIdentity", "Microsoft.Network", "Microsoft.Compute")
 API = "https://management.azure.com"
+FEDERATION_DELETE_BLOCK = "Cannot delete this service connection while federated credentials"
 
 
 class SetupError(RuntimeError):
@@ -56,6 +57,10 @@ def evidence_error(exc: Exception) -> dict:
     result: dict = {"type": type(exc).__name__}
     if isinstance(exc, urllib.error.HTTPError):
         result["http_status"] = exc.code
+    if isinstance(exc, SetupError) and FEDERATION_DELETE_BLOCK in str(exc):
+        result.update(code="FederatedCredentialDeletionPending",
+                      hint="Azure DevOps still sees the pipeline trust credential. "
+                           "Wait a minute, then rerun make azure-down with the existing journal.")
     return result
 
 
@@ -1442,9 +1447,28 @@ class Deployment:
         endpoints = self.devops("serviceendpoint/endpoints?api-version=7.1")["value"]
         if not any(endpoint["id"] == identifier for endpoint in endpoints):
             return
-        az("devops", "service-endpoint", "delete", "--id", identifier,
-           "--organization", self.config["devops"]["organization"],
-           "--project", self.config["devops"]["project"], "--yes")
+        # DevOps refuses deletion while this connection's federated credential
+        # exists. Remove our pipeline trust first, including when its create
+        # response was lost; the identity is journalled before that operation.
+        identity = (self.state.get("identities", {}).get("delivery")
+                    or self.state.get("completed", {}).get("identity-delivery"))
+        if identity:
+            az("identity", "federated-credential", "delete", "-g", self.config["resource_group"],
+               "--identity-name", identity["name"], "--name", "azure-pipelines", "--yes",
+               subscription=self.config["subscription_id"], missing_ok=True)
+        # Entra removal can take time to become visible to DevOps. Retry only
+        # that specific response; authentication and permission errors must fail.
+        for attempt in range(6):
+            try:
+                az("devops", "service-endpoint", "delete", "--id", identifier,
+                   "--organization", self.config["devops"]["organization"],
+                   "--project", self.config["devops"]["project"], "--yes")
+                return
+            except SetupError as exc:
+                if FEDERATION_DELETE_BLOCK not in str(exc) or attempt == 5:
+                    raise
+                print("Waiting for pipeline credential removal to reach Azure DevOps", file=sys.stderr)
+                time.sleep(10)
 
     def down(self):
         """Delete only journalled owned infrastructure and scoped borrowed data."""
