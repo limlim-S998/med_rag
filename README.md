@@ -249,11 +249,21 @@ make azure-up
 
 Keep this terminal open and wait for it to return. This command creates the
 owned Azure resources, configures identities and the test study, initializes
-storage and SQL, installs the cluster components, and starts Azure Pipelines.
+storage and SQL, installs the cluster components, and starts Azure Pipelines
+for the first release. Independent operations run concurrently within small
+limits. `[start]`, `[succeeded]`, `[waiting]` and elapsed-time messages show progress.
 The pipeline checks and builds all six images, publishes them to the registry,
 applies migrations and commits the selected release. Flux reads that selection
 and installs the application and Airflow. You do not need to click “Run pipeline”
 or issue separate Helm installation commands.
+
+After a successful release, another `make azure-up` reuses it instead of queuing
+another build. To publish new committed and pushed code explicitly, use
+`make azure-release`; ordinary source pushes also retain their existing CI trigger.
+For infrastructure work alone, `make azure-infra` configures the resources and
+delivery pipeline without queuing an application release. On a fresh deployment,
+follow it with `make azure-release`. These optional commands do not add steps to
+this walkthrough: `make azure-up` still completes a fresh setup in one command.
 
 Success ends with JSON containing `url`, `ca_file` and `pipeline`, without an
 error. For the current configuration the API URL is
@@ -892,6 +902,22 @@ option supported by the operator commands.
   after a successful pipeline. Teardown records its start before the first delete,
   including when interrupted before a deletion response is saved. Completing
   cleanup allows the next startup to archive the old journal and provision afresh.
+- Independent Azure resource groups of work, identities and controller installs
+  run concurrently; SQL bootstrap can overlap controller installation. Cleanup
+  overlaps independent Search, Cosmos, ARM-permission and DevOps operations,
+  while preserving ordering within each dependency chain. Journal changes are
+  serialized and written by atomic file replacement. Running work is joined
+  before parallel failures are reported, retaining successful checkpoints.
+  Per-step durations are recorded under `timings` in the private deployment journal.
+- Image build/smoke/push operations run with at most two workers on one build
+  agent. Every image must pass its smoke checks; a complete release manifest is
+  written only after all builds succeed. No additional hosted parallel-job quota
+  or larger build machine is required by this implementation.
+- Infrastructure setup and release publishing have separate commands. `azure-up`
+  publishes the first release and reuses it on later reruns; `azure-release`
+  publishes new code. Interrupted pipeline waits resume the recorded run.
+  Flux refreshes the source and readiness waits for each current Helm generation,
+  so an old Ready condition cannot stand in for an uncompleted upgrade.
 
 ## Azure configuration reference
 
@@ -940,7 +966,9 @@ trigger Airflow; the client identity cannot coordinate batches. The full
 | Command | Behavior |
 |---|---|
 | `azure-preflight` | Access, provider registration, VM capacity/quota, borrowed resource compatibility, nonbillable build-access proof and current price estimate; blocks paid creation on failure |
-| `azure-up` | Journalled resource creation, schema/membership setup, Entra/workload identities, controller/TLS/telemetry, pipeline and initial Flux release |
+| `azure-up` | Journalled infrastructure setup and initial release; reruns reuse an already successful release |
+| `azure-infra` | Infrastructure, identities, schema, controllers and delivery configuration; no application release queued |
+| `azure-release` | Build, verify, publish and deploy a release into existing infrastructure, or resume an interrupted pipeline wait |
 | `demo-run FILE=…` | Alternative human-client API exercise with interactive application sign-in; not used in the mentor walkthrough |
 | `demo-run FILE=… PROCESSING=nightly` | Preserves an upload and schedules its durable job for the next Airflow batch |
 | `azure-verify` | Actual deployment/recovery/observability/delivery checks, evidence export and teardown on success or failure; unperformed checks cannot count as passed |
@@ -951,6 +979,11 @@ ACR Basic, a small SQL database, one Qdrant replica and small disks. Application
 scaling is capped at two replicas. Pinned NGINX, Flux, KEDA and Prometheus are
 installed; bounded telemetry goes to Application Insights. Azure OpenAI, Document
 Intelligence, Language, Azure ML and Container Apps are omitted.
+`operations_concurrency` defaults to 4 (allowed 1–4) and `build_concurrency` to 2
+(allowed 1–2) in the same deployment configuration. Set either to 1 for serial
+execution in that area. These settings control setup/build work, not application
+replicas or infrastructure sizing. Azure operation durations and build-agent
+availability still limit the total elapsed time.
 The five application services reserve 700 millicores for the installed
 placeholders. Airflow and PostgreSQL add approximately 710 millicores and 2.1 GiB
 of steady-state memory requests, plus temporary migration/account-creation jobs.

@@ -24,11 +24,13 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from functools import partial
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -139,9 +141,16 @@ def http_json(url: str, *, token: str = "", method: str = "GET", body: Any = Non
 
 def write_private(path: pathlib.Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(descriptor, "w") as stream:
-        stream.write(content)
+    # Readers and interrupted operators must see a complete old or new journal.
+    descriptor, temporary = tempfile.mkstemp(dir=path.parent, prefix="." + path.name)
+    try:
+        with os.fdopen(descriptor, "w") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        pathlib.Path(temporary).unlink(missing_ok=True)
 
 
 def arm_parts(resource_id: str, provider: str, resource_type: str) -> tuple[str, str]:
@@ -185,6 +194,10 @@ def load_config(path: pathlib.Path) -> dict:
     except (ZoneInfoNotFoundError, ValueError, TypeError) as exc:
         raise SetupError("invalid batch.timezone") from exc
     config["batch"] = batch
+    for key, default, maximum in (("operations_concurrency", 4, 4), ("build_concurrency", 2, 2)):
+        value = config.setdefault(key, default)
+        if type(value) is not int or not 1 <= value <= maximum:
+            raise SetupError(f"{key} must be an integer between 1 and {maximum}")
     return config
 
 
@@ -268,6 +281,8 @@ class Deployment:
         self.directory = root / "data" / "azure" / config["resource_group"]
         self.journal_path = self.directory / "state.json"
         self.state = json.loads(self.journal_path.read_text()) if self.journal_path.exists() else {}
+        self._state_lock = threading.RLock()
+        self._checkpoint_locks: dict[str, threading.Lock] = {}
         self._resuming_pending = set(self.state.get("pending", {}))
         self._assert_compatible()
 
@@ -291,7 +306,45 @@ class Deployment:
                 raise SetupError(f"Existing deployment journal differs in devops.{key}")
 
     def save(self) -> None:
-        write_private(self.journal_path, json.dumps(self.state, indent=2) + "\n")
+        with self._state_lock:
+            write_private(self.journal_path, json.dumps(self.state, indent=2) + "\n")
+
+    def step(self, name: str, action):
+        started = time.monotonic()
+        record = {"step": name, "started_at": dt.datetime.now(dt.UTC).isoformat(), "status": "failed"}
+        print(f"[start] {name}", file=sys.stderr, flush=True)
+        try:
+            result = action()
+            record["status"] = "succeeded"
+            return result
+        finally:
+            record["seconds"] = round(time.monotonic() - started, 2)
+            with self._state_lock:
+                self.state.setdefault("timings", []).append(record)
+                self.save()
+            print(f"[{record['status']}] {name} ({record['seconds']}s)", file=sys.stderr, flush=True)
+
+    def parallel(self, operations: dict, *, timed: bool = True, workers: int | None = None):
+        """Bound independent work; join every operation before surfacing failure."""
+        results, failures = {}, []
+        with ThreadPoolExecutor(max_workers=workers or self.config.get("operations_concurrency", 4)) as executor:
+            pending = {(executor.submit(self.step, name, action) if timed else executor.submit(action)): name
+                       for name, action in operations.items()}
+            while pending:
+                done, _ = wait(pending, timeout=30, return_when=FIRST_COMPLETED)
+                if not done:
+                    print("[waiting] " + ", ".join(pending.values()), file=sys.stderr, flush=True)
+                for future in done:
+                    name = pending.pop(future)
+                    try:
+                        results[name] = future.result()
+                    except (SetupError, OSError, ValueError, KeyError) as exc:
+                        failures.append((name, exc))
+        if failures:
+            name, exc = failures[0]
+            raise SetupError("Parallel operations failed: " + ", ".join(n for n, _ in failures)
+                             + f"; {name}: {exc}") from exc
+        return results
 
     def account(self) -> dict:
         account = az("account", "show")
@@ -718,15 +771,21 @@ class Deployment:
         return cost
 
     def checkpoint(self, name: str, action):
-        if name in self.state.get("completed", {}):
-            return self.state["completed"][name]
-        self.state.setdefault("pending", {})[name] = dt.datetime.now(dt.UTC).isoformat()
-        self.save()
-        result = action()
-        self.state.setdefault("completed", {})[name] = result
-        self.state["pending"].pop(name, None)
-        self.save()
-        return result
+        with self._state_lock:
+            operation_lock = self._checkpoint_locks.setdefault(name, threading.Lock())
+        with operation_lock:
+            with self._state_lock:
+                if name in self.state.get("completed", {}):
+                    print(f"[reuse] {name}", file=sys.stderr, flush=True)
+                    return self.state["completed"][name]
+                self.state.setdefault("pending", {})[name] = dt.datetime.now(dt.UTC).isoformat()
+                self.save()
+            result = self.step(name, action)
+            with self._state_lock:
+                self.state.setdefault("completed", {})[name] = result
+                self.state["pending"].pop(name, None)
+                self.save()
+            return result
 
     def _owned_group(self):
         config = self.config
@@ -828,97 +887,125 @@ class Deployment:
         if not group:
             group = az("group", "create", "-n", group_name, "-l", self.config["location"],
                        "--tags", "medw-owner=" + self.config["owner"], subscription=subscription)
-        self.state.setdefault("extra_owned_groups", {})[group["id"]] = {
-            "subscription": subscription, "name": group_name}
-        self.save()
+        with self._state_lock:
+            self.state.setdefault("extra_owned_groups", {})[group["id"]] = {
+                "subscription": subscription, "name": group_name}
+            self.save()
         return subscription, group_name
 
     def _resources(self):
         c = self.config
         p, group, location = c["prefix"], c["resource_group"], c["location"]
         self._owned_group()
-        storage = self.checkpoint("storage", lambda: az("storage", "account", "create", "-n", p + "sa",
-            "-g", group, "-l", location, "--sku", "Standard_LRS", "--kind", "StorageV2",
-            "--allow-blob-public-access", "false", "--min-tls-version", "TLS1_2"))
-        storage_id = storage["id"]
-        # The signed-in operator must create containers and later verify uploads.
-        user = az("ad", "signed-in-user", "show")
-        self.checkpoint("operator-storage-role", lambda: az("role", "assignment", "create",
-            "--name", str(uuid.uuid5(uuid.NAMESPACE_URL, storage_id + user["id"])),
-            "--assignee-object-id", user["id"], "--assignee-principal-type", "User",
-            "--role", "Storage Blob Data Contributor", "--scope", storage_id))
-        for container in ("raw", "parsed", "snapshots"):
-            self.checkpoint("container-" + container, lambda container=container:
-                retry_rbac(lambda: az("storage", "container", "create", "--account-name", p + "sa", "-n", container,
-                   "--auth-mode", "login")))
-        if c.get("borrowed_search_id"):
-            search_group, search_name = arm_parts(c["borrowed_search_id"],
-                                                  "Microsoft.Search", "searchServices")
-            search = az("search", "service", "show", "-g", search_group, "-n", search_name,
-                        subscription=c["borrowed_search_id"].split("/")[2])
-        else:
-            search_subscription, search_group = self._account_location("search")
-            search = self.checkpoint("search", lambda: az("search", "service", "create", "-g", search_group,
-                "-n", p + "search", "-l", location, "--sku", "free", "--auth-options", "aadOrApiKey", "--aad-auth-failure-mode",
-                "http401WithBearerChallenge", subscription=search_subscription))
-        if c.get("borrowed_cosmos_id"):
-            cosmos_group, cosmos_name = arm_parts(c["borrowed_cosmos_id"],
-                                                  "Microsoft.DocumentDB", "databaseAccounts")
-            cosmos = az("cosmosdb", "show", "-g", cosmos_group, "-n", cosmos_name,
-                        subscription=c["borrowed_cosmos_id"].split("/")[2])
-        else:
-            cosmos_subscription, cosmos_group = self._account_location("cosmos")
-            cosmos = self.checkpoint("cosmos", lambda: az("cosmosdb", "create", "-g", cosmos_group,
-                "-n", p + "cosmos", "--locations", "regionName=" + location,
-                "--enable-free-tier", "true", "--default-consistency-level", "Session", subscription=cosmos_subscription))
-        cosmos_group, cosmos_name = arm_parts(cosmos["id"], "Microsoft.DocumentDB", "databaseAccounts")
-        cosmos_az = partial(az, subscription=cosmos["id"].split("/")[2])
-        database_name = c["cosmos_database"]
-        database = cosmos_az("cosmosdb", "sql", "database", "show", "-g", cosmos_group, "-a", cosmos_name,
-                      "-n", database_name, missing_ok=True)
-        if (database and "cosmos-database" not in self.state.get("completed", {})
-                and "cosmos-database" not in self.state.get("pending", {})):
-            raise SetupError("Existing Cosmos database has no ownership journal; choose a new name")
-        if not database:
-            self.state.setdefault("claimed", {})["cosmos-database"] = {
-                "account": cosmos["id"], "name": database_name}
-            self.save()
-        self.checkpoint("cosmos-database", lambda: cosmos_az("cosmosdb", "sql", "database", "create",
-            "-g", cosmos_group, "-a", cosmos_name, "-n", database_name, "--throughput", "400"))
-        for container, partition in (("documents", "/study_id"), ("sessions", "/user_id"),
-                                     ("platform-state", "/study_id")):
-            self.checkpoint("cosmos-container-" + container, lambda container=container, partition=partition:
-                cosmos_az("cosmosdb", "sql", "container", "create", "-g", cosmos_group, "-a", cosmos_name,
-                   "-d", database_name, "-n", container, "--partition-key-path", partition,
-                   *(["--ttl", "43200"] if container == "sessions" else [])))
-        sql = self.checkpoint("sql-server", lambda: az("sql", "server", "create", "-g", group,
-            "-n", p + "sql", "-l", location, "--enable-ad-only-auth",
-            "--external-admin-principal-type", c.get("sql_admin_type", "User"),
-            "--external-admin-name", c["sql_admin_name"],
-            "--external-admin-sid", c["sql_admin_object_id"]))
-        self.checkpoint("sql-proxy", lambda: az("sql", "server", "conn-policy", "update", "-g", group,
-            "-s", p + "sql", "--connection-type", "Proxy"))
-        self.checkpoint("sql-database", lambda: az("sql", "db", "create", "-g", group,
-            "-s", p + "sql", "-n", c["sql_database"], "--service-objective", "Basic"))
-        self.checkpoint("sql-azure-firewall", lambda: az("sql", "server", "firewall-rule", "create",
-            "-g", group, "-s", p + "sql", "-n", "allow-azure", "--start-ip-address", "0.0.0.0",
-            "--end-ip-address", "0.0.0.0"))
-        registry = self.checkpoint("registry", lambda: az("acr", "create", "-g", group, "-n", p + "acr",
-            "--sku", "Basic", "--admin-enabled", "false"))
-        logs = self.checkpoint("logs", lambda: az("monitor", "log-analytics", "workspace", "create",
-            "-g", group, "-n", p + "logs", "-l", location, "--retention-time", "30"))
-        insights_id = self.state["resource_group_id"] + "/providers/Microsoft.Insights/components/" + p + "ai"
-        self.checkpoint("insights", lambda: az("rest", "--method", "PUT", "--url",
-            API + insights_id + "?api-version=2020-02-02", "--body", json.dumps({
-                "location": location, "kind": "web", "properties": {"Application_Type": "web",
-                    "WorkspaceResourceId": logs["id"], "IngestionMode": "LogAnalytics"}})))
-        cluster = self.checkpoint("aks", lambda: az("aks", "create", "-g", group, "-n", p + "aks",
-            "--tier", "free", "--node-count", "1", "--node-vm-size", "Standard_D4s_v5",
-            "--node-osdisk-size", "64", "--network-plugin", "azure", "--network-plugin-mode", "overlay",
-            "--network-dataplane", "cilium", "--pod-cidr", "192.168.0.0/16",
-            "--service-cidr", "10.0.0.0/16", "--dns-service-ip", "10.0.0.10",
-            "--attach-acr", registry["id"], "--enable-oidc-issuer", "--enable-workload-identity",
-            "--enable-managed-identity", "--generate-ssh-keys"))
+
+        def compute():
+            registry = self.checkpoint("registry", lambda: az("acr", "create", "-g", group, "-n", p + "acr",
+                "--sku", "Basic", "--admin-enabled", "false"))
+            cluster = self.checkpoint("aks", lambda: az("aks", "create", "-g", group, "-n", p + "aks",
+                "--tier", "free", "--node-count", "1", "--node-vm-size", "Standard_D4s_v5",
+                "--node-osdisk-size", "64", "--network-plugin", "azure", "--network-plugin-mode", "overlay",
+                "--network-dataplane", "cilium", "--pod-cidr", "192.168.0.0/16",
+                "--service-cidr", "10.0.0.0/16", "--dns-service-ip", "10.0.0.10",
+                "--attach-acr", registry["id"], "--enable-oidc-issuer", "--enable-workload-identity",
+                "--enable-managed-identity", "--generate-ssh-keys"))
+            return (registry, cluster)
+
+        def storage_resources():
+            storage = self.checkpoint("storage", lambda: az("storage", "account", "create", "-n", p + "sa",
+                "-g", group, "-l", location, "--sku", "Standard_LRS", "--kind", "StorageV2",
+                "--allow-blob-public-access", "false", "--min-tls-version", "TLS1_2"))
+            storage_id = storage["id"]
+            # The signed-in operator must create containers and later verify uploads.
+            user = az("ad", "signed-in-user", "show")
+            self.checkpoint("operator-storage-role", lambda: az("role", "assignment", "create",
+                "--name", str(uuid.uuid5(uuid.NAMESPACE_URL, storage_id + user["id"])),
+                "--assignee-object-id", user["id"], "--assignee-principal-type", "User",
+                "--role", "Storage Blob Data Contributor", "--scope", storage_id))
+            for container in ("raw", "parsed", "snapshots"):
+                self.checkpoint("container-" + container, lambda container=container:
+                    retry_rbac(lambda: az("storage", "container", "create", "--account-name", p + "sa", "-n", container,
+                       "--auth-mode", "login")))
+            return storage
+
+        def search_resources():
+            if c.get("borrowed_search_id"):
+                search_group, search_name = arm_parts(c["borrowed_search_id"],
+                                                      "Microsoft.Search", "searchServices")
+                search = az("search", "service", "show", "-g", search_group, "-n", search_name,
+                            subscription=c["borrowed_search_id"].split("/")[2])
+            else:
+                search_subscription, search_group = self._account_location("search")
+                search = self.checkpoint("search", lambda: az("search", "service", "create", "-g", search_group,
+                    "-n", p + "search", "-l", location, "--sku", "free", "--auth-options", "aadOrApiKey", "--aad-auth-failure-mode",
+                    "http401WithBearerChallenge", subscription=search_subscription))
+            return search
+
+        def cosmos_resources():
+            if c.get("borrowed_cosmos_id"):
+                cosmos_group, cosmos_name = arm_parts(c["borrowed_cosmos_id"],
+                                                      "Microsoft.DocumentDB", "databaseAccounts")
+                cosmos = az("cosmosdb", "show", "-g", cosmos_group, "-n", cosmos_name,
+                            subscription=c["borrowed_cosmos_id"].split("/")[2])
+            else:
+                cosmos_subscription, cosmos_group = self._account_location("cosmos")
+                cosmos = self.checkpoint("cosmos", lambda: az("cosmosdb", "create", "-g", cosmos_group,
+                    "-n", p + "cosmos", "--locations", "regionName=" + location,
+                    "--enable-free-tier", "true", "--default-consistency-level", "Session", subscription=cosmos_subscription))
+            cosmos_group, cosmos_name = arm_parts(cosmos["id"], "Microsoft.DocumentDB", "databaseAccounts")
+            cosmos_az = partial(az, subscription=cosmos["id"].split("/")[2])
+            database_name = c["cosmos_database"]
+            database = cosmos_az("cosmosdb", "sql", "database", "show", "-g", cosmos_group, "-a", cosmos_name,
+                          "-n", database_name, missing_ok=True)
+            if (database and "cosmos-database" not in self.state.get("completed", {})
+                    and "cosmos-database" not in self.state.get("pending", {})):
+                raise SetupError("Existing Cosmos database has no ownership journal; choose a new name")
+            if not database:
+                with self._state_lock:
+                    self.state.setdefault("claimed", {})["cosmos-database"] = {
+                        "account": cosmos["id"], "name": database_name}
+                    self.save()
+            self.checkpoint("cosmos-database", lambda: cosmos_az("cosmosdb", "sql", "database", "create",
+                "-g", cosmos_group, "-a", cosmos_name, "-n", database_name, "--throughput", "400"))
+            for container, partition in (("documents", "/study_id"), ("sessions", "/user_id"),
+                                         ("platform-state", "/study_id")):
+                self.checkpoint("cosmos-container-" + container, lambda container=container, partition=partition:
+                    cosmos_az("cosmosdb", "sql", "container", "create", "-g", cosmos_group, "-a", cosmos_name,
+                       "-d", database_name, "-n", container, "--partition-key-path", partition,
+                       *(["--ttl", "43200"] if container == "sessions" else [])))
+            return cosmos
+
+        def sql_resources():
+            sql = self.checkpoint("sql-server", lambda: az("sql", "server", "create", "-g", group,
+                "-n", p + "sql", "-l", location, "--enable-ad-only-auth",
+                "--external-admin-principal-type", c.get("sql_admin_type", "User"),
+                "--external-admin-name", c["sql_admin_name"],
+                "--external-admin-sid", c["sql_admin_object_id"]))
+            self.checkpoint("sql-proxy", lambda: az("sql", "server", "conn-policy", "update", "-g", group,
+                "-s", p + "sql", "--connection-type", "Proxy"))
+            self.checkpoint("sql-database", lambda: az("sql", "db", "create", "-g", group,
+                "-s", p + "sql", "-n", c["sql_database"], "--service-objective", "Basic"))
+            self.checkpoint("sql-azure-firewall", lambda: az("sql", "server", "firewall-rule", "create",
+                "-g", group, "-s", p + "sql", "-n", "allow-azure", "--start-ip-address", "0.0.0.0",
+                "--end-ip-address", "0.0.0.0"))
+            return sql
+
+        def monitoring_resources():
+            logs = self.checkpoint("logs", lambda: az("monitor", "log-analytics", "workspace", "create",
+                "-g", group, "-n", p + "logs", "-l", location, "--retention-time", "30"))
+            insights_id = self.state["resource_group_id"] + "/providers/Microsoft.Insights/components/" + p + "ai"
+            self.checkpoint("insights", lambda: az("rest", "--method", "PUT", "--url",
+                API + insights_id + "?api-version=2020-02-02", "--body", json.dumps({
+                    "location": location, "kind": "web", "properties": {"Application_Type": "web",
+                        "WorkspaceResourceId": logs["id"], "IngestionMode": "LogAnalytics"}})))
+            return insights_id
+
+        created = self.parallel({"compute": compute, "storage-resources": storage_resources,
+                                 "cosmos-resources": cosmos_resources, "sql-resources": sql_resources,
+                                 "monitoring-resources": monitoring_resources, "search-resources": search_resources})
+        registry, cluster = created["compute"]
+        storage, cosmos, sql, search = (created[key] for key in
+                                       ("storage-resources", "cosmos-resources", "sql-resources", "search-resources"))
+        storage_id, insights_id = storage["id"], created["monitoring-resources"]
         result = {"storage": storage_id, "blob_url": storage["primaryEndpoints"]["blob"].rstrip("/"),
                   "search": search["id"], "search_url": "https://" + search["name"] + ".search.windows.net",
                   "cosmos": cosmos["id"], "cosmos_url": cosmos["documentEndpoint"],
@@ -932,9 +1019,9 @@ class Deployment:
 
     def _workload_access(self):
         c, resources = self.config, self.state["resources"]
-        identities = {service: self.checkpoint("identity-" + service,
-                      lambda service=service: self._identity(service))
-                      for service in (*SERVICES, "airflow", "demo-client", "qdrant-backup", "delivery")}
+        identities = self.parallel({service: lambda service=service: self.checkpoint(
+            "identity-" + service, lambda: self._identity(service))
+            for service in (*SERVICES, "airflow", "demo-client", "qdrant-backup", "delivery")})
         self.state["identities"] = identities
         self.save()
         cosmos_group, cosmos_name = arm_parts(resources["cosmos"],
@@ -1035,10 +1122,11 @@ class Deployment:
         os.chmod(kubeconfig, 0o600)
         kube_env = {"KUBECONFIG": str(kubeconfig)}
         run(["flux", "install", "--version", "v2.9.5"], env=kube_env)
-        self.state["platform_versions"] = {"flux": "v2.9.5", "keda": "2.20.2",
-                                           "kube_prometheus_stack": "90.0.0",
-                                           "nginx_chart": "2.7.1", "nginx_controller": "5.6.1"}
-        self.save()
+        with self._state_lock:
+            self.state["platform_versions"] = {"flux": "v2.9.5", "keda": "2.20.2",
+                                               "kube_prometheus_stack": "90.0.0",
+                                               "nginx_chart": "2.7.1", "nginx_controller": "5.6.1"}
+            self.save()
         self.apply(*[{"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": name}}
                      for name in ("medw", "monitoring", "keda")])
         self._airflow_secret()
@@ -1048,29 +1136,40 @@ class Deployment:
             run(["helm", "repo", "add", name, url, "--force-update"])
         run(["helm", "repo", "update"])
         apply_options = helm_apply_options(run(["helm", "version", "--short"]))
-        run(["helm", "upgrade", "--install", *apply_options, "keda", "kedacore/keda", "--namespace", "keda",
-             "--version", "2.20.2", "--wait", "--timeout", "10m"], env=kube_env)
-        prom_values = {"grafana": {"enabled": False}, "alertmanager": {"enabled": False},
-                       "prometheus": {"prometheusSpec": {"retention": "6h",
-                           "resources": {"requests": {"cpu": "100m", "memory": "512Mi"}},
-                           "serviceMonitorSelectorNilUsesHelmValues": False,
-                           "ruleSelectorNilUsesHelmValues": False}}}
-        with tempfile.TemporaryDirectory() as temp:
-            path = pathlib.Path(temp) / "prometheus.yaml"
-            path.write_text(yaml.safe_dump(prom_values))
-            run(["helm", "upgrade", "--install", *apply_options, "kps", "prometheus-community/kube-prometheus-stack",
-                 "--namespace", "monitoring", "--version", "90.0.0", "-f", str(path),
-                 "--wait", "--timeout", "10m"], env=kube_env)
-        nginx = list(yaml.safe_load_all((ROOT / "deploy/nginx-ingress.yaml").read_text()))
-        values = nginx[-1]["spec"]["values"]["controller"]
-        values["replicaCount"] = 1
-        values["service"]["annotations"] = {
-            "service.beta.kubernetes.io/azure-dns-label-name": c["prefix"]}
-        self.apply(*nginx)
-        self.kube("-n", "nginx-ingress", "wait", "helmrelease/nginx-ingress",
-                  "--for=condition=Ready", "--timeout=15m")
+        def install_keda():
+            run(["helm", "upgrade", "--install", *apply_options, "keda", "kedacore/keda", "--namespace", "keda",
+                 "--version", "2.20.2", "--wait", "--timeout", "10m"], env=kube_env)
+
+        def install_prometheus():
+            prom_values = {"grafana": {"enabled": False}, "alertmanager": {"enabled": False},
+                           "prometheus": {"prometheusSpec": {"retention": "6h",
+                               "resources": {"requests": {"cpu": "100m", "memory": "512Mi"}},
+                               "serviceMonitorSelectorNilUsesHelmValues": False,
+                               "ruleSelectorNilUsesHelmValues": False}}}
+            with tempfile.TemporaryDirectory() as temp:
+                path = pathlib.Path(temp) / "prometheus.yaml"
+                path.write_text(yaml.safe_dump(prom_values))
+                run(["helm", "upgrade", "--install", *apply_options, "kps", "prometheus-community/kube-prometheus-stack",
+                     "--namespace", "monitoring", "--version", "90.0.0", "-f", str(path),
+                     "--wait", "--timeout", "10m"], env=kube_env)
+
+        def install_nginx():
+            nginx = list(yaml.safe_load_all((ROOT / "deploy/nginx-ingress.yaml").read_text()))
+            values = nginx[-1]["spec"]["values"]["controller"]
+            values["replicaCount"] = 1
+            values["service"]["annotations"] = {
+                "service.beta.kubernetes.io/azure-dns-label-name": c["prefix"]}
+            self.apply(*nginx)
+            self.kube("-n", "nginx-ingress", "wait", "helmrelease/nginx-ingress",
+                      "--for=condition=Ready", "--timeout=15m")
+
+        # SQL bootstrap may still occupy one of the outer phase's slots.
+        self.parallel({"keda": install_keda, "prometheus": install_prometheus, "nginx": install_nginx},
+                      workers=max(1, self.config.get("operations_concurrency", 4) - 1))
         host = c["prefix"] + "." + c["location"] + ".cloudapp.azure.com"
-        self.state["hostname"] = host
+        with self._state_lock:
+            self.state["hostname"] = host
+            self.save()
         tls_dir = self.directory / "tls"
         tls_dir.mkdir(parents=True, exist_ok=True)
         key, certificate = tls_dir / "server.key", tls_dir / "server.crt"
@@ -1238,6 +1337,7 @@ class Deployment:
         defaults = {"registryHost": self.state["resources"]["registry_host"],
                     "azureConnection": self.config["devops"]["azure_service_connection_name"],
                     "agentPool": self.config["devops"].get("agent_pool", ""),
+                    "buildConcurrency": self.config.get("build_concurrency", 2),
                     "releaseBranch": self.config["git_branch"]}
         for parameter in pipeline["parameters"]:
             if parameter["name"] in defaults:
@@ -1318,29 +1418,39 @@ class Deployment:
                         method="PATCH", body={"pipelines": [{"id": pipeline_id, "authorized": True}]})
         return {"pipeline_id": pipeline_id}
 
-    def queue_release(self) -> dict:
+    def queue_release(self, *, resume: bool = False) -> dict:
         c = self.config
         body = {"resources": {"repositories": {"self": {"refName": "refs/heads/" + c["git_branch"]}}},
                 "templateParameters": {"registryHost": self.state["resources"]["registry_host"],
                     "azureConnection": c["devops"]["azure_service_connection_name"],
+                    "buildConcurrency": c.get("build_concurrency", 2),
                     **({"agentPool": c["devops"]["agent_pool"]} if c["devops"].get("agent_pool") else {}),
                     "releaseBranch": c["git_branch"]}}
-        result = self.devops(f"pipelines/{self.state['pipeline_id']}/runs?api-version=7.1",
-                             method="POST", body=body)
-        self.state.setdefault("runs", []).append({"id": result["id"], "url": result.get("url")})
-        self.save()
+        result = self.state.get("pending_release") if resume else None
+        if result is None:
+            result = self.devops(f"pipelines/{self.state['pipeline_id']}/runs?api-version=7.1",
+                                 method="POST", body=body)
+            self.state.setdefault("runs", []).append({"id": result["id"], "url": result.get("url")})
+            self.state["pending_release"] = {"id": result["id"]}
+            self.save()
         deadline = time.monotonic() + 3600
         while time.monotonic() < deadline:
             status = self.devops(f"pipelines/{self.state['pipeline_id']}/runs/{result['id']}?api-version=7.1")
             if status.get("state") == "completed":
+                self.state.pop("pending_release", None)
                 if status.get("result") != "succeeded":
+                    self.save()
                     raise SetupError("Azure release pipeline failed; inspect run " + str(result["id"]))
-                return {"id": result["id"], "result": status["result"]}
+                release = {"id": result["id"], "result": status["result"]}
+                self.state["release"] = release
+                self.save()
+                return release
             print("Waiting for Azure release pipeline run", result["id"], flush=True)
             time.sleep(30)
         raise SetupError("Release pipeline did not complete within one hour")
 
-    def up(self):
+    def infra(self):
+        """Prepare infrastructure and delivery configuration without building a release."""
         if self.state.get("teardown_complete"):
             timestamp = dt.datetime.now(dt.UTC).strftime("%Y%m%dT%H%M%SZ")
             write_private(self.directory / ("state-" + timestamp + ".json"), json.dumps(self.state, indent=2))
@@ -1356,17 +1466,52 @@ class Deployment:
             raise SetupError("Commit implementation changes before provisioning")
         self.state.setdefault("config", copy.deepcopy(self.config))
         self.state["owner"] = self.config["owner"]
+        self.state["infrastructure_ready"] = False
         self.save()
         self.checkpoint("applications", self._applications)
         self._resources()
         self._workload_access()
         self.checkpoint("search-index", self._search_index)
         # Rerun migrations and scoped membership on earlier deployment journals.
-        self.checkpoint("sql-bootstrap-cloud-client", self._sql_bootstrap)
-        self._cluster_platform()
+        self.parallel({"sql-bootstrap": lambda: self.checkpoint("sql-bootstrap-cloud-client", self._sql_bootstrap),
+                       "cluster-platform": self._cluster_platform})
         self._publish_configuration()
         self._pipeline()
-        self.queue_release()
+        self.state["infrastructure_ready"] = True
+        self.save()
+        return {"infrastructure_ready": True, "pipeline": self.state["pipeline_id"],
+                "next": "make azure-release"}
+
+    def up(self):
+        self.infra()
+        if not self.state.get("release") or self.state.get("pending_release"):
+            self.step("release-pipeline", lambda: self.queue_release(resume=True))
+        else:
+            print(f"[reuse] release pipeline run {self.state['release']['id']}; "
+                  "use make azure-release to publish new code", file=sys.stderr, flush=True)
+        return self.step("application-readiness", self._reconcile)
+
+    def release(self):
+        """Publish code through CI into existing infrastructure; resume interrupted waits."""
+        self._setup_lifecycle()
+        if self.state.get("teardown_complete") or not self.state.get("infrastructure_ready"):
+            raise SetupError("Run make azure-infra or make azure-up before publishing a release")
+        self.account()
+        if self.state.get("owner") != self.config["owner"]:
+            raise SetupError("Ownership journal does not match the active subscription")
+        if run(["git", "status", "--porcelain"]).strip():
+            raise SetupError("Commit and push implementation changes before make azure-release")
+        if run(["git", "branch", "--show-current"]).strip() != self.config["git_branch"]:
+            raise SetupError("Checkout the configured git_branch before make azure-release")
+        run(["git", "fetch", "origin", self.config["git_branch"]])
+        try:
+            run(["git", "merge-base", "--is-ancestor", "HEAD", "FETCH_HEAD"])
+        except SetupError as exc:
+            raise SetupError("Push the current source commits before make azure-release") from exc
+        self.step("release-pipeline", lambda: self.queue_release(resume=True))
+        return self.step("application-readiness", self._reconcile)
+
+    def _reconcile(self):
         self.apply({"apiVersion": "source.toolkit.fluxcd.io/v1", "kind": "GitRepository",
             "metadata": {"name": "medwriter-assist", "namespace": "flux-system"},
             "spec": {"interval": "1m", "url": self.config["git_url"],
@@ -1375,11 +1520,28 @@ class Deployment:
              "metadata": {"name": "medw-dev", "namespace": "flux-system"},
              "spec": {"interval": "1m", "path": "./deploy/flux/dev", "prune": True,
                       "wait": False, "sourceRef": {"kind": "GitRepository", "name": "medwriter-assist"}}})
-        self.kube("-n", "flux-system", "wait", "kustomization/medw-dev",
-                  "--for=condition=Ready", "--timeout=5m")
-        self.kube("-n", "medw", "wait", "helmrelease", "--all", "--for=condition=Ready", "--timeout=15m")
+        run(["flux", "reconcile", "kustomization", "medw-dev", "--with-source", "--timeout=5m",
+             "--kubeconfig", str(self.directory / "kubeconfig")])
+        self._wait_application()
         return {"url": "https://" + self.state["hostname"],
                 "ca_file": str(self.directory / "tls/server.crt"), "pipeline": self.state["pipeline_id"]}
+
+    def _wait_application(self, *, timeout: float = 900):
+        # Ready from the previous generation is not proof of the new release.
+        expected = {*SERVICES, "airflow", "qdrant"}
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            releases = self.kube("-n", "medw", "get", "helmreleases", "-o", "json", json_result=True)["items"]
+            ready = {item["metadata"]["name"] for item in releases
+                     if item.get("status", {}).get("observedGeneration") == item["metadata"]["generation"]
+                     and any(c["type"] == "Ready" and c["status"] == "True"
+                             for c in item.get("status", {}).get("conditions", []))}
+            if expected <= ready:
+                return
+            print("[waiting] current Helm releases: " + ", ".join(sorted(expected - ready)),
+                  file=sys.stderr, flush=True)
+            time.sleep(10)
+        raise SetupError("Current Helm release generations did not become ready within the application timeout")
 
     def _search_index(self):
         from infra.search_payload import api_payload
@@ -1490,56 +1652,74 @@ class Deployment:
         errors = []
 
         def attempt(label, action):
-            if label in self.state.get("deleted", []):
-                return
+            with self._state_lock:
+                if label in self.state.get("deleted", []):
+                    print(f"[reuse] deleted {label}", file=sys.stderr, flush=True)
+                    return
             try:
-                action()
-                self.state.setdefault("deleted", []).append(label)
-                self.save()
+                self.step("delete-" + label, action)
+                with self._state_lock:
+                    self.state.setdefault("deleted", []).append(label)
+                    self.save()
             except (SetupError, OSError, ValueError, KeyError) as exc:
-                errors.append({"resource": label, "error": evidence_error(exc)})
+                with self._state_lock:
+                    errors.append({"resource": label, "error": evidence_error(exc)})
 
         completed = self.state.get("completed", {})
-        if self.config.get("borrowed_search_id") and ("search-index" in completed
-                or "search-index" in self.state.get("claimed", {})):
-            def delete_index():
-                group, name = arm_parts(self.config["borrowed_search_id"], "Microsoft.Search", "searchServices")
-                key = az("search", "admin-key", "show", "-g", group, "--service-name", name,
-                         subscription=self.config["borrowed_search_id"].split("/")[2])["primaryKey"]
-                url = "https://" + name + ".search.windows.net/indexes/" + self.config["search_index"] + "?api-version=2024-07-01"
-                request = urllib.request.Request(url, headers={"api-key": key}, method="DELETE")
-                try:
-                    with urllib.request.urlopen(request, timeout=30):
-                        pass
-                except urllib.error.HTTPError as exc:
-                    if exc.code != 404:
-                        raise SetupError("Search cleanup failed") from exc
-            attempt("borrowed-search-index", delete_index)
-        if self.config.get("borrowed_cosmos_id"):
-            group, name = arm_parts(self.config["borrowed_cosmos_id"], "Microsoft.DocumentDB", "databaseAccounts")
-            cosmos_az = partial(az, subscription=self.config["borrowed_cosmos_id"].split("/")[2])
-            cosmos_roles = {**self.state.get("planned_cosmos_roles", {}), **completed}
-            for key, value in sorted(cosmos_roles.items(), key=lambda item: (
-                    0 if item[0].startswith("cosmos-assignment-") else 1, item[0])):
-                if key.startswith("cosmos-assignment-"):
-                    attempt(key, lambda value=value: cosmos_az("cosmosdb", "sql", "role", "assignment", "delete",
-                        "-g", group, "-a", name, "--role-assignment-id", value["id"].rsplit("/", 1)[-1],
-                        "--yes", missing_ok=True))
-                if key.startswith("cosmos-role-"):
-                    attempt(key, lambda value=value: cosmos_az("cosmosdb", "sql", "role", "definition", "delete",
-                        "-g", group, "-a", name, "--id", value["id"].rsplit("/", 1)[-1],
-                        "--yes", missing_ok=True))
-            if "cosmos-database" in completed or "cosmos-database" in self.state.get("claimed", {}):
-                attempt("borrowed-cosmos-database", lambda: cosmos_az("cosmosdb", "sql", "database", "delete",
-                    "-g", group, "-a", name, "-n", self.config["cosmos_database"], "--yes"))
-        for name, resource_id in self.state.get("role_assignments", {}).items():
-            attempt("role-" + name, lambda resource_id=resource_id: az("role", "assignment", "delete", "--ids", resource_id,
-                    subscription=resource_id.split("/")[2]))
-        if self.state.get("pipeline_id"):
-            attempt("pipeline", lambda: self.devops("build/definitions/" + str(self.state["pipeline_id"])
-                    + "?api-version=7.1", method="DELETE"))
-        if self.state.get("service_connection"):
-            attempt("azure-service-connection", self._delete_service_connection)
+
+        def delete_search():
+            if self.config.get("borrowed_search_id") and ("search-index" in completed
+                    or "search-index" in self.state.get("claimed", {})):
+                def delete_index():
+                    group, name = arm_parts(self.config["borrowed_search_id"], "Microsoft.Search", "searchServices")
+                    key = az("search", "admin-key", "show", "-g", group, "--service-name", name,
+                             subscription=self.config["borrowed_search_id"].split("/")[2])["primaryKey"]
+                    url = "https://" + name + ".search.windows.net/indexes/" + self.config["search_index"] + "?api-version=2024-07-01"
+                    request = urllib.request.Request(url, headers={"api-key": key}, method="DELETE")
+                    try:
+                        with urllib.request.urlopen(request, timeout=30):
+                            pass
+                    except urllib.error.HTTPError as exc:
+                        if exc.code != 404:
+                            raise SetupError("Search cleanup failed") from exc
+                attempt("borrowed-search-index", delete_index)
+
+        def delete_cosmos():
+            if self.config.get("borrowed_cosmos_id"):
+                group, name = arm_parts(self.config["borrowed_cosmos_id"], "Microsoft.DocumentDB", "databaseAccounts")
+                cosmos_az = partial(az, subscription=self.config["borrowed_cosmos_id"].split("/")[2])
+                cosmos_roles = {**self.state.get("planned_cosmos_roles", {}), **completed}
+                for key, value in sorted(cosmos_roles.items(), key=lambda item: (
+                        0 if item[0].startswith("cosmos-assignment-") else 1, item[0])):
+                    if key.startswith("cosmos-assignment-"):
+                        attempt(key, lambda value=value: cosmos_az("cosmosdb", "sql", "role", "assignment", "delete",
+                            "-g", group, "-a", name, "--role-assignment-id", value["id"].rsplit("/", 1)[-1],
+                            "--yes", missing_ok=True))
+                    if key.startswith("cosmos-role-"):
+                        attempt(key, lambda value=value: cosmos_az("cosmosdb", "sql", "role", "definition", "delete",
+                            "-g", group, "-a", name, "--id", value["id"].rsplit("/", 1)[-1],
+                            "--yes", missing_ok=True))
+                if "cosmos-database" in completed or "cosmos-database" in self.state.get("claimed", {}):
+                    attempt("borrowed-cosmos-database", lambda: cosmos_az("cosmosdb", "sql", "database", "delete",
+                        "-g", group, "-a", name, "-n", self.config["cosmos_database"], "--yes"))
+
+        def delete_roles():
+            for name, resource_id in self.state.get("role_assignments", {}).items():
+                attempt("role-" + name, lambda resource_id=resource_id: az("role", "assignment", "delete", "--ids", resource_id,
+                        subscription=resource_id.split("/")[2]))
+
+        def delete_delivery():
+            if self.state.get("pipeline_id"):
+                attempt("pipeline", lambda: self.devops("build/definitions/" + str(self.state["pipeline_id"])
+                        + "?api-version=7.1", method="DELETE"))
+            if self.state.get("service_connection"):
+                attempt("azure-service-connection", self._delete_service_connection)
+
+        # Within Cosmos: assignments before role definitions before database.
+        # Within delivery: pipeline before federation before connection. Finish
+        # all revocations before deleting the group that owns those identities.
+        self.parallel({"cleanup-search": delete_search, "cleanup-cosmos": delete_cosmos,
+                       "cleanup-roles": delete_roles, "cleanup-delivery": delete_delivery}, timed=False)
         for kind, app in self.state.get("applications", {}).items():
             attempt("application-" + kind, lambda app=app: az("ad", "app", "delete", "--id", app["id"]))
         group = az("group", "show", "-n", self.config["resource_group"], missing_ok=True)
@@ -1569,7 +1749,7 @@ class Deployment:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("preflight", "probe-build", "up", "verify", "down"))
+    parser.add_argument("action", choices=("preflight", "probe-build", "infra", "release", "up", "verify", "down"))
     parser.add_argument("--config", type=pathlib.Path, default=ROOT / "data/azure/config.json")
     parser.add_argument("--output", type=pathlib.Path)
     args = parser.parse_args()

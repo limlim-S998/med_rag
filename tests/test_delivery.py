@@ -144,3 +144,51 @@ def test_target_preparation_requires_identity_and_both_telemetry_paths():
         del broken[0]["spec"]["values"][field]
         with pytest.raises(ValueError):
             validate_targets(broken)
+
+
+@pytest.mark.parametrize('fail_smoke', [False, True])
+def test_concurrent_image_builds_publish_only_complete_smoked_manifest(tmp_path, monkeypatch, fail_smoke):
+    import json
+    import threading
+
+    from scripts import build_images
+
+    output = tmp_path / 'images.json'
+    output.write_text('{"stale": true}')
+    barrier = threading.Barrier(2)
+    smoked, pushed = set(), set()
+    source = 'a' * 40
+
+    def command(*args, capture=False):
+        if args[:2] == ('git', 'status'):
+            return ''
+        if args[:2] == ('git', 'rev-parse'):
+            return source
+        if args[:2] == ('docker', 'build'):
+            barrier.wait(timeout=5)
+        elif 'scripts/smoke_image.py' in args:
+            service = args[args.index('--service') + 1]
+            if fail_smoke and service == 'gateway':
+                raise RuntimeError('synthetic smoke failure')
+            smoked.add(service)
+        elif args[:2] == ('docker', 'push'):
+            service = args[2].split('/')[1].split(':')[0]
+            assert service in smoked
+            pushed.add(service)
+        elif args[:3] == ('docker', 'image', 'inspect'):
+            repo = args[3].split(':')[0]
+            return json.dumps([repo + '@sha256:' + '1' * 64])
+        else:
+            pytest.fail(f'Unexpected command: {args[:3]}')
+        return ''
+
+    monkeypatch.setattr(build_images, 'run', command)
+    monkeypatch.setattr(build_images.sys, 'argv', ['build_images.py', '--registry', 'example.azurecr.io', '--push',
+                        '--jobs', '2', '--service', 'gateway', '--service', 'retrieval', '--output', str(output)])
+    if fail_smoke:
+        with pytest.raises(RuntimeError, match='smoke failure'):
+            build_images.main()
+        assert not output.exists() and 'gateway' not in pushed
+    else:
+        build_images.main()
+        assert set(json.loads(output.read_text())) == smoked == pushed == {'gateway', 'retrieval'}

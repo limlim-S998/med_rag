@@ -25,6 +25,10 @@ parameters:
 - name: agentPool
   type: string
   default: ''
+- name: buildConcurrency
+  type: number
+  default: 2
+  values: [1, 2]
 - name: releaseBranch
   type: string
   default: main
@@ -34,4 +38,5 @@ extends:
     registryHost: ${{ parameters.registryHost }}
     azureConnection: ${{ parameters.azureConnection }}
     agentPool: ${{ parameters.agentPool }}
+    buildConcurrency: ${{ parameters.buildConcurrency }}
     releaseBranch: ${{ parameters.releaseBranch }}

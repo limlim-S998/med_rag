@@ -600,3 +600,211 @@ def test_quota_reuses_only_verified_owned_bounded_cluster(monkeypatch, tmp_path,
             deployment._quota()
     else:
         assert "no additional vCPUs" in deployment._quota()
+
+
+def test_parallel_checkpoints_bound_work_and_preserve_success_after_failure(tmp_path):
+    import threading
+
+    deployment = azure.Deployment(config(), root=tmp_path)
+    deployment.config['operations_concurrency'] = 2
+    started = threading.Barrier(2)
+    release = threading.Event()
+    lock = threading.Lock()
+    active = peak = 0
+
+    def action(name):
+        nonlocal active, peak
+        with lock:
+            active += 1
+            peak = max(peak, active)
+        try:
+            if name in ('a', 'b'):
+                started.wait(timeout=5)
+                persisted = json.loads(deployment.journal_path.read_text())
+                assert {'a', 'b'} <= persisted['pending'].keys()
+            if name == 'b':
+                raise azure.SetupError('synthetic failure')
+            if name == 'a':
+                assert release.wait(timeout=5)
+            if name == 'c':
+                release.set()
+            return {'id': name}
+        finally:
+            with lock:
+                active -= 1
+
+    with pytest.raises(azure.SetupError, match='synthetic failure'):
+        deployment.parallel({name: lambda name=name: deployment.checkpoint(name, lambda: action(name))
+                             for name in ('a', 'b', 'c')})
+    persisted = json.loads(deployment.journal_path.read_text())
+    assert peak == 2 and active == 0
+    assert set(persisted['completed']) == {'a', 'c'} and set(persisted['pending']) == {'b'}
+    resumed = azure.Deployment(config(), root=tmp_path)
+    assert resumed.checkpoint('a', lambda: pytest.fail('duplicate creation')) == {'id': 'a'}
+    assert resumed.checkpoint('b', lambda: {'id': 'recovered'}) == {'id': 'recovered'}
+    assert not resumed.state['pending']
+
+
+def test_private_file_replacement_failure_preserves_original_journal(tmp_path, monkeypatch):
+    target = tmp_path / 'journal.json'
+    azure.write_private(target, '{"old": true}')
+
+    def interrupted(*args):
+        raise OSError('interrupted replace')
+
+    monkeypatch.setattr(azure.os, 'replace', interrupted)
+    with pytest.raises(OSError):
+        azure.write_private(target, '{"new": true}')
+    assert json.loads(target.read_text()) == {'old': True}
+    assert target.stat().st_mode & 0o777 == 0o600
+    assert list(tmp_path.iterdir()) == [target]
+
+
+@pytest.mark.parametrize('existing_release', [False, True])
+def test_up_only_publishes_initial_release(tmp_path, monkeypatch, existing_release):
+    deployment = azure.Deployment(config(), root=tmp_path)
+    calls = []
+    if existing_release:
+        deployment.state['release'] = {'id': 7, 'result': 'succeeded'}
+    monkeypatch.setattr(deployment, 'infra', lambda: calls.append('infra'))
+    monkeypatch.setattr(deployment, 'queue_release', lambda **kwargs: calls.append(('release', kwargs)))
+    monkeypatch.setattr(deployment, '_reconcile', lambda: calls.append('ready') or {'url': 'https://example'})
+    assert deployment.up() == {'url': 'https://example'}
+    assert calls == (['infra', 'ready'] if existing_release else ['infra', ('release', {'resume': True}), 'ready'])
+
+
+def test_release_resumes_pipeline_without_duplicate_build(tmp_path, monkeypatch):
+    deployment = azure.Deployment(config(), root=tmp_path)
+    deployment.state.update(pipeline_id=3, pending_release={'id': 9}, resources={'registry_host': 'example.azurecr.io'})
+    calls = []
+
+    def devops(path, **kwargs):
+        calls.append((path, kwargs))
+        assert not kwargs
+        return {'state': 'completed', 'result': 'succeeded'}
+
+    monkeypatch.setattr(deployment, 'devops', devops)
+    assert deployment.queue_release(resume=True) == {'id': 9, 'result': 'succeeded'}
+    assert len(calls) == 1 and calls[0][0] == 'pipelines/3/runs/9?api-version=7.1'
+    assert 'pending_release' not in deployment.state and deployment.state['release']['id'] == 9
+
+
+def test_application_wait_rejects_old_ready_generation_and_missing_releases(tmp_path, monkeypatch):
+    deployment = azure.Deployment(config(), root=tmp_path)
+    calls = []
+    names = (*azure.SERVICES, 'airflow', 'qdrant')
+
+    def releases(*args, **kwargs):
+        calls.append(True)
+        if len(calls) == 1:
+            return {'items': []}
+        return {'items': [{'metadata': {'name': name, 'generation': 2},
+                           'status': {'observedGeneration': 1 if len(calls) == 2 else 2,
+                                      'conditions': [{'type': 'Ready', 'status': 'True'}]}} for name in names]}
+
+    monkeypatch.setattr(deployment, 'kube', releases)
+    monkeypatch.setattr(azure.time, 'sleep', lambda _: None)
+    deployment._wait_application()
+    assert len(calls) == 3
+
+
+@pytest.mark.parametrize(('key', 'value'), [('operations_concurrency', 0), ('operations_concurrency', 5),
+                                         ('operations_concurrency', True), ('build_concurrency', 3)])
+def test_concurrency_configuration_is_bounded(tmp_path, key, value):
+    settings = config()
+    settings[key] = value
+    path = tmp_path / 'config.json'
+    path.write_text(json.dumps(settings))
+    with pytest.raises(azure.SetupError, match=key):
+        azure.load_config(path)
+
+
+@pytest.mark.parametrize('delete_fails', [False, True])
+def test_parallel_cleanup_preserves_dependency_order_and_continues_after_failure(tmp_path, monkeypatch, delete_fails):
+    import io
+    import threading
+
+    cfg = config()
+    cfg['borrowed_search_id'] = '/subscriptions/sub/resourceGroups/shared/providers/Microsoft.Search/searchServices/free'
+    cfg['borrowed_cosmos_id'] = '/subscriptions/sub/resourceGroups/shared/providers/Microsoft.DocumentDB/databaseAccounts/free'
+    deployment = azure.Deployment(cfg, root=tmp_path)
+    deployment.config['owner'] = 'ours'
+    deployment.state.update(owner='ours', config=copy.deepcopy(deployment.config), completed={
+        'search-index': {}, 'cosmos-database': {}, 'cosmos-role-writer': {'id': 'definitions/owned-role'},
+        'cosmos-assignment-writer': {'id': 'assignments/owned-assignment'}})
+    deployment.save()
+    barrier = threading.Barrier(2)
+    calls = []
+    monkeypatch.setattr(deployment, 'account', lambda: None)
+
+    def command(*args, **kwargs):
+        if args[:3] == ('search', 'admin-key', 'show'):
+            barrier.wait(timeout=5)
+            return {'primaryKey': 'unused-secret'}
+        if args[:5] == ('cosmosdb', 'sql', 'role', 'assignment', 'delete'):
+            barrier.wait(timeout=5)
+            calls.append('assignment')
+            if delete_fails:
+                raise azure.SetupError('Bearer never-record-this')
+        elif args[:5] == ('cosmosdb', 'sql', 'role', 'definition', 'delete'):
+            assert 'assignment' in calls
+            calls.append('definition')
+        elif args[:4] == ('cosmosdb', 'sql', 'database', 'delete'):
+            assert 'definition' in calls
+            assert args[args.index('-n') + 1] == cfg['cosmos_database']
+            calls.append('database')
+        elif args[:2] == ('group', 'show'):
+            assert {'index', 'database'} <= set(calls)
+            return {'tags': {'medw-owner': 'ours'}}
+        elif args[:2] == ('group', 'delete'):
+            assert {'index', 'database'} <= set(calls)
+            assert args[args.index('-n') + 1] == cfg['resource_group']
+            calls.append('group')
+        else:
+            pytest.fail(f'Unexpected mutation: {args[:5]}')
+
+    def delete_index(request, **kwargs):
+        assert '/indexes/' + cfg['search_index'] in request.full_url
+        calls.append('index')
+        return io.BytesIO(b'')
+
+    monkeypatch.setattr(azure, 'az', command)
+    monkeypatch.setattr(azure.urllib.request, 'urlopen', delete_index)
+    if delete_fails:
+        with pytest.raises(azure.SetupError, match='Cleanup incomplete'):
+            deployment.down()
+    else:
+        assert deployment.down()['complete']
+    assert calls[-1] == 'group'
+    report = (deployment.directory / 'cleanup.json').read_text()
+    assert 'never-record-this' not in report
+    assert json.loads(report)['complete'] is not delete_fails
+
+
+@pytest.mark.parametrize('state', [{}, {'teardown_complete': True, 'infrastructure_ready': True}])
+def test_release_requires_existing_infrastructure_before_cloud_calls(tmp_path, monkeypatch, state):
+    deployment = azure.Deployment(config(), root=tmp_path)
+    deployment.state.update(state)
+    monkeypatch.setattr(azure, 'run', lambda *a, **kw: pytest.fail('must not provision or build'))
+    with pytest.raises(azure.SetupError, match='make azure-infra'):
+        deployment.release()
+
+
+def test_explicit_release_uses_existing_infrastructure_and_pushed_source(tmp_path, monkeypatch):
+    deployment = azure.Deployment(config(), root=tmp_path)
+    deployment.config['owner'] = 'ours'
+    deployment.state.update(owner='ours', infrastructure_ready=True)
+    commands = []
+    monkeypatch.setattr(deployment, 'account', lambda: None)
+    monkeypatch.setattr(deployment, 'infra', lambda: pytest.fail('release must not provision infrastructure'))
+    monkeypatch.setattr(deployment, 'queue_release', lambda **kw: commands.append(('queue', kw)))
+    monkeypatch.setattr(deployment, '_reconcile', lambda: {'ready': True})
+
+    def command(args, **kwargs):
+        commands.append(args)
+        return deployment.config['git_branch'] if args[1] == 'branch' else ''
+
+    monkeypatch.setattr(azure, 'run', command)
+    assert deployment.release() == {'ready': True}
+    assert ['git', 'merge-base', '--is-ancestor', 'HEAD', 'FETCH_HEAD'] in commands
+    assert commands[-1] == ('queue', {'resume': True})

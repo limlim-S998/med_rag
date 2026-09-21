@@ -71,12 +71,18 @@ demo-run:      ## Upload FILE through the normal Azure application and retain ev
 # Copy infra/azure.example.json to this ignored path and fill its resource IDs.
 AZURE_CONFIG ?= data/azure/config.json
 AZURE_PYTHON ?= .venv/bin/python
-.PHONY: azure-preflight azure-up azure-verify azure-down
+.PHONY: azure-preflight azure-up azure-infra azure-release azure-verify azure-down
 azure-preflight: ## cloud/access/price checks and a cached temporary CI probe; no paid Azure creation
 	$(AZURE_PYTHON) scripts/azure.py preflight --config "$(AZURE_CONFIG)"
 
-azure-up: ## resumable Azure provisioning, identities, pipeline and Flux deployment
+azure-up: ## prepare infrastructure, publish the first release, then reuse it on reruns
 	$(AZURE_PYTHON) scripts/azure.py up --config "$(AZURE_CONFIG)"
+
+azure-infra: ## configure infrastructure and delivery without queuing an application release
+	$(AZURE_PYTHON) scripts/azure.py infra --config "$(AZURE_CONFIG)"
+
+azure-release: ## publish a new release through CI and wait for Flux on existing infrastructure
+	$(AZURE_PYTHON) scripts/azure.py release --config "$(AZURE_CONFIG)"
 
 azure-verify: ## export actual cluster/TLS/route/release evidence
 	$(AZURE_PYTHON) scripts/azure.py verify --config "$(AZURE_CONFIG)"

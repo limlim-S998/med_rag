@@ -9,6 +9,10 @@ parameters:
   - name: agentPool
     type: string
     default: ''
+  - name: buildConcurrency
+    type: number
+    default: 2
+    values: [1, 2]
   - name: releaseBranch
     type: string
     default: main
@@ -45,7 +49,7 @@ stages:
               inlineScript: |
                 set -euo pipefail
                 az acr login --name '${{ parameters.registryHost }}'
-                python scripts/build_images.py --registry '${{ parameters.registryHost }}' --push --output /tmp/images.json
+                python scripts/build_images.py --registry '${{ parameters.registryHost }}' --jobs '${{ parameters.buildConcurrency }}' --push --output /tmp/images.json
                 python scripts/release.py create --images /tmp/images.json --behavior deploy/release-behavior.json --output /tmp/bundle.json
                 python scripts/verify_release.py /tmp/bundle.json --registry '${{ parameters.registryHost }}' --environment dev
             displayName: Build, smoke, publish and verify exact artifacts

@@ -6,6 +6,8 @@
   "environment": "dev",
   "hours": 4,
   "budget_aud": 20,
+  "operations_concurrency": 4,
+  "build_concurrency": 2,
   "borrowed_search_id": "",
   "borrowed_cosmos_id": "",
   "search_index": "medw-dev-chunks",
