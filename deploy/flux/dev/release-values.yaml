@@ -12,8 +12,8 @@ spec:
   values:
     releaseRequired: true
     image:
-      digest: sha256:022cee698b0fb839e9b600c5802be1cded2fb08daeb9133c88116c41f2dd050a
-      sourceSha: 9ce50d2dab01c4c0878127b776daea02d6fa2f8e
+      digest: sha256:7be396da7ba1415806f20244bf28a3e630bc0d705bf4b936a799a75c14f44df7
+      sourceSha: 550354cec6f52345ba38cc68b6d9e3e04c683517
     config:
       chat_model_name: scripted-placeholder
       chat_model_version: '1'
@@ -28,7 +28,7 @@ spec:
       search_ef: '128'
       table_classifier_version: placeholder-1
       temperature: '0'
-      release_bundle_sha: sha256:22e6aceaee2ad446c720d2a7a4039d8ecdc75ac0d4d309662620f8362926f0e9
+      release_bundle_sha: sha256:606537ee757dd023f97ce3ca9361828276b83a3176e7fe675687520bcc1a0fd4
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -44,8 +44,8 @@ spec:
   values:
     releaseRequired: true
     image:
-      digest: sha256:4a56aeda81a96d8a7680ebfea1646950edf8de8c801928ffe867a9601efffcf1
-      sourceSha: 9ce50d2dab01c4c0878127b776daea02d6fa2f8e
+      digest: sha256:28882e7ca59c9aa730072b9d2a2deb2a522ef03b0a0fd1fb9aa5151b38c41d38
+      sourceSha: 550354cec6f52345ba38cc68b6d9e3e04c683517
     config:
       chat_model_name: scripted-placeholder
       chat_model_version: '1'
@@ -60,7 +60,7 @@ spec:
       search_ef: '128'
       table_classifier_version: placeholder-1
       temperature: '0'
-      release_bundle_sha: sha256:22e6aceaee2ad446c720d2a7a4039d8ecdc75ac0d4d309662620f8362926f0e9
+      release_bundle_sha: sha256:606537ee757dd023f97ce3ca9361828276b83a3176e7fe675687520bcc1a0fd4
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -76,8 +76,8 @@ spec:
   values:
     releaseRequired: true
     image:
-      digest: sha256:e4b8cfab1df075d8179960639afbb00a5bda638be922609a8b976bdcbc28a8c4
-      sourceSha: 9ce50d2dab01c4c0878127b776daea02d6fa2f8e
+      digest: sha256:45b6e2a3c8b7a367d58a460d4d96ff58dfd561961228fb7736b6de0293d1118a
+      sourceSha: 550354cec6f52345ba38cc68b6d9e3e04c683517
     config:
       chat_model_name: scripted-placeholder
       chat_model_version: '1'
@@ -92,7 +92,7 @@ spec:
       search_ef: '128'
       table_classifier_version: placeholder-1
       temperature: '0'
-      release_bundle_sha: sha256:22e6aceaee2ad446c720d2a7a4039d8ecdc75ac0d4d309662620f8362926f0e9
+      release_bundle_sha: sha256:606537ee757dd023f97ce3ca9361828276b83a3176e7fe675687520bcc1a0fd4
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -108,8 +108,8 @@ spec:
   values:
     releaseRequired: true
     image:
-      digest: sha256:1373c4710dc86b5c42183f0a909a256d0834b792209a9bcf54e59e0738660375
-      sourceSha: 9ce50d2dab01c4c0878127b776daea02d6fa2f8e
+      digest: sha256:3912c4b2c403d2a6d3d402c0217099f9f804a647a6ab26829b91e3e290761482
+      sourceSha: 550354cec6f52345ba38cc68b6d9e3e04c683517
     config:
       chat_model_name: scripted-placeholder
       chat_model_version: '1'
@@ -124,7 +124,7 @@ spec:
       search_ef: '128'
       table_classifier_version: placeholder-1
       temperature: '0'
-      release_bundle_sha: sha256:22e6aceaee2ad446c720d2a7a4039d8ecdc75ac0d4d309662620f8362926f0e9
+      release_bundle_sha: sha256:606537ee757dd023f97ce3ca9361828276b83a3176e7fe675687520bcc1a0fd4
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -140,8 +140,8 @@ spec:
   values:
     releaseRequired: true
     image:
-      digest: sha256:290eb1f3a93c4eff2e3b61b23fb1199f0209227de173074ce25084df16049e1b
-      sourceSha: 9ce50d2dab01c4c0878127b776daea02d6fa2f8e
+      digest: sha256:03d92fdc1b2b7ac94e88275844c47170b4ec9c4d925c1fc27718862a622f8595
+      sourceSha: 550354cec6f52345ba38cc68b6d9e3e04c683517
     config:
       chat_model_name: scripted-placeholder
       chat_model_version: '1'
@@ -156,7 +156,7 @@ spec:
       search_ef: '128'
       table_classifier_version: placeholder-1
       temperature: '0'
-      release_bundle_sha: sha256:22e6aceaee2ad446c720d2a7a4039d8ecdc75ac0d4d309662620f8362926f0e9
+      release_bundle_sha: sha256:606537ee757dd023f97ce3ca9361828276b83a3176e7fe675687520bcc1a0fd4
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -175,22 +175,22 @@ spec:
       - target:
           kind: Job
           name: airflow-run-airflow-migrations
-        patch: '[{"op": "replace", "path": "/metadata/name", "value": "airflow-run-airflow-migrations-22e6aceaee2a"}]'
+        patch: '[{"op": "replace", "path": "/metadata/name", "value": "airflow-run-airflow-migrations-606537ee757d"}]'
       - target:
           kind: Job
           name: airflow-create-user
-        patch: '[{"op": "replace", "path": "/metadata/name", "value": "airflow-create-user-22e6aceaee2a"}]'
+        patch: '[{"op": "replace", "path": "/metadata/name", "value": "airflow-create-user-606537ee757d"}]'
   values:
     releaseRequired: true
     image:
-      digest: sha256:877aff8006f31c562a97c91f6a25b8803b4750006517a171298f5917bd9c24db
-      sourceSha: 9ce50d2dab01c4c0878127b776daea02d6fa2f8e
+      digest: sha256:5b5bdb64a418c0473dfa18ceb495685c9a0007a27c5c24ed7b2e0f9d42536f45
+      sourceSha: 550354cec6f52345ba38cc68b6d9e3e04c683517
     config:
-      release_bundle_sha: sha256:22e6aceaee2ad446c720d2a7a4039d8ecdc75ac0d4d309662620f8362926f0e9
+      release_bundle_sha: sha256:606537ee757dd023f97ce3ca9361828276b83a3176e7fe675687520bcc1a0fd4
     airflow:
       images:
         airflow:
-          digest: sha256:877aff8006f31c562a97c91f6a25b8803b4750006517a171298f5917bd9c24db
+          digest: sha256:5b5bdb64a418c0473dfa18ceb495685c9a0007a27c5c24ed7b2e0f9d42536f45
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -205,8 +205,8 @@ spec:
   values:
     snapshots:
       image:
-        digest: sha256:e4b8cfab1df075d8179960639afbb00a5bda638be922609a8b976bdcbc28a8c4
-        sourceSha: 9ce50d2dab01c4c0878127b776daea02d6fa2f8e
+        digest: sha256:45b6e2a3c8b7a367d58a460d4d96ff58dfd561961228fb7736b6de0293d1118a
+        sourceSha: 550354cec6f52345ba38cc68b6d9e3e04c683517
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: GitRepository
@@ -216,4 +216,4 @@ metadata:
 spec:
   suspend: false
   ref:
-    commit: 9ce50d2dab01c4c0878127b776daea02d6fa2f8e
+    commit: 550354cec6f52345ba38cc68b6d9e3e04c683517
