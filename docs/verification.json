@@ -3812,6 +3812,93 @@
         "performed": false,
         "reason": "Existing resources intentionally preserved for the user to resume setup."
       }
+    },
+    "azure-incomplete-teardown-20260921": {
+      "recorded_at": "2026-09-21T04:44:04.351378+00:00",
+      "scope": "Read-only diagnosis of pipeline 15 deployment timeout and local prevention of startup after interrupted teardown. Cloud recovery remains with the operator.",
+      "pipeline": {
+        "id": 15,
+        "definition_id": 11,
+        "result": "succeeded",
+        "source_sha": "a225d0ba97700f44cad12eccda0d8318863cac8e",
+        "finished_at": "2026-09-21T04:13:12.408856+00:00"
+      },
+      "selected_release_commit": "6be5817607ac16d31e5148ceecaabf80674d7306",
+      "release_bundle_sha": "sha256:4986d2ba314e12cd0d18f8c81ea263f002405c9a6d1903e256f61e2487235db3",
+      "observations": {
+        "helm_ready": {
+          "airflow": false,
+          "gateway": false,
+          "generation": false,
+          "ingestion-worker": false,
+          "qdrant": true,
+          "reranker": true,
+          "retrieval": false
+        },
+        "application_readiness": {
+          "gateway": 503,
+          "retrieval": 503,
+          "generation": 503,
+          "ingestion-worker": 503
+        },
+        "search": {
+          "account": "medrag325744d5search",
+          "expected_index": "medw-dev-chunks",
+          "index_present": false
+        },
+        "cosmos": {
+          "account": "medrag325744d5cosmos",
+          "database": "medw-dev",
+          "containers_present": [
+            "documents",
+            "sessions",
+            "platform-state"
+          ],
+          "missing_assignments": [
+            "gateway/documents",
+            "gateway/sessions",
+            "generation/platform-state",
+            "ingestion-worker/documents"
+          ],
+          "remaining_assignments": [
+            "retrieval/platform-state",
+            "ingestion-worker/platform-state"
+          ]
+        },
+        "journal_deleted_entries": [
+          "borrowed-search-index",
+          "cosmos-assignment-gateway-documents",
+          "cosmos-assignment-gateway-sessions",
+          "cosmos-assignment-generation-platform-state"
+        ],
+        "cosmos_assignment_deletions_succeeded_between_utc": [
+          "2026-09-21T00:35:08.5757317Z",
+          "2026-09-21T00:36:43.3418998Z"
+        ],
+        "teardown_complete": false
+      },
+      "root_cause": "Incomplete teardown removed the application Search index and Cosmos permissions. Startup reused completed creation checkpoints and skipped recreating the deleted dependencies.",
+      "changes": [
+        "Preflight rejects unfinished teardown before cloud or pipeline calls, including legacy deletion markers.",
+        "Teardown records its start before issuing deletion requests.",
+        "Completed teardown permits a fresh startup with the old journal archived.",
+        "README step 6 documents finishing cleanup before fresh setup."
+      ],
+      "validation": {
+        "focused_tests_passed": 73,
+        "ruff": "passed",
+        "live_journal_preflight": "correctly rejected with deployment-lifecycle error and no cloud changes"
+      },
+      "handoff": {
+        "live_resource_mutations": false,
+        "startup_rerun": false,
+        "cleanup_run": false,
+        "next_operator_actions": [
+          "make azure-down; wait for complete=true and no remaining failures",
+          "make azure-up; then continue README step 7"
+        ],
+        "application_recovery_verified": false
+      }
     }
   },
   "documentation_cleanup": {

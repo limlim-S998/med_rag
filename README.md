@@ -262,8 +262,27 @@ uses the matching trust certificate; do not bypass browser or client TLS checks.
 
 If setup fails, do not start the presentation. Some paid resources may already
 exist. After resolving the reported issue, the same `make azure-up` command can
-resume using its journal. If abandoning the attempt, run cleanup step 13 even
-though setup did not finish. Closing the terminal does not delete cloud resources.
+resume using its journal **provided cleanup has not started**. If abandoning the
+attempt, run cleanup step 13 even though setup did not finish. Closing the terminal
+does not delete cloud resources.
+
+If `azure-down` was started but interrupted or failed, finish cleanup before
+starting again. Its journal may still contain successful creation records for
+resources it has since deleted. Preflight detects this condition and stops early.
+Run these as separate steps, waiting for the first to report `"complete": true`
+and `"remaining_or_failed": []` before running the second:
+
+```sh
+make azure-down
+```
+
+```sh
+make azure-up
+```
+
+This removes the remaining owned deployment and its test data, then builds a
+fresh deployment. Borrowed Search/Cosmos accounts are preserved. Keep the existing
+configuration and journal throughout; do not delete them to bypass the check.
 
 #### 7. Check readiness, open the browser pages and rehearse
 
@@ -859,6 +878,12 @@ option supported by the operator commands.
   test copied the current Git selection but submitted a legacy five-image fixture,
   so the next build failed after the first Airflow release. The production guard
   against rolling a live Airflow installation back to that older contract remains.
+- Startup now rejects an unfinished teardown before cloud checks or builds.
+  Previously it reused successful creation checkpoints even after partial cleanup
+  had removed the Search index and Cosmos permissions, causing readiness failures
+  after a successful pipeline. Teardown records its start before the first delete,
+  including when interrupted before a deletion response is saved. Completing
+  cleanup allows the next startup to archive the old journal and provision afresh.
 
 ## Azure configuration reference
 

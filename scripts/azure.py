@@ -358,6 +358,14 @@ class Deployment:
                 command += ["--in-file", str(request_path), "--encoding", "utf-8"]
             return run(command, env=env, json_result=True)
 
+    def _setup_lifecycle(self) -> str:
+        if not self.state.get("teardown_complete") and (
+                self.state.get("teardown_started_at") or self.state.get("deleted")):
+            raise SetupError("Previous Azure teardown did not finish. Run make azure-down with the existing "
+                             "configuration and journal, wait for complete=true, then rerun make azure-up. "
+                             "Creation checkpoints cannot be reused after resources have been deleted.")
+        return "No unfinished teardown"
+
     def preflight(self) -> dict:
         report: dict = {"timestamp": dt.datetime.now(dt.UTC).isoformat(), "checks": [],
                         "passed": False, "billable_resources_created": False}
@@ -380,6 +388,10 @@ class Deployment:
             run(["docker", "info", "--format", "{{.ServerVersion}}"])
             return "Required local tools and Docker available"
 
+        # An interrupted cleanup leaves successful creation checkpoints behind.
+        # Check this before cloud calls, build probes or any further provisioning.
+        if check("deployment-lifecycle", self._setup_lifecycle) is None:
+            return report
         check("tools", tools)
         if check("account", lambda: {key: self.account()[key] for key in ("id", "tenantId")}) is None:
             return report
@@ -1446,6 +1458,11 @@ class Deployment:
                     "cosmos_database", "search_index", "search_subscription_id", "cosmos_subscription_id"):
             if original.get(key) != self.config.get(key):
                 raise SetupError(f"Cleanup configuration differs from recorded {key}")
+        # Persist the direction change before the first DELETE. The process can
+        # exit after Azure accepts deletion but before its completion is recorded.
+        self.state.setdefault("teardown_started_at", dt.datetime.now(dt.UTC).isoformat())
+        self.state["teardown_complete"] = False
+        self.save()
         errors = []
 
         def attempt(label, action):

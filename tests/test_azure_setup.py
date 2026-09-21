@@ -112,6 +112,70 @@ def test_preflight_checks_application_insights_automatic_alert_dependency(monkey
     assert deployment._providers() == "Required resource providers registered"
 
 
+@pytest.mark.parametrize("cleanup_state", [
+    {"deleted": ["borrowed-search-index"]},  # Journal from before the explicit teardown marker.
+    {"teardown_started_at": "2026-09-21T00:34:00+00:00"},
+])
+def test_interrupted_teardown_blocks_startup_before_cloud_or_pipeline_calls(monkeypatch, tmp_path, cleanup_state):
+    deployment = azure.Deployment(config(), root=tmp_path)
+    deployment.state.update(cleanup_state, completed={"search-index": {"name": "removed-index"}})
+    deployment.save()
+    before = deployment.journal_path.read_bytes()
+    monkeypatch.setattr(azure, "run", lambda *a, **kw: pytest.fail("must not call cloud or queue a build"))
+    report = deployment.preflight()
+    assert not report["passed"] and not report["billable_resources_created"]
+    assert [check["name"] for check in report["checks"]] == ["deployment-lifecycle"]
+    assert "make azure-down" in report["checks"][0]["detail"]
+    with pytest.raises(azure.SetupError, match="Previous Azure teardown did not finish"):
+        deployment.up()
+    assert deployment.journal_path.read_bytes() == before
+
+
+def test_teardown_marker_survives_interruption_before_first_delete_is_recorded(monkeypatch, tmp_path):
+    deployment = azure.Deployment(config(), root=tmp_path)
+    deployment.config["owner"] = "ours"
+    deployment.state.update(owner="ours", config=copy.deepcopy(deployment.config),
+                            applications={"api": {"id": "owned-api"}})
+    deployment.save()
+    monkeypatch.setattr(deployment, "account", lambda: None)
+
+    def interrupted(*args, **kwargs):
+        assert args == ("ad", "app", "delete", "--id", "owned-api")
+        persisted = json.loads(deployment.journal_path.read_text())
+        assert persisted["teardown_started_at"] and not persisted["teardown_complete"]
+        assert not persisted.get("deleted")
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(azure, "az", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        deployment.down()
+    reloaded = azure.Deployment(deployment.config, root=tmp_path)
+    monkeypatch.setattr(azure, "run", lambda *a, **kw: pytest.fail("must not contact Azure"))
+    assert not reloaded.preflight()["passed"]
+
+
+def test_completed_teardown_allows_fresh_setup_and_archives_old_checkpoints(monkeypatch, tmp_path):
+    deployment = azure.Deployment(config(), root=tmp_path)
+    deployment.state.update(teardown_started_at="2026-09-21T00:34:00+00:00", teardown_complete=True,
+                            deleted=["borrowed-search-index"], completed={"search-index": {"name": "old"}})
+    deployment.save()
+    assert deployment._setup_lifecycle() == "No unfinished teardown"
+
+    def preflight():
+        assert not deployment.state.get("completed")
+        assert not deployment.state.get("deleted")
+        assert not deployment.state.get("teardown_started_at")
+        # Stop after checking the new journal, before any real provisioning.
+        return {"passed": False, "checks": [{"name": "quota", "passed": False, "detail": "test stop"}]}
+
+    monkeypatch.setattr(deployment, "preflight", preflight)
+    with pytest.raises(azure.SetupError, match="test stop"):
+        deployment.up()
+    archived = list(deployment.directory.glob("state-*.json"))
+    assert len(archived) == 1
+    assert json.loads(archived[0].read_text())["teardown_complete"]
+
+
 def test_cost_reserves_os_qdrant_airflow_metadata_and_log_disks():
     quote = {kind: {"hourly_aud": 0.1} for kind in
              ("node", "registry", "sql", "disk", "load_balancer", "public_ip")}
