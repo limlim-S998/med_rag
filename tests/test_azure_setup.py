@@ -695,17 +695,20 @@ def test_application_wait_rejects_old_ready_generation_and_missing_releases(tmp_
     names = (*azure.SERVICES, 'airflow', 'qdrant')
 
     def releases(*args, **kwargs):
+        if "gitrepository" in args:
+            return {'spec': {'ref': {'commit': 'a' * 40}}}
         calls.append(True)
         if len(calls) == 1:
             return {'items': []}
         return {'items': [{'metadata': {'name': name, 'generation': 2},
                            'status': {'observedGeneration': 1 if len(calls) == 2 else 2,
+                                      'lastAttemptedRevision': '0.1.0+' + ('b' * 12 if len(calls) == 3 else 'a' * 12),
                                       'conditions': [{'type': 'Ready', 'status': 'True'}]}} for name in names]}
 
     monkeypatch.setattr(deployment, 'kube', releases)
     monkeypatch.setattr(azure.time, 'sleep', lambda _: None)
     deployment._wait_application()
-    assert len(calls) == 3
+    assert len(calls) == 4
 
 
 @pytest.mark.parametrize(('key', 'value'), [('operations_concurrency', 0), ('operations_concurrency', 5),

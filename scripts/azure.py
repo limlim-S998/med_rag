@@ -1527,13 +1527,19 @@ class Deployment:
                 "ca_file": str(self.directory / "tls/server.crt"), "pipeline": self.state["pipeline_id"]}
 
     def _wait_application(self, *, timeout: float = 900):
-        # Ready from the previous generation is not proof of the new release.
+        # Values and their pinned chart source reconcile independently. A Ready
+        # upgrade using new values with the previous chart is still intermediate.
+        source = self.kube("-n", "flux-system", "get", "gitrepository", "medwriter-release-charts",
+                           "-o", "json", json_result=True)["spec"]["ref"].get("commit", "")
+        if not re.fullmatch(r"[0-9a-f]{40}", source) or source == "0" * 40:
+            raise SetupError("Application chart source must be pinned to a release commit")
         expected = {*SERVICES, "airflow", "qdrant"}
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             releases = self.kube("-n", "medw", "get", "helmreleases", "-o", "json", json_result=True)["items"]
             ready = {item["metadata"]["name"] for item in releases
                      if item.get("status", {}).get("observedGeneration") == item["metadata"]["generation"]
+                     and item.get("status", {}).get("lastAttemptedRevision", "").endswith("+" + source[:12])
                      and any(c["type"] == "Ready" and c["status"] == "True"
                              for c in item.get("status", {}).get("conditions", []))}
             if expected <= ready:

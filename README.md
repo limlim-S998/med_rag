@@ -87,6 +87,20 @@ and cleanup outcome are recorded under `azure-airflow-rehearsal-20260917`.
 The rehearsal's owned infrastructure was removed afterwards; run `azure-up`
 before using the walkthrough. Borrowed free-tier accounts were preserved.
 
+A further Azure rehearsal on 21 September verified concurrent setup and image
+builds, startup reuse and explicit release publishing. Cold `azure-up` took
+28 minutes 9 seconds; rerunning it took 1 minute 48 seconds without another
+pipeline run. `azure-release` built and deployed a new release in 11 minutes
+47 seconds. Both pipelines passed 392 tests and all six image smoke checks.
+Immediate upload through draft acceptance, the on-demand Airflow batch, and
+immediate processing after the upgrade passed. Airflow retained the completed
+DAG and task records across the release upgrade. These are observations from
+one run, not timing guarantees or a repeat of the full acceptance suite. The
+record is `azure-concurrency-rehearsal-20260921` in the verification JSON.
+Cleanup completed in 13 minutes 50 seconds. Both owned resource groups, the
+application data in borrowed accounts, temporary delivery objects and API
+registrations were removed; the borrowed accounts and GitHub connections remain.
+
 The retired `medw` minikube installation remains stopped, with its original data
 and volumes preserved. Its historical application source is
 `8be19924b30edc325c2525f2439b5c1e3a62a044` and its Qdrant image is 1.12.1.
@@ -108,7 +122,7 @@ The previous rehearsal's Azure deployment was removed, so it must be provisioned
 again before the demonstration.
 
 Allow **60–90 minutes for preparation** and **10–15 minutes for the presentation**.
-The previous cold deployment took about 37 minutes, but that is not a guarantee.
+The latest cold deployment took about 28 minutes, but that is not a guarantee.
 Deploy shortly before the meeting: the configured estimate covers a four-hour
 session, including setup, rehearsal and presentation. Four hours is an estimate
 input, not an automatic shutdown. If you practise on a different day, complete
@@ -902,7 +916,7 @@ option supported by the operator commands.
   after a successful pipeline. Teardown records its start before the first delete,
   including when interrupted before a deletion response is saved. Completing
   cleanup allows the next startup to archive the old journal and provision afresh.
-- Independent Azure resource groups of work, identities and controller installs
+- Independent Azure provisioning operations, identities and controller installs
   run concurrently; SQL bootstrap can overlap controller installation. Cleanup
   overlaps independent Search, Cosmos, ARM-permission and DevOps operations,
   while preserving ordering within each dependency chain. Journal changes are
@@ -916,8 +930,9 @@ option supported by the operator commands.
 - Infrastructure setup and release publishing have separate commands. `azure-up`
   publishes the first release and reuses it on later reruns; `azure-release`
   publishes new code. Interrupted pipeline waits resume the recorded run.
-  Flux refreshes the source and readiness waits for each current Helm generation,
-  so an old Ready condition cannot stand in for an uncompleted upgrade.
+  Flux refreshes the source and readiness waits for each current Helm generation
+  and the selected chart revision. New values with a still-cached older chart
+  cannot stand in for a completed upgrade.
 
 ## Azure configuration reference
 
