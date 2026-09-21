@@ -28,7 +28,9 @@ parameters:
 - name: buildConcurrency
   type: number
   default: 2
-  values: [1, 2]
+  values:
+  - 1
+  - 2
 - name: releaseBranch
   type: string
   default: main

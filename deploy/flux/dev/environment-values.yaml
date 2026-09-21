@@ -14,7 +14,7 @@ spec:
       sql_database: medw
       blob_container: raw
       auth_tenant_id: 721342f3-ed34-4553-93ea-4fbe8f7149eb
-      auth_audience: d5cf6afe-442a-4669-a2eb-8b20e4e89f8b
+      auth_audience: 45819e23-b1b5-4742-bf5e-820b780e095e
       auth_issuer: https://login.microsoftonline.com/721342f3-ed34-4553-93ea-4fbe8f7149eb/v2.0
       auth_jwks_url: https://login.microsoftonline.com/721342f3-ed34-4553-93ea-4fbe8f7149eb/discovery/v2.0/keys
       cosmos_state_container: platform-state
@@ -25,13 +25,13 @@ spec:
       qdrant_write_consistency_factor: 1
       reranker_url: http://reranker:8000
       retrieval_url: http://retrieval:8000
-      batch_principal_id: ab4a046e-388d-4198-afdf-b532ac2ce072
+      batch_principal_id: 2405d1e0-a48c-4901-9421-f41df33c77fc
       batch_max_documents: 500
     image:
       repository: medwdev9528fa20acr.azurecr.io/gateway
     serviceAccount:
       annotations:
-        azure.workload.identity/client-id: 888b4ec0-641f-4c02-bf7e-8b76a9c081ec
+        azure.workload.identity/client-id: e6703b15-3dee-48f0-9265-51b9df556813
     ingress:
       host: medwdev9528fa20.australiaeast.cloudapp.azure.com
       tls: true
@@ -81,16 +81,16 @@ spec:
       qdrant_write_consistency_factor: 1
       retrieval_url: http://retrieval:8000
       auth_tenant_id: 721342f3-ed34-4553-93ea-4fbe8f7149eb
-      auth_audience: d5cf6afe-442a-4669-a2eb-8b20e4e89f8b
+      auth_audience: 45819e23-b1b5-4742-bf5e-820b780e095e
       auth_issuer: https://login.microsoftonline.com/721342f3-ed34-4553-93ea-4fbe8f7149eb/v2.0
       auth_jwks_url: https://login.microsoftonline.com/721342f3-ed34-4553-93ea-4fbe8f7149eb/discovery/v2.0/keys
-      batch_principal_id: ab4a046e-388d-4198-afdf-b532ac2ce072
+      batch_principal_id: 2405d1e0-a48c-4901-9421-f41df33c77fc
       batch_max_documents: 500
     image:
       repository: medwdev9528fa20acr.azurecr.io/retrieval
     serviceAccount:
       annotations:
-        azure.workload.identity/client-id: a33c4311-19cf-4d0d-9dd4-a3e8cb0aa06f
+        azure.workload.identity/client-id: da7bfbbb-e8e4-4b28-aa7e-34c5f32d7374
     secretEnv:
     - name: MEDW_QDRANT_API_KEY
       secretKeyRef:
@@ -140,16 +140,16 @@ spec:
       reranker_url: http://reranker:8000
       retrieval_url: http://retrieval:8000
       auth_tenant_id: 721342f3-ed34-4553-93ea-4fbe8f7149eb
-      auth_audience: d5cf6afe-442a-4669-a2eb-8b20e4e89f8b
+      auth_audience: 45819e23-b1b5-4742-bf5e-820b780e095e
       auth_issuer: https://login.microsoftonline.com/721342f3-ed34-4553-93ea-4fbe8f7149eb/v2.0
       auth_jwks_url: https://login.microsoftonline.com/721342f3-ed34-4553-93ea-4fbe8f7149eb/discovery/v2.0/keys
-      batch_principal_id: ab4a046e-388d-4198-afdf-b532ac2ce072
+      batch_principal_id: 2405d1e0-a48c-4901-9421-f41df33c77fc
       batch_max_documents: 500
     image:
       repository: medwdev9528fa20acr.azurecr.io/generation
     serviceAccount:
       annotations:
-        azure.workload.identity/client-id: 9c62f5d3-7905-4480-a239-49d0e3b77e16
+        azure.workload.identity/client-id: b1190aef-9803-46d0-b41f-3934affd278e
     serviceMonitor:
       enabled: true
       interval: 15s
@@ -198,16 +198,16 @@ spec:
       reranker_url: http://reranker:8000
       retrieval_url: http://retrieval:8000
       auth_tenant_id: 721342f3-ed34-4553-93ea-4fbe8f7149eb
-      auth_audience: d5cf6afe-442a-4669-a2eb-8b20e4e89f8b
+      auth_audience: 45819e23-b1b5-4742-bf5e-820b780e095e
       auth_issuer: https://login.microsoftonline.com/721342f3-ed34-4553-93ea-4fbe8f7149eb/v2.0
       auth_jwks_url: https://login.microsoftonline.com/721342f3-ed34-4553-93ea-4fbe8f7149eb/discovery/v2.0/keys
-      batch_principal_id: ab4a046e-388d-4198-afdf-b532ac2ce072
+      batch_principal_id: 2405d1e0-a48c-4901-9421-f41df33c77fc
       batch_max_documents: 500
     image:
       repository: medwdev9528fa20acr.azurecr.io/ingestion-worker
     serviceAccount:
       annotations:
-        azure.workload.identity/client-id: d96b9e7d-12b7-4a57-a098-c24a6ed32c29
+        azure.workload.identity/client-id: 8a84e179-5838-4ca4-8b4c-e04fb20b3d80
     secretEnv:
     - name: MEDW_QDRANT_API_KEY
       secretKeyRef:
@@ -256,16 +256,16 @@ spec:
       reranker_url: http://reranker:8000
       retrieval_url: http://retrieval:8000
       auth_tenant_id: 721342f3-ed34-4553-93ea-4fbe8f7149eb
-      auth_audience: d5cf6afe-442a-4669-a2eb-8b20e4e89f8b
+      auth_audience: 45819e23-b1b5-4742-bf5e-820b780e095e
       auth_issuer: https://login.microsoftonline.com/721342f3-ed34-4553-93ea-4fbe8f7149eb/v2.0
       auth_jwks_url: https://login.microsoftonline.com/721342f3-ed34-4553-93ea-4fbe8f7149eb/discovery/v2.0/keys
-      batch_principal_id: ab4a046e-388d-4198-afdf-b532ac2ce072
+      batch_principal_id: 2405d1e0-a48c-4901-9421-f41df33c77fc
       batch_max_documents: 500
     image:
       repository: medwdev9528fa20acr.azurecr.io/reranker
     serviceAccount:
       annotations:
-        azure.workload.identity/client-id: d6151aa7-9393-42dc-9160-a8bd8125da55
+        azure.workload.identity/client-id: 4f000bed-6219-4905-a265-5f45ba6bc71c
     serviceMonitor:
       enabled: true
       interval: 15s
@@ -300,7 +300,7 @@ spec:
       enabled: true
       accountUrl: https://medwdev9528fa20sa.blob.core.windows.net
       container: snapshots
-      clientId: 60236906-1fb5-4fa9-be75-6cd5eb894b61
+      clientId: bdaad71a-009c-442f-b496-bd9331872297
     replicas: 1
     persistence:
       storageClass: managed-csi
@@ -339,7 +339,7 @@ spec:
       - name: MEDW_INGESTION_URL
         value: http://ingestion-worker:8000
       - name: MEDW_AUTH_AUDIENCE
-        value: d5cf6afe-442a-4669-a2eb-8b20e4e89f8b
+        value: 45819e23-b1b5-4742-bf5e-820b780e095e
     serviceAccount:
       annotations:
-        azure.workload.identity/client-id: 20eac4ef-8e23-4b1a-ae6f-1522b5d9ebe4
+        azure.workload.identity/client-id: 33515b08-fb44-467c-913f-1b898ae314d1
