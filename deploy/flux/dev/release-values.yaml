@@ -61,8 +61,6 @@ spec:
       table_classifier_version: placeholder-1
       temperature: '0'
       release_bundle_sha: sha256:b7abc9570b14102cc4d2d463003d6fd384cfed06342b9af4bfdc0669e4bb94cb
-      blob_container: medw-verification-missing
-  timeout: 60s
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
