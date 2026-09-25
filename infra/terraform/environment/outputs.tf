@@ -19,8 +19,8 @@ output "resources" {
     sql_database       = var.sql_database
     insights           = azurerm_application_insights.application.id
     hostname           = azurerm_public_ip.ingress.fqdn
-    api_client_id      = azuread_application_registration.api.client_id
-    user_client_id     = azuread_application_registration.client.client_id
+    api_client_id      = azuread_application.api.client_id
+    user_client_id     = azuread_application.client.client_id
     tenant_id          = var.tenant_id
     identities         = { for name, identity in azurerm_user_assigned_identity.workload : name => { client_id = identity.client_id, principal_id = identity.principal_id } }
     delivery_client_id = var.platform.delivery_client_id
@@ -36,8 +36,8 @@ output "cluster_config" {
     data = merge({
       ENVIRONMENT         = var.environment
       TENANT_ID           = var.tenant_id
-      API_CLIENT_ID       = azuread_application_registration.api.client_id
-      USER_CLIENT_ID      = azuread_application_registration.client.client_id
+      API_CLIENT_ID       = azuread_application.api.client_id
+      USER_CLIENT_ID      = azuread_application.client.client_id
       REGISTRY_HOST       = azurerm_container_registry.application.login_server
       BLOB_URL            = trimsuffix(azurerm_storage_account.application.primary_blob_endpoint, "/")
       COSMOS_URL          = local.cosmos_account.endpoint

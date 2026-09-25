@@ -14,55 +14,58 @@ resource "azurerm_federated_identity_credential" "workload" {
   subject                   = each.key == "flux" ? "system:serviceaccount:flux-system:kustomize-controller" : "system:serviceaccount:medw:${each.key}"
 }
 
-resource "azuread_application_registration" "api" {
-  display_name                   = "${var.name_prefix}-api"
-  requested_access_token_version = 2
+locals {
+  api_access_scope_id = uuidv5("url", "${var.name_prefix}/api/access")
+  application_owners  = [var.operator.object_id, var.platform.infrastructure_principal_id]
 }
-resource "azuread_application_owner" "api" {
-  for_each        = toset([var.operator.object_id, var.platform.infrastructure_principal_id])
-  application_id  = azuread_application_registration.api.id
-  owner_object_id = each.value
+
+# Entra automatically makes the creating service principal an application owner.
+# Manage the complete owner set on the application, so both operator and pipeline
+# creation work without separately attempting to create that existing binding.
+resource "azuread_application" "api" {
+  display_name = "${var.name_prefix}-api"
+  owners       = local.application_owners
+  api {
+    requested_access_token_version = 2
+    oauth2_permission_scope {
+      id                         = local.api_access_scope_id
+      value                      = "access"
+      type                       = "User"
+      enabled                    = true
+      admin_consent_display_name = "Access medical writer API"
+      admin_consent_description  = "Use the API subject to study membership"
+      user_consent_display_name  = "Access medical writer API"
+      user_consent_description   = "Use the API subject to study membership"
+    }
+  }
+  # The URI includes the client ID Azure assigns during creation; its dedicated
+  # resource owns that property after the application exists.
+  lifecycle { ignore_changes = [identifier_uris] }
 }
 resource "azuread_application_identifier_uri" "api" {
-  application_id = azuread_application_registration.api.id
-  identifier_uri = "api://${azuread_application_registration.api.client_id}"
+  application_id = azuread_application.api.id
+  identifier_uri = "api://${azuread_application.api.client_id}"
 }
-resource "azuread_service_principal" "api" { client_id = azuread_application_registration.api.client_id }
-resource "azuread_application_permission_scope" "access" {
-  application_id             = azuread_application_registration.api.id
-  scope_id                   = uuidv5("url", "${var.name_prefix}/api/access")
-  value                      = "access"
-  type                       = "User"
-  admin_consent_display_name = "Access medical writer API"
-  admin_consent_description  = "Use the API subject to study membership"
-  user_consent_display_name  = "Access medical writer API"
-  user_consent_description   = "Use the API subject to study membership"
-}
-resource "azuread_application_registration" "client" {
+resource "azuread_service_principal" "api" { client_id = azuread_application.api.client_id }
+resource "azuread_application" "client" {
   display_name     = "${var.name_prefix}-client"
   sign_in_audience = "AzureADMyOrg"
+  owners           = local.application_owners
+  api { requested_access_token_version = 2 }
+  public_client { redirect_uris = ["http://localhost"] }
+  required_resource_access {
+    resource_app_id = azuread_application.api.client_id
+    resource_access {
+      id   = local.api_access_scope_id
+      type = "Scope"
+    }
+  }
 }
-resource "azuread_application_owner" "client" {
-  for_each        = toset([var.operator.object_id, var.platform.infrastructure_principal_id])
-  application_id  = azuread_application_registration.client.id
-  owner_object_id = each.value
-}
-resource "azuread_application_redirect_uris" "client" {
-  application_id = azuread_application_registration.client.id
-  type           = "PublicClient"
-  redirect_uris  = ["http://localhost"]
-}
-resource "azuread_service_principal" "client" { client_id = azuread_application_registration.client.client_id }
-resource "azuread_application_api_access" "client" {
-  application_id = azuread_application_registration.client.id
-  api_client_id  = azuread_application_registration.api.client_id
-  scope_ids      = [azuread_application_permission_scope.access.scope_id]
-}
+resource "azuread_service_principal" "client" { client_id = azuread_application.client.client_id }
 resource "azuread_application_pre_authorized" "client" {
-  application_id       = azuread_application_registration.api.id
-  authorized_client_id = azuread_application_registration.client.client_id
-  permission_ids       = [azuread_application_permission_scope.access.scope_id]
-  depends_on           = [azuread_application_api_access.client]
+  application_id       = azuread_application.api.id
+  authorized_client_id = azuread_application.client.client_id
+  permission_ids       = [local.api_access_scope_id]
 }
 
 locals {
