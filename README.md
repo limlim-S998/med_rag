@@ -4,10 +4,9 @@ An Azure application scaffold for retrieval-augmented medical writing. It connec
 document upload, durable ingestion, hybrid search, streamed drafting and acceptance,
 with source citations and release provenance retained throughout the workflow.
 
-**Status:** the application uses deterministic placeholder models. Outputs are
-not medically validated. The deployment configuration is being standardized on
-Terraform and Flux; that replacement deployment path is still awaiting live Azure
-commissioning. Azure is the only supported application deployment target.
+**Status:** functional Azure scaffolding with deterministic placeholder models.
+Outputs are not medically validated. Azure is the only supported application
+deployment target.
 
 ## Capabilities
 
