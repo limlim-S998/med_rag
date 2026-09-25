@@ -216,3 +216,61 @@ def test_publishing_requires_every_smoke_before_any_push(tmp_path, monkeypatch, 
     else:
         publish_images.main()
         assert set(json.loads(output.read_text())) == smoked == pushed == set(publish_images.ARTIFACTS)
+
+
+@pytest.mark.parametrize("target", ["matching", "different_registry", "missing_variable"])
+def test_artifact_verification_uses_exported_platform_registry(tmp_path, monkeypatch, target):
+    import json
+    import sys
+
+    from medw_core.placeholders import MODEL_IDENTITIES
+    from scripts import verify_release
+    from scripts.release import ARTIFACTS, create
+
+    environment = tmp_path / "deploy/flux/dev"
+    platform = tmp_path / "deploy/flux/clusters/dev"
+    environment.mkdir(parents=True)
+    platform.mkdir(parents=True)
+    documents = [{"metadata": {"name": service}, "spec": {"values": {
+        "image": {"repository": "${REGISTRY_HOST}/" + service}}}} for service in ARTIFACTS]
+    (environment / "environment-values.yaml").write_text(yaml.safe_dump_all(documents))
+    registry = "different.azurecr.io" if target == "different_registry" else "example.azurecr.io"
+    values = {} if target == "missing_variable" else {"REGISTRY_HOST": registry}
+    (platform / "platform-config.yaml").write_text(yaml.safe_dump({"data": values}))
+    behavior = json.loads((ROOT / "deploy/release-behavior.json").read_text())
+    bundle = create({service: {"digest": "sha256:" + "1" * 64, "source_sha": "a" * 40}
+                     for service in ARTIFACTS}, behavior, ROOT / "services/generation/app/prompts")
+    path = tmp_path / "bundle.json"
+    path.write_text(json.dumps(bundle))
+    pulled = []
+
+    def command(*args):
+        if args[:2] == ("git", "cat-file"):
+            return ""
+        if args[:2] == ("docker", "pull"):
+            pulled.append(args[2])
+            return ""
+        if args[:3] == ("docker", "image", "inspect"):
+            return "a" * 40
+        if args[:2] == ("docker", "run"):
+            if "MODEL_IDENTITIES" in args[-1]:
+                return json.dumps(MODEL_IDENTITIES)
+            if "prompt_hash" in args[-1]:
+                return bundle["behavior"]["prompt_bundle_sha"]
+            assert "import airflow" in args[-1]
+            return ""
+        pytest.fail(f"Unexpected command: {args[:3]}")
+
+    monkeypatch.setattr(verify_release, "ROOT", tmp_path)
+    monkeypatch.setattr(verify_release, "run", command)
+    monkeypatch.setattr(sys, "argv", ["verify_release.py", str(path), "--environment", "dev",
+                                     "--registry", "example.azurecr.io"])
+    if target == "matching":
+        verify_release.main()
+        assert set(pulled) == {f"example.azurecr.io/{service}@sha256:" + "1" * 64
+                               for service in ARTIFACTS}
+    else:
+        error = KeyError if target == "missing_variable" else ValueError
+        with pytest.raises(error):
+            verify_release.main()
+        assert not pulled
