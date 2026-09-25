@@ -110,7 +110,7 @@ def test_persistence_requires_recovered_public_search_and_retained_source(tmp_pa
     value = collector(tmp_path)
     value.base, value.tls, value.token = "https://api.invalid", True, "PRIVATE-TOKEN"
     value.study = "S1"
-    value.completed_workflows = [{"source_revision": "retained"}]
+    value.completed_workflows = [{"source_revision": "retained", "input": {"sha256": "a" * 64}}]
     restarted = False
     requests = []
 
@@ -122,6 +122,7 @@ def test_persistence_requires_recovered_public_search_and_retained_source(tmp_pa
 
     def handle(request):
         requests.append(request)
+        assert json.loads(request.content)["query"] == "sha256:" + "a" * 64
         status = (403 if scenario == "forbidden" else 503
                   if scenario == "unavailable" or (scenario == "recover" and len(requests) == 1) else 200)
         return httpx.Response(status, json={"hits": [{"citation": {
@@ -379,7 +380,8 @@ def test_interrupted_publication_restores_quota_and_checks_persisted_generation(
     original_file = value.file
     value.base, value.tls, value.token = "https://api.invalid", True, "API-TOKEN"
     value.study = "S1"
-    value.completed_workflows = [{"index_generation": {"generation_id": "old"}}]
+    value.completed_workflows = [{"job_id": "previous",
+                                 "index_generation": {"generation_id": "before-batch"}}]
     old_quota = {"enabled": False, "max_resident_memory_percent": None,
                  "max_disk_usage_percent": 80, "release_margin_percent": 3}
     state = {"quota": old_quota, "uid": "before", "probe_removed": False}
@@ -426,7 +428,8 @@ def test_interrupted_publication_restores_quota_and_checks_persisted_generation(
     monkeypatch.setattr(value, "pods", lambda service: [{"metadata": {"name": "worker", "uid": state["uid"]}}])
     monkeypatch.setattr(value, "application", application)
     monkeypatch.setattr(value, "publication_state", lambda job: {
-        "active": "changed-unsafely" if fail_before_restart else "old", "plan": {"generation_id": "planned"}})
+        "active": "changed-unsafely" if job != "previous" and fail_before_restart else "old",
+        "plan": {"generation_id": "planned"}})
     if fail_before_restart:
         with pytest.raises(AssertionError, match="active generation"):
             value.worker_recovery()

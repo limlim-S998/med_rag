@@ -22,6 +22,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import traceback
 import uuid
 from collections.abc import Callable
 from string import Template
@@ -139,9 +140,11 @@ class Acceptance:
             self.report["checks"][name] = {"status": "passed", "evidence": result}
             return result
         except Exception as exc:  # noqa: BLE001 - preserve evidence for every operational failure
+            frame = traceback.extract_tb(exc.__traceback__)[-1]
             self.report["checks"][name] = {
                 "status": "not_verified" if isinstance(exc, NotVerified) else "failed",
-                "reason": safe_failure(exc)}
+                "reason": safe_failure(exc),
+                "location": f"{pathlib.Path(frame.filename).name}:{frame.lineno}"}
             return None
         finally:
             self.report["checks"][name]["elapsed_seconds"] = round(time.monotonic() - started, 2)
@@ -363,7 +366,12 @@ with create_session() as session:
         if not self.completed_workflows:
             raise NotVerified("recovery requires a previously published study generation")
         observed: dict = {}
-        baseline = self.completed_workflows[-1]["index_generation"]["generation_id"]
+        # A batch may have published since the last immediate workflow. Compare
+        # interrupted staging with the currently selected manifest, not that
+        # earlier workflow's historical generation.
+        baseline = self.publication_state(self.completed_workflows[-1]["job_id"])["active"]
+        if not baseline:
+            raise NotVerified("recovery requires an active study generation")
         secret = self.kube("-n", "medw", "get", "secret", "qdrant-auth", "-o", "json", json_result=True)
         key = base64.b64decode(secret["data"]["api-key"]).decode()
         original_file = self.file
@@ -544,10 +552,11 @@ asyncio.run(read())
             raise NotVerified("indexing workflow must run before persistence verification")
         # Search retained indexed bytes before uploading any new source.
         statuses = []
+        workflow = self.completed_workflows[-1]
         with httpx.Client(verify=self.tls, timeout=30, headers={"Authorization": "Bearer " + self.token}) as client:
             def recovered_search():
                 response = client.post(self.base + f"/studies/{quote(self.study)}/search",
-                                       json={"query": "Operational acceptance", "top_k": 5})
+                                       json={"query": "sha256:" + workflow["input"]["sha256"], "top_k": 5})
                 statuses.append(response.status_code)
                 # Qdrant readiness precedes downstream probes, endpoint updates
                 # and NGINX recovery. A bounded wait must observe a real success.
@@ -557,7 +566,7 @@ asyncio.run(read())
             result = await_value(recovered_search, timeout=90, interval=3,
                                  label="public retrieval after Qdrant replacement")
             hits = result["hits"]
-            expected_source = self.completed_workflows[-1]["source_revision"]
+            expected_source = workflow["source_revision"]
             if not any(hit.get("citation", {}).get("source_revision") == expected_source for hit in hits):
                 raise AssertionError("uploaded source was not searchable after restart")
         return {"pvc_uid": after["metadata"]["uid"], "volume": after["spec"]["volumeName"],
