@@ -32,6 +32,11 @@ spec:
   tls:
     secret: gateway-tls
     redirect: { enable: true, code: 308, basedOn: scheme }
+    {{- if .Values.ingress.clusterIssuer }}
+    cert-manager:
+      cluster-issuer: {{ .Values.ingress.clusterIssuer | quote }}
+      issue-temp-cert: true
+    {{- end }}
   {{- end }}
   upstreams:
     {{- range $name := list "gateway" "retrieval" "generation" "ingestion-worker" }}

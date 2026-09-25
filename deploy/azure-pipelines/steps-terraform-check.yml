@@ -1,0 +1,19 @@
+# Shared by credential-free PR validation and infrastructure planning.
+steps:
+  - bash: |
+      set -euo pipefail
+      version=$(cat .terraform-version)
+      tools="$(Agent.TempDirectory)/medw-terraform"
+      mkdir -p "$tools"
+      curl -fsSLo "$tools/terraform.zip" "https://releases.hashicorp.com/terraform/$version/terraform_${version}_linux_amd64.zip"
+      curl -fsSLo "$tools/terraform.sha256" "https://releases.hashicorp.com/terraform/$version/terraform_${version}_SHA256SUMS"
+      checksum=$(awk -v file="terraform_${version}_linux_amd64.zip" '$2 == file { print $1 }' "$tools/terraform.sha256")
+      test -n "$checksum"
+      (cd "$tools"; echo "$checksum  terraform.zip" | sha256sum --check)
+      unzip -o "$tools/terraform.zip" -d "$tools"
+      echo "##vso[task.prependpath]$tools"
+    displayName: Install the repository's pinned Terraform
+  - bash: |
+      set -euo pipefail
+      make terraform-check
+    displayName: Validate both Terraform roots and run ownership/free-tier mock tests

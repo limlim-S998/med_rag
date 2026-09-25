@@ -1,0 +1,17 @@
+{
+  "subscription_id": "00000000-0000-0000-0000-000000000000",
+  "tenant_id": "00000000-0000-0000-0000-000000000000",
+  "name_prefix": "medwunique",
+  "location": "australiaeast",
+  "environment": "dev",
+  "operator_object_id": "00000000-0000-0000-0000-000000000000",
+  "shared_resource_ids": [],
+  "devops": {
+    "organization": "https://dev.azure.com/YOUR-ORGANIZATION",
+    "project": "YOUR-PROJECT",
+    "github_service_connection_id": "00000000-0000-0000-0000-000000000000",
+    "repository": "YOUR-OWNER/YOUR-REPOSITORY",
+    "branch": "main",
+    "agent_pool": "Azure Pipelines"
+  }
+}

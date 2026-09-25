@@ -1,0 +1,66 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: platform-controllers
+  namespace: flux-system
+spec:
+  interval: 10m
+  retryInterval: 1m
+  timeout: 15m
+  path: ./deploy/flux/platform/controllers
+  prune: true
+  wait: true
+  sourceRef: {kind: GitRepository, name: flux-system}
+  postBuild:
+    substituteFrom: [{kind: ConfigMap, name: medw-platform}]
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: platform-configuration
+  namespace: flux-system
+spec:
+  interval: 10m
+  timeout: 5m
+  path: ./deploy/flux/platform/configuration
+  prune: true
+  wait: true
+  sourceRef: {kind: GitRepository, name: flux-system}
+  dependsOn: [{name: platform-controllers}]
+  postBuild:
+    substituteFrom: [{kind: ConfigMap, name: medw-platform}]
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: application-secrets
+  namespace: flux-system
+spec:
+  interval: 10m
+  timeout: 5m
+  path: ./deploy/flux/secrets/dev
+  prune: false
+  deletionPolicy: Orphan
+  wait: true
+  sourceRef: {kind: GitRepository, name: flux-system}
+  decryption: {provider: sops}
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: application
+  namespace: flux-system
+spec:
+  interval: 1m
+  retryInterval: 1m
+  timeout: 15m
+  path: ./deploy/flux/dev
+  prune: true
+  deletionPolicy: Orphan
+  wait: true
+  sourceRef: {kind: GitRepository, name: flux-system}
+  dependsOn:
+    - {name: platform-configuration}
+    - {name: application-secrets}
+  postBuild:
+    substituteFrom: [{kind: ConfigMap, name: medw-platform}]

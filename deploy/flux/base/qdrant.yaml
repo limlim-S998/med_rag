@@ -18,8 +18,20 @@ spec:
       retries: 3
   upgrade:
     remediation:
-      # Roll back automatically on a failed upgrade. The alternative is a
-      # release stuck half-applied until someone notices, and "someone
-      # notices" is not a recovery strategy.
       retries: 3
       remediateLastFailure: true
+  postRenderers:
+  - kustomize:
+      images:
+      - name: qdrant/qdrant
+        digest: sha256:057ee3a8da769fe7310dd3537b4dc7583bf87a95ce8ac43c0af5a46bc580d1fc
+      patches:
+      - target:
+          kind: StatefulSet
+          name: qdrant
+        patch: "apiVersion: apps/v1\nkind: StatefulSet\nmetadata:\n  name: qdrant\n\
+          spec:\n  persistentVolumeClaimRetentionPolicy:\n    whenDeleted: Retain\n\
+          \    whenScaled: Retain\n  template:\n    spec:\n      containers:\n   \
+          \   - name: qdrant\n        livenessProbe:\n          httpGet:\n       \
+          \     path: /livez\n            port: 6333\n        startupProbe:\n    \
+          \      httpGet:\n            path: /livez\n            port: 6333\n"

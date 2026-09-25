@@ -49,6 +49,7 @@ def test_environment_route_and_network_policy_agree(gateway_chart, tmp_path, env
     if tls:
         assert ingress["spec"]["tls"] == {
             "secret": "gateway-tls", "redirect": {"enable": True, "code": 308, "basedOn": "scheme"},
+            "cert-manager": {"cluster-issuer": "letsencrypt", "issue-temp-cert": True},
         }
     for upstream in ingress["spec"]["upstreams"]:
         assert upstream["buffering"] is False

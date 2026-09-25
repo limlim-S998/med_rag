@@ -13,6 +13,7 @@ RUN pip install --no-cache-dir --require-hashes --no-deps -r requirements.txt \
 COPY libs/medw_core /app/libs/medw_core
 RUN pip install --no-cache-dir --no-deps --no-build-isolation /app/libs/medw_core
 COPY services/generation/app /app/app
+COPY db /app/db
 ARG SOURCE_SHA=unversioned
 ENV MEDW_BUILD_SOURCE_SHA=$SOURCE_SHA
 LABEL org.opencontainers.image.revision=$SOURCE_SHA

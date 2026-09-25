@@ -19,7 +19,7 @@ meter = metrics.get_meter("medwriter")
 # it scales up after the burst and down before the next one.
 #
 # That difference is the whole argument for exporting to Prometheus as well as
-# to Azure Monitor. See README.md#operational-signals-and-recovery.
+# to Azure Monitor. See README.md#deployment-and-delivery.
 #
 # An UpDownCounter, not a Counter: it goes down when a request finishes. The
 # Prometheus exporter renders it as a gauge, which is what `sum(...)` in the

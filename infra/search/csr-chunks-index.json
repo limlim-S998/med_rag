@@ -1,19 +1,5 @@
 {
   "name": "csr-chunks",
-  "_comment": [
-    "The BM25 half. One index across all studies, filtered by study_id -",
-    "the opposite of the Qdrant choice (one collection per study), and worth",
-    "being able to explain: Cognitive Search bills per service and per index",
-    "replica, not per collection, so per-study indexes would multiply cost for",
-    "no isolation benefit, while Qdrant collections are free and give a",
-    "one-command teardown. Different cost models, different partitioning.",
-    "",
-    "No vector field here on purpose. The first implementation put dense and",
-    "sparse both in Cognitive Search and it failed on clinical tables: the",
-    "blob-indexer + Document Intelligence skillset gave us no control over",
-    "chunking, so header stacks got orphaned from their rows. Dense moved to",
-    "Qdrant. This index kept the half it is genuinely better at."
-  ],
   "fields": [
     {
       "name": "chunk_id",
@@ -52,16 +38,14 @@
       "name": "text",
       "type": "Edm.String",
       "searchable": true,
-      "analyzer": "en.microsoft",
-      "_note": "Microsoft analyser over Lucene: better clinical lemmatisation ('neutropenic' -> 'neutropenia')."
+      "analyzer": "en.microsoft"
     },
     {
       "name": "table_number",
       "type": "Edm.String",
       "searchable": true,
       "filterable": true,
-      "analyzer": "keyword_lower",
-      "_note": "'Table 14.3.2.1' must match as one token. The standard analyser splits it on the dots and a search for 14.3.2.1 then also matches 14.3.2.10 - which is a different table."
+      "analyzer": "keyword_lower"
     },
     {
       "name": "section_path",
@@ -75,8 +59,7 @@
       "type": "Collection(Edm.String)",
       "searchable": true,
       "filterable": true,
-      "analyzer": "keyword_lower",
-      "_note": "MedDRA PTs and UMLS-linked terms from Azure Language at ingest time. Matched literally - this is precisely what the embedding normalises away."
+      "analyzer": "keyword_lower"
     },
     {
       "name": "header_stack",
@@ -152,7 +135,6 @@
   "scoringProfiles": [
     {
       "name": "identifier_boost",
-      "_note": "A query that looks like a table number or a coded term should be answered by those fields, not by a passing mention in prose. RRF then only sees the rank, so the boost has to happen here or not at all.",
       "text": {
         "weights": {
           "table_number": 8.0,

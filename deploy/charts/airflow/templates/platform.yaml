@@ -29,6 +29,7 @@ spec:
   resources:
     requests: {storage: 4Gi}
 ---
+{{- if .Values.postgres.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -80,6 +81,7 @@ spec:
         resources:
           requests: {storage: {{ .Values.postgres.size }}}
 ---
+{{- end }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -104,6 +106,11 @@ spec:
     - to:
         - podSelector: {matchLabels: {app: airflow-db}}
       ports: [{protocol: TCP, port: 5432}]
+    {{- range .Values.externalPostgresCidrs }}
+    - to:
+        - ipBlock: {cidr: {{ . | quote }}}
+      ports: [{protocol: TCP, port: 5432}]
+    {{- end }}
     - to:
         - podSelector: {matchLabels: {app: ingestion-worker}}
       ports: [{protocol: TCP, port: 8000}]
@@ -123,6 +130,7 @@ spec:
   ingress:
     - from:
         - podSelector: {matchLabels: {medw-component: airflow}}
+        - podSelector: {matchLabels: {app: airflow-backup}}
       ports: [{protocol: TCP, port: 5432}]
   egress: []
 ---

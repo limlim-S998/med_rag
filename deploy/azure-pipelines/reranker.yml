@@ -1,5 +1,0 @@
-# Manual entrypoint. A release always includes all five service artifacts.
-trigger: none
-pr: none
-extends:
-  template: _build-template.yml

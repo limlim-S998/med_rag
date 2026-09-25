@@ -9,6 +9,7 @@ import ast
 import json
 import pathlib
 import uuid
+from string import Template
 
 import yaml
 
@@ -38,7 +39,8 @@ def validate_targets(documents: list[dict]) -> dict:
         values = by_name[name]["spec"]["values"]
         config = values.get("config", {})
         for key in required:
-            if not isinstance(config.get(key), str) or not config[key].strip():
+            if (not isinstance(config.get(key), str) or not config[key].strip()
+                    or "${" in config[key] or "unconfigured" in config[key]):
                 raise ValueError(f"{name}: target setting {key} must be configured")
         if name != "reranker":
             identity = values.get("serviceAccount", {}).get("annotations", {}).get(
@@ -83,7 +85,9 @@ def main() -> None:
     args = parser.parse_args()
     bundle = validate(json.loads(args.bundle.read_text()))
     environment = ROOT / "deploy/flux" / args.environment / "environment-values.yaml"
-    settings = validate_targets(list(yaml.safe_load_all(environment.read_text())))
+    platform = ROOT / "deploy/flux/clusters" / args.environment / "platform-config.yaml"
+    values = yaml.safe_load(platform.read_text())["data"]
+    settings = validate_targets(list(yaml.safe_load_all(Template(environment.read_text()).substitute(values))))
     identities = installed_identities()
     validate_installed(bundle["behavior"], identities)
     for service, kind, prefix in (("generation", "chat", "chat"),

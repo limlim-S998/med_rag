@@ -8,6 +8,7 @@ import argparse
 import json
 import pathlib
 import subprocess
+from string import Template
 
 import yaml
 
@@ -34,8 +35,11 @@ def main() -> None:
     repositories = {}
     if args.environment:
         path = ROOT / "deploy/flux" / args.environment / "environment-values.yaml"
+        platform = ROOT / "deploy/flux/clusters" / args.environment / "platform-config.yaml"
+        values = yaml.safe_load(platform.read_text())["data"]
+        documents = yaml.safe_load_all(Template(path.read_text()).substitute(values))
         repositories = {doc["metadata"]["name"]: doc["spec"].get("values", {}).get("image", {}).get("repository")
-                        for doc in yaml.safe_load_all(path.read_text())}
+                        for doc in documents}
     for service, artifact in bundle["images"].items():
         repository = f"{args.registry}/{service}"
         if args.environment and repositories.get(service) != repository:

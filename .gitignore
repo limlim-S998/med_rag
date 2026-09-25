@@ -42,3 +42,17 @@ mlruns/
 # reviewed. Not committed - the durable copy is the implementation/* branch.
 # This directory is a convenience, not the backup.
 holding/
+
+# Terraform state and plans can contain credentials. Provider locks are tracked.
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.auto.tfvars
+*.auto.tfvars.json
+crash.log
+crash.*.log
+infra/terraform/bootstrap/backend_override.tf
+
+# Local working notes, development runbook and history.
+DEVELOPMENT.md

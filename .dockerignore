@@ -11,3 +11,11 @@ holding
 .pytest_cache
 .mypy_cache
 .ruff_cache
+**/.terraform
+**/*.tfstate*
+**/*.tfplan
+**/*.auto.tfvars*
+infra/terraform/bootstrap/backend_override.tf
+
+# Local working notes, development runbook and history.
+DEVELOPMENT.md

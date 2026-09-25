@@ -4,7 +4,7 @@
 # The same chunk exists in three places at once: a vector in Qdrant, its text
 # in Cognitive Search, and its structured ParsedTable spine in the Qdrant
 # payload. Shared projections and generation payload verification keep these
-# copies consistent; matching IDs alone is insufficient (README.md#major-decisions).
+# copies consistent; matching IDs alone is insufficient (README.md#architecture).
 #
 # What was NOT keeping them in step: the Qdrant payload was assembled inline in
 # pipelines/sinks/qdrant_sink.py and the Search document inline in
