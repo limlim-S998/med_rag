@@ -1,0 +1,32 @@
+# Replaced by Terraform's flux_bootstrap output before commissioning.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - gotk-components.yaml
+  - gotk-sync.yaml
+patches:
+  - target: {kind: ServiceAccount, name: kustomize-controller}
+    patch: |
+      apiVersion: v1
+      kind: ServiceAccount
+      metadata:
+        name: kustomize-controller
+        annotations:
+          azure.workload.identity/client-id: 00000000-0000-0000-0000-000000000000
+          azure.workload.identity/tenant-id: 00000000-0000-0000-0000-000000000000
+  - target: {kind: Deployment, name: kustomize-controller}
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: kustomize-controller
+      spec:
+        template:
+          metadata:
+            labels:
+              azure.workload.identity/use: 'true'
+  - target: {kind: Deployment, name: kustomize-controller}
+    patch: |
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: --feature-gates=StrictPostBuildSubstitutions=true

@@ -1,0 +1,41 @@
+# Replace with: terraform -chdir=infra/terraform/environment output -raw cluster_config
+# These placeholders intentionally cannot identify a deployed environment.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: medw-platform
+  namespace: flux-system
+data:
+  ENVIRONMENT: dev
+  TENANT_ID: '00000000-0000-0000-0000-000000000000'
+  API_CLIENT_ID: '00000000-0000-0000-0000-000000000000'
+  USER_CLIENT_ID: '00000000-0000-0000-0000-000000000000'
+  REGISTRY_HOST: unconfigured.azurecr.io
+  BLOB_URL: https://unconfigured.blob.core.windows.net
+  COSMOS_URL: https://unconfigured.documents.azure.com:443/
+  COSMOS_DATABASE: medw-dev
+  SEARCH_URL: https://unconfigured.search.windows.net
+  SEARCH_INDEX: medw-dev-chunks
+  SQL_SERVER: unconfigured.database.windows.net
+  SQL_DATABASE: medw
+  DELIVERY_CLIENT_ID: '00000000-0000-0000-0000-000000000000'
+  BATCH_PRINCIPAL_ID: '00000000-0000-0000-0000-000000000000'
+  BATCH_SCHEDULE: '0 2 * * *'
+  BATCH_TIMEZONE: Australia/Brisbane
+  BATCH_MAX_DOCUMENTS: '500'
+  INGRESS_HOST: unconfigured.australiaeast.cloudapp.azure.com
+  INGRESS_IP: 192.0.2.1
+  INGRESS_IP_NAME: unconfigured-ingress
+  RESOURCE_GROUP: rg-medw-dev
+  CERTIFICATE_EMAIL: operator@example.com
+  GIT_URL: https://github.com/limlim-S998/med_rag
+  GIT_BRANCH: main
+  GATEWAY_CLIENT_ID: '00000000-0000-0000-0000-000000000000'
+  RETRIEVAL_CLIENT_ID: '00000000-0000-0000-0000-000000000000'
+  GENERATION_CLIENT_ID: '00000000-0000-0000-0000-000000000000'
+  INGESTION_WORKER_CLIENT_ID: '00000000-0000-0000-0000-000000000000'
+  RERANKER_CLIENT_ID: '00000000-0000-0000-0000-000000000000'
+  AIRFLOW_CLIENT_ID: '00000000-0000-0000-0000-000000000000'
+  QDRANT_BACKUP_CLIENT_ID: '00000000-0000-0000-0000-000000000000'
+  AIRFLOW_BACKUP_CLIENT_ID: '00000000-0000-0000-0000-000000000000'
+  FLUX_CLIENT_ID: '00000000-0000-0000-0000-000000000000'

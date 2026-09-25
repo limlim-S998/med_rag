@@ -1,45 +1,65 @@
-name: qdrant
-replicas: 3
-image:
-  repository: qdrant/qdrant
-  tag: v1.19.0
-  digest: sha256:057ee3a8da769fe7310dd3537b4dc7583bf87a95ce8ac43c0af5a46bc580d1fc
-persistence:
-  storageClass: managed-csi-premium
-  size: 100Gi
-config:
-  hnsw_m: 16
-  hnsw_ef_construct: 128
-  on_disk_payload: true
-  replication_factor: 2
-  write_consistency_factor: 2
+# Upstream Qdrant chart plus application backup/access/monitoring resources.
+# The Flux HelmRelease pins image digests and fixes authenticated probe paths.
+qdrant:
+  fullnameOverride: qdrant
+  replicaCount: 1
+  image:
+    repository: qdrant/qdrant
+    tag: v1.19.0
+  persistence:
+    storageClassName: managed-csi
+    storageVolumeName: storage
+    size: 4Gi
+  config:
+    cluster:
+      enabled: false
+    storage:
+      on_disk_payload: true
+  env:
+  - name: QDRANT__SERVICE__API_KEY
+    valueFrom:
+      secretKeyRef:
+        name: qdrant-auth
+        key: api-key
+  - name: QDRANT__SERVICE__READ_ONLY_API_KEY
+    valueFrom:
+      secretKeyRef:
+        name: qdrant-auth
+        key: read-only-api-key
+  startupProbe:
+    enabled: true
+    failureThreshold: 60
+  livenessProbe:
+    enabled: true
+  readinessProbe:
+    enabled: true
+  podDisruptionBudget:
+    enabled: true
+    maxUnavailable: 1
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: '1'
+      memory: 1Gi
 snapshots:
   enabled: true
   schedule: 0 2 * * *
   retentionDays: 30
-  accountUrl: https://medwdevsa.blob.core.windows.net
+  accountUrl: ''
   container: snapshots
   prefix: qdrant
   clientId: ''
   image:
-    repository: medwacr.azurecr.io/ingestion-worker
-    tag: local
+    repository: unconfigured.azurecr.io/ingestion-worker
+    tag: scaffold
     digest: ''
-resources:
-  requests:
-    cpu: '2'
-    memory: 8Gi
-  limits:
-    cpu: '4'
-    memory: 16Gi
-podDisruptionBudget:
-  minAvailable: 2
 auth:
   enabled: true
   existingSecret: qdrant-auth
 networkPolicy:
   enabled: true
 monitoring:
-  # Requires Prometheus Operator CRDs and kube-state-metrics.
   enabled: true
   labels: {}

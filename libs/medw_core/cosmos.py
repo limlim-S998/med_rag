@@ -1,6 +1,6 @@
 # Azure Cosmos DB - the semi-structured, high-churn half of the state.
 #
-# The storage split (README.md#major-decisions): Cosmos holds things
+# The storage split (README.md#architecture): Cosmos holds things
 # whose shape changes and whose write rate is high - document metadata,
 # ingestion job state, writer sessions. Azure SQL holds things that want joins
 # and constraints - the audit trail, the study/document registry, the
@@ -23,8 +23,9 @@ from azure.cosmos.exceptions import CosmosResourceNotFoundError
 
 from medw_core.settings import Settings, require_setting
 
-# Container -> partition key. Mirrored in db/cosmos/containers.json, which is
-# what bootstrap.sh actually creates. Keep the two in step.
+# Legacy/future repository helpers; db/cosmos/containers.json records the design.
+# Active jobs and generation manifests use the platform-state container created
+# by infra/terraform/environment/storage.tf, not the future containers below.
 CONTAINERS = {
     "documents": "/study_id",     # one item per ingested source document
     "jobs": "/study_id",          # ingestion job state machine

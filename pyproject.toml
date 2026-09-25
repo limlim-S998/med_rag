@@ -71,6 +71,11 @@ module = ["pipelines.dags.*"]
 ignore_errors = true
 
 [tool.pytest.ini_options]
+markers = [
+    "azure: requires an explicitly supplied live Azure installation",
+    "recovery: restarts workloads and restores into isolated temporary storage",
+    "load: sends bounded application traffic to exercise autoscaling",
+]
 # Async tests are the norm here: every service is async and the interesting
 # behaviour (backoff, concurrency, pacing) only exists on an event loop.
 asyncio_mode = "auto"

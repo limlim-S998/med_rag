@@ -75,6 +75,7 @@ def create(images: dict, behavior: dict, prompts: pathlib.Path, *,
 
 def release_patches(bundle: dict) -> list[dict]:
     validate(bundle)
+    worker = bundle["images"]["ingestion-worker"]
     patches = [{
         "apiVersion": "helm.toolkit.fluxcd.io/v2", "kind": "HelmRelease",
         "metadata": {"name": service, "namespace": "medw"},
@@ -101,6 +102,8 @@ def release_patches(bundle: dict) -> list[dict]:
             "values": {"releaseRequired": True,
                        "image": {"digest": artifact["digest"], "sourceSha": artifact["source_sha"]},
                        "config": {"release_bundle_sha": bundle["bundle_sha"]},
+                       "backups": {"image": {"digest": worker["digest"],
+                                               "sourceSha": worker["source_sha"]}},
                        "airflow": {"images": {"airflow": {"digest": artifact["digest"]}}}}
         }})
     else:
@@ -111,7 +114,6 @@ def release_patches(bundle: dict) -> list[dict]:
                         "spec": {"suspend": True,
                                  "chart": {"spec": {"sourceRef": {"name": "medwriter-release-charts"}}}}})
     # Backups reuse the already built ingestion image and its Azure Blob client.
-    worker = bundle["images"]["ingestion-worker"]
     patches.append({"apiVersion": "helm.toolkit.fluxcd.io/v2", "kind": "HelmRelease",
                     "metadata": {"name": "qdrant", "namespace": "medw"},
                     "spec": {"chart": {"spec": {"sourceRef": {"name": "medwriter-release-charts"}}},

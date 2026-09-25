@@ -1,44 +1,93 @@
+# CI builds one compatible release. Flux deploys the resulting Git selection.
 trigger:
-  branches:
-    include:
-    - main
+  branches: {include: [main]}
   paths:
     include:
-    - services
-    - pipelines
-    - libs
-    - db/sql
-    - scripts
-    - deploy/charts
-    - deploy/azure-pipelines
-    - deploy/release-behavior.json
-    - requirements-dev.txt
-    - pyproject.toml
-    - Makefile
+      - services
+      - pipelines
+      - libs
+      - db
+      - tests
+      - scripts
+      - deploy/charts
+      - deploy/azure-pipelines/delivery.yml
+      - deploy/release-behavior.json
+      - docker-bake.hcl
+      - requirements-dev.txt
+      - pyproject.toml
+      - .importlinter
+      - .dockerignore
+      - Makefile
+# Release-selection commits change deploy/flux and deploy/releases only.
+pr: none
 parameters:
-- name: registryHost
-  type: string
-  default: medwdev9528fa20acr.azurecr.io
-- name: azureConnection
-  type: string
-  default: medw-azure
-- name: agentPool
-  type: string
-  default: ''
-- name: buildConcurrency
-  type: number
-  default: 2
-  values:
-  - 1
-  - 2
-- name: releaseBranch
-  type: string
-  default: main
-extends:
-  template: _build-template.yml
-  parameters:
-    registryHost: ${{ parameters.registryHost }}
-    azureConnection: ${{ parameters.azureConnection }}
-    agentPool: ${{ parameters.agentPool }}
-    buildConcurrency: ${{ parameters.buildConcurrency }}
-    releaseBranch: ${{ parameters.releaseBranch }}
+  - name: agentPool
+    type: string
+    default: ''
+pool:
+  ${{ if eq(parameters.agentPool, '') }}:
+    vmImage: ubuntu-latest
+  ${{ else }}:
+    name: ${{ parameters.agentPool }}
+steps:
+  - checkout: self
+    persistCredentials: true
+    fetchDepth: 0
+  - task: UsePythonVersion@0
+    inputs: {versionSpec: '3.11'}
+  - task: HelmInstaller@1
+    inputs: {helmVersionToInstall: '3.19.0'}
+  - task: KubectlInstaller@0
+    inputs: {kubectlVersion: '1.34.1'}
+  - bash: |
+      set -euo pipefail
+      make dev
+      make check
+    displayName: Check application, boundaries and manifests
+  - task: AzureCLI@2
+    displayName: Build, test migrations, smoke and publish the six immutable images
+    inputs:
+      azureSubscription: $(azureConnection)
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        set -euo pipefail
+        platform="deploy/flux/clusters/$(environment)/platform-config.yaml"
+        registry=$(.venv/bin/python -c 'import yaml,sys; print(yaml.safe_load(open(sys.argv[1]))["data"]["REGISTRY_HOST"])' "$platform")
+        az acr login --name "$registry"
+        export REGISTRY="$registry" TAG="$(Build.SourceVersion)" SOURCE_SHA="$(Build.SourceVersion)"
+        builder="medw-$(Build.BuildId)"
+        printf '[worker.oci]\n  max-parallelism = 2\n' > /tmp/medw-buildkit.toml
+        docker buildx create --name "$builder" --driver docker-container --buildkitd-config /tmp/medw-buildkit.toml
+        trap 'docker buildx rm "$builder"' EXIT
+        docker buildx bake --builder "$builder" --load
+        MEDW_SQL_IMAGE_TESTS=1 MEDW_SQL_TEST_IMAGE="$registry/generation:$TAG" \
+          .venv/bin/python -m pytest tests/integration/test_sql_migrations.py -q
+        .venv/bin/python scripts/publish_images.py --registry "$registry" --output /tmp/medw-images.json
+        .venv/bin/python scripts/release.py create --images /tmp/medw-images.json --behavior deploy/release-behavior.json --output /tmp/medw-bundle.json
+        .venv/bin/python scripts/verify_release.py /tmp/medw-bundle.json --registry "$registry" --environment '$(environment)'
+        .venv/bin/python scripts/check_model_deployments.py /tmp/medw-bundle.json --environment '$(environment)'
+  - publish: /tmp/medw-bundle.json
+    artifact: release
+  - task: AzureCLI@2
+    displayName: Migrate packaged SQL with Flyway and bind runtime identities
+    inputs:
+      azureSubscription: $(azureConnection)
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        set -euo pipefail
+        platform="deploy/flux/clusters/$(environment)/platform-config.yaml"
+        read -r registry MEDW_SQL_SERVER MEDW_SQL_DATABASE < <(.venv/bin/python -c 'import yaml,sys; c=yaml.safe_load(open(sys.argv[1]))["data"]; print(c["REGISTRY_HOST"],c["SQL_SERVER"],c["SQL_DATABASE"])' "$platform")
+        export MEDW_SQL_SERVER MEDW_SQL_DATABASE
+        export MEDW_SQL_ACCESS_TOKEN="$(az account get-access-token --resource https://database.windows.net/ --query accessToken -o tsv)"
+        bash scripts/migrate.sh /tmp/medw-bundle.json "$registry"
+        digest=$(jq -r '.images.generation.digest' /tmp/medw-bundle.json)
+        docker run --rm --env MEDW_SQL_ACCESS_TOKEN --mount "type=bind,src=$PWD,dst=/workspace,readonly" \
+          --workdir /workspace "$registry/generation@$digest" \
+          python scripts/sql_admin.py --cluster-config "$platform" runtime-principals
+        unset MEDW_SQL_ACCESS_TOKEN
+  - bash: |
+      set -euo pipefail
+      .venv/bin/python scripts/commit_release.py /tmp/medw-bundle.json --environment '$(environment)' --branch '$(releaseBranch)' --push
+    displayName: Select the verified release in Git

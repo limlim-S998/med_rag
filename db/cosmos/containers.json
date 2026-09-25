@@ -1,7 +1,7 @@
 {
   "_comment": [
-    "Container definitions, applied by infra/bootstrap.sh. Mirrors CONTAINERS",
-    "in libs/medw_core/cosmos.py - if you change one, change both.",
+    "Container design reference, including deliberate future-work containers.",
+    "Terraform currently installs documents, sessions and platform-state only.",
     "",
     "Partition key is the decision that is expensive to reverse: it is fixed at",
     "creation and changing it means creating a new container and migrating. Two",
@@ -15,8 +15,9 @@
   ],
   "database": "medw",
   "throughput": {
-    "mode": "autoscale",
-    "maxRUs": 4000
+    "mode": "manual",
+    "RUs": 400,
+    "note": "Shared application database allocation. Account-wide free capacity is checked before apply."
   },
   "containers": [
     {

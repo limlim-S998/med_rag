@@ -48,7 +48,7 @@ spec:
               command: ["python", "/backup/qdrant_backup.py", "backup", "--upload"]
               env:
                 - name: QDRANT_NODES
-                  value: {{ range $i := until (int .Values.replicas) }}{{ if $i }},{{ end }}http://qdrant-{{ $i }}.qdrant-headless.{{ $.Release.Namespace }}.svc:6333{{ end }}
+                  value: {{ range $i := until (int .Values.qdrant.replicaCount) }}{{ if $i }},{{ end }}http://qdrant-{{ $i }}.qdrant-headless.{{ $.Release.Namespace }}.svc:6333{{ end }}
                 {{- if .Values.auth.enabled }}
                 - name: QDRANT_API_KEY
                   valueFrom:

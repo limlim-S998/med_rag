@@ -24,7 +24,7 @@
 #
 # Moving each import into its factory makes the cost pay-per-use: you need an
 # SDK installed only if you actually construct that client. It is the same
-# service-specific dependency boundary described in README.md#major-decisions.
+# service-specific dependency boundary described in README.md#architecture.
 #
 # The cost is one import statement per function. Python caches modules in
 # sys.modules, so every call after the first is a dict lookup, and these are

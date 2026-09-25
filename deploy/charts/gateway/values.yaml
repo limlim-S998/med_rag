@@ -31,9 +31,10 @@ ingress:
   host: medw-dev.example.com
   className: medw-nginx
   tls: true
+  clusterIssuer: letsencrypt
   # Idle time between upstream reads, not the total stream duration.
   readTimeout: 300s
-  # Both selectors must match. Keep aligned with deploy/nginx-ingress.yaml.
+  # Both selectors must match the Flux-managed F5 controller.
   controller:
     namespace: nginx-ingress
     podLabels:

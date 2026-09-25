@@ -111,12 +111,13 @@ def test_rendered_flux_sources_and_chart_revision_strategy(environment):
 
 
 def test_generation_promotion_depends_on_successful_migration():
-    pipeline = yaml.safe_load((ROOT / "deploy/azure-pipelines/_build-template.yml").read_text())
-    stages = {s["stage"]: s for s in pipeline["stages"]}
-    assert stages["validate_models"]["dependsOn"] == "build"
-    assert stages["migrate"]["dependsOn"] == "validate_models"
-    assert stages["promote_to_dev"]["dependsOn"] == "migrate"
-    assert stages["promote_to_dev"]["condition"] == "succeeded()"
+    pipeline = yaml.safe_load((ROOT / "deploy/azure-pipelines/delivery.yml").read_text())
+    steps = pipeline["steps"]
+    migrate = next(i for i, step in enumerate(steps) if "scripts/migrate.sh" in step.get("inputs", {}).get("inlineScript", ""))
+    promote = next(i for i, step in enumerate(steps) if "scripts/commit_release.py" in step.get("bash", ""))
+    assert migrate < promote
+    assert "condition" not in steps[promote] # Azure's default requires prior steps to succeed.
+    assert "continueOnError" not in steps[migrate]
 
 
 @pytest.mark.skipif(not shutil.which("kubectl"), reason="kubectl required")
@@ -238,12 +239,12 @@ def test_airflow_chart_runs_pinned_private_scheduler_with_persistent_metadata(tm
 
 
 def test_azure_delivery_checks_charts_before_publishing():
-    pipeline = yaml.safe_load((ROOT / "deploy/azure-pipelines/_build-template.yml").read_text())
-    steps = pipeline["stages"][0]["jobs"][0]["steps"]
+    pipeline = yaml.safe_load((ROOT / "deploy/azure-pipelines/delivery.yml").read_text())
+    steps = pipeline["steps"]
     assert any(step.get("task") == "HelmInstaller@1" for step in steps)
     assert any(step.get("task") == "KubectlInstaller@0" for step in steps)
-    checks = next(i for i, step in enumerate(steps) if "make lint arch types test charts" in step.get("script", ""))
-    publish = next(i for i, step in enumerate(steps) if "scripts/build_images.py" in
+    checks = next(i for i, step in enumerate(steps) if "make check" in step.get("bash", ""))
+    publish = next(i for i, step in enumerate(steps) if "scripts/publish_images.py" in
                    step.get("inputs", {}).get("inlineScript", step.get("script", "")))
     assert checks < publish
 

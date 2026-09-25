@@ -1,3 +1,4 @@
+# Endpoints and identity IDs come from the cluster ConfigMap exported by Terraform.
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -5,35 +6,35 @@ metadata:
   namespace: medw
 spec:
   values:
-    env: dev
+    env: ${ENVIRONMENT}
     config:
-      cosmos_endpoint: https://medrag325744d5cosmos.documents.azure.com:443/
-      cosmos_database: medw-dev
-      blob_account_url: https://medwdev9528fa20sa.blob.core.windows.net
-      sql_server: medwdev9528fa20sql.database.windows.net
-      sql_database: medw
+      cosmos_endpoint: ${COSMOS_URL}
+      cosmos_database: ${COSMOS_DATABASE}
+      blob_account_url: ${BLOB_URL}
+      sql_server: ${SQL_SERVER}
+      sql_database: ${SQL_DATABASE}
       blob_container: raw
-      auth_tenant_id: 721342f3-ed34-4553-93ea-4fbe8f7149eb
-      auth_audience: f12e6b20-aae4-4ad5-abd7-1b58b0e026e8
-      auth_issuer: https://login.microsoftonline.com/721342f3-ed34-4553-93ea-4fbe8f7149eb/v2.0
-      auth_jwks_url: https://login.microsoftonline.com/721342f3-ed34-4553-93ea-4fbe8f7149eb/discovery/v2.0/keys
+      auth_tenant_id: ${TENANT_ID}
+      auth_audience: ${API_CLIENT_ID}
+      auth_issuer: https://login.microsoftonline.com/${TENANT_ID}/v2.0
+      auth_jwks_url: https://login.microsoftonline.com/${TENANT_ID}/discovery/v2.0/keys
       cosmos_state_container: platform-state
-      search_endpoint: https://medrag325744d5search.search.windows.net
-      search_index: medw-dev-chunks
+      search_endpoint: ${SEARCH_URL}
+      search_index: ${SEARCH_INDEX}
       qdrant_url: http://qdrant:6333
       qdrant_replication_factor: 1
       qdrant_write_consistency_factor: 1
       reranker_url: http://reranker:8000
       retrieval_url: http://retrieval:8000
-      batch_principal_id: 190781e9-0487-4dfb-92cc-df8d8ed5d647
-      batch_max_documents: 500
+      batch_principal_id: ${BATCH_PRINCIPAL_ID}
+      batch_max_documents: ${BATCH_MAX_DOCUMENTS}
     image:
-      repository: medwdev9528fa20acr.azurecr.io/gateway
+      repository: ${REGISTRY_HOST}/gateway
     serviceAccount:
       annotations:
-        azure.workload.identity/client-id: 8c3526a2-d11a-4398-b35f-b3e03fe407a1
+        azure.workload.identity/client-id: ${GATEWAY_CLIENT_ID}
     ingress:
-      host: medwdev9528fa20.australiaeast.cloudapp.azure.com
+      host: ${INGRESS_HOST}
       tls: true
     serviceMonitor:
       enabled: true
@@ -62,35 +63,35 @@ metadata:
   namespace: medw
 spec:
   values:
-    env: dev
+    env: ${ENVIRONMENT}
     config:
       chat_deployment: scripted-chat
       embed_deployment: hash-1
       qdrant_url: http://qdrant:6333
       reranker_url: http://reranker:8000
-      search_endpoint: https://medrag325744d5search.search.windows.net
-      search_index: medw-dev-chunks
-      cosmos_endpoint: https://medrag325744d5cosmos.documents.azure.com:443/
-      cosmos_database: medw-dev
+      search_endpoint: ${SEARCH_URL}
+      search_index: ${SEARCH_INDEX}
+      cosmos_endpoint: ${COSMOS_URL}
+      cosmos_database: ${COSMOS_DATABASE}
       cosmos_state_container: platform-state
-      blob_account_url: https://medwdev9528fa20sa.blob.core.windows.net
+      blob_account_url: ${BLOB_URL}
       blob_container: raw
-      sql_server: medwdev9528fa20sql.database.windows.net
-      sql_database: medw
+      sql_server: ${SQL_SERVER}
+      sql_database: ${SQL_DATABASE}
       qdrant_replication_factor: 1
       qdrant_write_consistency_factor: 1
       retrieval_url: http://retrieval:8000
-      auth_tenant_id: 721342f3-ed34-4553-93ea-4fbe8f7149eb
-      auth_audience: f12e6b20-aae4-4ad5-abd7-1b58b0e026e8
-      auth_issuer: https://login.microsoftonline.com/721342f3-ed34-4553-93ea-4fbe8f7149eb/v2.0
-      auth_jwks_url: https://login.microsoftonline.com/721342f3-ed34-4553-93ea-4fbe8f7149eb/discovery/v2.0/keys
-      batch_principal_id: 190781e9-0487-4dfb-92cc-df8d8ed5d647
-      batch_max_documents: 500
+      auth_tenant_id: ${TENANT_ID}
+      auth_audience: ${API_CLIENT_ID}
+      auth_issuer: https://login.microsoftonline.com/${TENANT_ID}/v2.0
+      auth_jwks_url: https://login.microsoftonline.com/${TENANT_ID}/discovery/v2.0/keys
+      batch_principal_id: ${BATCH_PRINCIPAL_ID}
+      batch_max_documents: ${BATCH_MAX_DOCUMENTS}
     image:
-      repository: medwdev9528fa20acr.azurecr.io/retrieval
+      repository: ${REGISTRY_HOST}/retrieval
     serviceAccount:
       annotations:
-        azure.workload.identity/client-id: 2379ca4a-958b-480d-8876-3be023579ce9
+        azure.workload.identity/client-id: ${RETRIEVAL_CLIENT_ID}
     secretEnv:
     - name: MEDW_QDRANT_API_KEY
       secretKeyRef:
@@ -122,34 +123,34 @@ metadata:
   namespace: medw
 spec:
   values:
-    env: dev
+    env: ${ENVIRONMENT}
     config:
       chat_deployment: scripted-chat
-      sql_server: medwdev9528fa20sql.database.windows.net
-      sql_database: medw
-      cosmos_endpoint: https://medrag325744d5cosmos.documents.azure.com:443/
-      cosmos_database: medw-dev
+      sql_server: ${SQL_SERVER}
+      sql_database: ${SQL_DATABASE}
+      cosmos_endpoint: ${COSMOS_URL}
+      cosmos_database: ${COSMOS_DATABASE}
       cosmos_state_container: platform-state
-      blob_account_url: https://medwdev9528fa20sa.blob.core.windows.net
+      blob_account_url: ${BLOB_URL}
       blob_container: raw
-      search_endpoint: https://medrag325744d5search.search.windows.net
-      search_index: medw-dev-chunks
+      search_endpoint: ${SEARCH_URL}
+      search_index: ${SEARCH_INDEX}
       qdrant_url: http://qdrant:6333
       qdrant_replication_factor: 1
       qdrant_write_consistency_factor: 1
       reranker_url: http://reranker:8000
       retrieval_url: http://retrieval:8000
-      auth_tenant_id: 721342f3-ed34-4553-93ea-4fbe8f7149eb
-      auth_audience: f12e6b20-aae4-4ad5-abd7-1b58b0e026e8
-      auth_issuer: https://login.microsoftonline.com/721342f3-ed34-4553-93ea-4fbe8f7149eb/v2.0
-      auth_jwks_url: https://login.microsoftonline.com/721342f3-ed34-4553-93ea-4fbe8f7149eb/discovery/v2.0/keys
-      batch_principal_id: 190781e9-0487-4dfb-92cc-df8d8ed5d647
-      batch_max_documents: 500
+      auth_tenant_id: ${TENANT_ID}
+      auth_audience: ${API_CLIENT_ID}
+      auth_issuer: https://login.microsoftonline.com/${TENANT_ID}/v2.0
+      auth_jwks_url: https://login.microsoftonline.com/${TENANT_ID}/discovery/v2.0/keys
+      batch_principal_id: ${BATCH_PRINCIPAL_ID}
+      batch_max_documents: ${BATCH_MAX_DOCUMENTS}
     image:
-      repository: medwdev9528fa20acr.azurecr.io/generation
+      repository: ${REGISTRY_HOST}/generation
     serviceAccount:
       annotations:
-        azure.workload.identity/client-id: 99305296-4df3-475a-bf4c-39ad142329ec
+        azure.workload.identity/client-id: ${GENERATION_CLIENT_ID}
     serviceMonitor:
       enabled: true
       interval: 15s
@@ -180,34 +181,34 @@ metadata:
   namespace: medw
 spec:
   values:
-    env: dev
+    env: ${ENVIRONMENT}
     config:
       embed_deployment: hash-1
-      search_endpoint: https://medrag325744d5search.search.windows.net
-      search_index: medw-dev-chunks
-      blob_account_url: https://medwdev9528fa20sa.blob.core.windows.net
-      cosmos_endpoint: https://medrag325744d5cosmos.documents.azure.com:443/
-      cosmos_database: medw-dev
+      search_endpoint: ${SEARCH_URL}
+      search_index: ${SEARCH_INDEX}
+      blob_account_url: ${BLOB_URL}
+      cosmos_endpoint: ${COSMOS_URL}
+      cosmos_database: ${COSMOS_DATABASE}
       qdrant_url: http://qdrant:6333
       cosmos_state_container: platform-state
       blob_container: raw
-      sql_server: medwdev9528fa20sql.database.windows.net
-      sql_database: medw
+      sql_server: ${SQL_SERVER}
+      sql_database: ${SQL_DATABASE}
       qdrant_replication_factor: 1
       qdrant_write_consistency_factor: 1
       reranker_url: http://reranker:8000
       retrieval_url: http://retrieval:8000
-      auth_tenant_id: 721342f3-ed34-4553-93ea-4fbe8f7149eb
-      auth_audience: f12e6b20-aae4-4ad5-abd7-1b58b0e026e8
-      auth_issuer: https://login.microsoftonline.com/721342f3-ed34-4553-93ea-4fbe8f7149eb/v2.0
-      auth_jwks_url: https://login.microsoftonline.com/721342f3-ed34-4553-93ea-4fbe8f7149eb/discovery/v2.0/keys
-      batch_principal_id: 190781e9-0487-4dfb-92cc-df8d8ed5d647
-      batch_max_documents: 500
+      auth_tenant_id: ${TENANT_ID}
+      auth_audience: ${API_CLIENT_ID}
+      auth_issuer: https://login.microsoftonline.com/${TENANT_ID}/v2.0
+      auth_jwks_url: https://login.microsoftonline.com/${TENANT_ID}/discovery/v2.0/keys
+      batch_principal_id: ${BATCH_PRINCIPAL_ID}
+      batch_max_documents: ${BATCH_MAX_DOCUMENTS}
     image:
-      repository: medwdev9528fa20acr.azurecr.io/ingestion-worker
+      repository: ${REGISTRY_HOST}/ingestion-worker
     serviceAccount:
       annotations:
-        azure.workload.identity/client-id: 3bb2d36a-ba92-422a-a50a-495e880210a6
+        azure.workload.identity/client-id: ${INGESTION_WORKER_CLIENT_ID}
     secretEnv:
     - name: MEDW_QDRANT_API_KEY
       secretKeyRef:
@@ -239,33 +240,33 @@ metadata:
   namespace: medw
 spec:
   values:
-    env: dev
+    env: ${ENVIRONMENT}
     config:
-      cosmos_endpoint: https://medrag325744d5cosmos.documents.azure.com:443/
-      cosmos_database: medw-dev
+      cosmos_endpoint: ${COSMOS_URL}
+      cosmos_database: ${COSMOS_DATABASE}
       cosmos_state_container: platform-state
-      blob_account_url: https://medwdev9528fa20sa.blob.core.windows.net
+      blob_account_url: ${BLOB_URL}
       blob_container: raw
-      sql_server: medwdev9528fa20sql.database.windows.net
-      sql_database: medw
-      search_endpoint: https://medrag325744d5search.search.windows.net
-      search_index: medw-dev-chunks
+      sql_server: ${SQL_SERVER}
+      sql_database: ${SQL_DATABASE}
+      search_endpoint: ${SEARCH_URL}
+      search_index: ${SEARCH_INDEX}
       qdrant_url: http://qdrant:6333
       qdrant_replication_factor: 1
       qdrant_write_consistency_factor: 1
       reranker_url: http://reranker:8000
       retrieval_url: http://retrieval:8000
-      auth_tenant_id: 721342f3-ed34-4553-93ea-4fbe8f7149eb
-      auth_audience: f12e6b20-aae4-4ad5-abd7-1b58b0e026e8
-      auth_issuer: https://login.microsoftonline.com/721342f3-ed34-4553-93ea-4fbe8f7149eb/v2.0
-      auth_jwks_url: https://login.microsoftonline.com/721342f3-ed34-4553-93ea-4fbe8f7149eb/discovery/v2.0/keys
-      batch_principal_id: 190781e9-0487-4dfb-92cc-df8d8ed5d647
-      batch_max_documents: 500
+      auth_tenant_id: ${TENANT_ID}
+      auth_audience: ${API_CLIENT_ID}
+      auth_issuer: https://login.microsoftonline.com/${TENANT_ID}/v2.0
+      auth_jwks_url: https://login.microsoftonline.com/${TENANT_ID}/discovery/v2.0/keys
+      batch_principal_id: ${BATCH_PRINCIPAL_ID}
+      batch_max_documents: ${BATCH_MAX_DOCUMENTS}
     image:
-      repository: medwdev9528fa20acr.azurecr.io/reranker
+      repository: ${REGISTRY_HOST}/reranker
     serviceAccount:
       annotations:
-        azure.workload.identity/client-id: cf31f80c-cd3c-4e0c-87a5-0615bc06baa8
+        azure.workload.identity/client-id: ${RERANKER_CLIENT_ID}
     serviceMonitor:
       enabled: true
       interval: 15s
@@ -294,29 +295,18 @@ metadata:
 spec:
   suspend: false
   values:
+    qdrant:
+      replicaCount: 1
+      persistence:
+        storageClassName: managed-csi
+        size: 4Gi
     snapshots:
-      image:
-        repository: medwdev9528fa20acr.azurecr.io/ingestion-worker
       enabled: true
-      accountUrl: https://medwdev9528fa20sa.blob.core.windows.net
+      accountUrl: ${BLOB_URL}
       container: snapshots
-      clientId: 6e86d0cf-918d-422d-8be1-743ca4cc0085
-    replicas: 1
-    persistence:
-      storageClass: managed-csi
-      size: 8Gi
-    config:
-      replication_factor: 1
-      write_consistency_factor: 1
-    resources:
-      requests:
-        cpu: 200m
-        memory: 512Mi
-      limits:
-        cpu: '1'
-        memory: 1Gi
-    podDisruptionBudget:
-      minAvailable: 0
+      clientId: ${QDRANT_BACKUP_CLIENT_ID}
+      image:
+        repository: ${REGISTRY_HOST}/ingestion-worker
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -326,20 +316,26 @@ metadata:
 spec:
   values:
     image:
-      repository: medwdev9528fa20acr.azurecr.io/airflow
+      repository: ${REGISTRY_HOST}/airflow
     airflow:
       images:
         airflow:
-          repository: medwdev9528fa20acr.azurecr.io/airflow
+          repository: ${REGISTRY_HOST}/airflow
       env:
       - name: MEDW_BATCH_SCHEDULE
-        value: 0 2 * * *
+        value: ${BATCH_SCHEDULE}
       - name: MEDW_BATCH_TIMEZONE
-        value: Australia/Brisbane
+        value: ${BATCH_TIMEZONE}
       - name: MEDW_INGESTION_URL
         value: http://ingestion-worker:8000
       - name: MEDW_AUTH_AUDIENCE
-        value: f12e6b20-aae4-4ad5-abd7-1b58b0e026e8
+        value: ${API_CLIENT_ID}
     serviceAccount:
       annotations:
-        azure.workload.identity/client-id: dd587a48-a831-4d57-8c1e-dc6701191e7b
+        azure.workload.identity/client-id: ${AIRFLOW_CLIENT_ID}
+    backups:
+      enabled: true
+      accountUrl: ${BLOB_URL}
+      clientId: ${AIRFLOW_BACKUP_CLIENT_ID}
+      image:
+        repository: ${REGISTRY_HOST}/ingestion-worker

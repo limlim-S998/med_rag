@@ -10,12 +10,26 @@ serviceAccount:
   annotations:
     azure.workload.identity/client-id: ""
 postgres:
+  enabled: true # Disable when airflow.data.metadataSecretName points to external PostgreSQL.
   image: postgres:16-bookworm@sha256:bb3e1a57e5407e0a5280b4211980a5e537f4abd234a87014ac979849a78dd825
   storageClass: managed-csi
   size: 4Gi
   resources:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {cpu: "1", memory: 512Mi}
+backups:
+  enabled: false
+  schedule: '0 18 * * *' # 04:00 Brisbane, after the normal nightly batch.
+  accountUrl: ''
+  container: airflow-backups
+  clientId: ''
+  image:
+    repository: unconfigured/ingestion-worker
+    tag: scaffold
+    digest: ''
+# External PostgreSQL requires explicit allowed CIDRs and TLS in its connection
+# secret. Backups then belong to that database's operator/managed service.
+externalPostgresCidrs: []
 airflow:
   fullnameOverride: airflow
   airflowVersion: 3.3.1

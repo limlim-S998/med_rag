@@ -1,0 +1,59 @@
+# Substitute BLOB_URL, BACKUP_BLOB and INGESTION_IMAGE with flux envsubst --strict.
+# Restores into a separate PVC and a PostgreSQL process accessible only by its
+# Unix socket. It never connects to airflow-db or replaces the live database.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: airflow-restore, namespace: medw}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: managed-csi
+  resources: {requests: {storage: 4Gi}}
+---
+apiVersion: batch/v1
+kind: Job
+metadata: {name: airflow-restore, namespace: medw}
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 1800
+  template:
+    metadata:
+      labels: {app: airflow-backup, azure.workload.identity/use: 'true'}
+    spec:
+      serviceAccountName: airflow-backup
+      restartPolicy: Never
+      securityContext: {runAsUser: 999, runAsGroup: 999, fsGroup: 999}
+      initContainers:
+        - name: download
+          image: ${INGESTION_IMAGE}
+          command: [python, /scripts/metadata_archive.py, download, --blob, '${BACKUP_BLOB}']
+          env:
+            - {name: BACKUP_ACCOUNT_URL, value: '${BLOB_URL}'}
+            - {name: BACKUP_CONTAINER, value: airflow-backups}
+          volumeMounts:
+            - {name: restore, mountPath: /archive}
+            - {name: script, mountPath: /scripts, readOnly: true}
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: '1', memory: 512Mi}
+      containers:
+        - name: restore
+          image: postgres:16-bookworm@sha256:bb3e1a57e5407e0a5280b4211980a5e537f4abd234a87014ac979849a78dd825
+          command: [bash, -ec]
+          args:
+            - |
+              test ! -e /archive/postgresql/PG_VERSION
+              initdb -D /archive/postgresql -U airflow
+              pg_ctl -D /archive/postgresql -o "-k /tmp -c listen_addresses=''" -w start
+              trap 'pg_ctl -D /archive/postgresql -m fast -w stop' EXIT
+              createdb -h /tmp -U airflow airflow
+              pg_restore -h /tmp -U airflow -d airflow --no-owner --no-acl --exit-on-error /archive/metadata.dump
+              psql -h /tmp -U airflow -d airflow -v ON_ERROR_STOP=1 -At -c "SELECT json_build_object('event', 'airflow_restore_verified', 'schema', (SELECT version_num FROM alembic_version), 'dag_runs', (SELECT COUNT(*) FROM dag_run), 'task_instances', (SELECT COUNT(*) FROM task_instance))"
+          volumeMounts: [{name: restore, mountPath: /archive}]
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: '1', memory: 512Mi}
+      volumes:
+        - name: restore
+          persistentVolumeClaim: {claimName: airflow-restore}
+        - name: script
+          configMap: {name: airflow-metadata-archive}

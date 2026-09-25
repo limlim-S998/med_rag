@@ -1,0 +1,98 @@
+{{- if .Values.backups.enabled }}
+{{- if not .Values.postgres.enabled }}
+{{- fail "Disable in-cluster backups when PostgreSQL is externally managed" }}
+{{- end }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: airflow-backup
+  annotations:
+    azure.workload.identity/client-id: {{ .Values.backups.clientId | quote }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: airflow-metadata-archive
+data:
+  metadata_archive.py: |
+{{ .Files.Get "files/metadata_archive.py" | indent 4 }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: airflow-backup
+spec:
+  schedule: {{ .Values.backups.schedule | quote }}
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 1800
+      template:
+        metadata:
+          labels: {app: airflow-backup, azure.workload.identity/use: 'true'}
+        spec:
+          serviceAccountName: airflow-backup
+          restartPolicy: Never
+          securityContext: {runAsUser: 999, runAsGroup: 999, fsGroup: 999}
+          initContainers:
+            - name: dump
+              image: {{ .Values.postgres.image }}
+              command: [pg_dump, --format=custom, --no-owner, --no-acl, --file=/archive/metadata.dump]
+              env:
+                - {name: PGHOST, value: airflow-db}
+                - {name: PGUSER, value: airflow}
+                - {name: PGDATABASE, value: airflow}
+                - name: PGPASSWORD
+                  valueFrom: {secretKeyRef: {name: medw-airflow, key: postgres-password}}
+              volumeMounts: [{name: archive, mountPath: /archive}]
+              resources:
+                requests: {cpu: 100m, memory: 128Mi}
+                limits: {cpu: '1', memory: 512Mi}
+          containers:
+            - name: upload
+              {{- if .Values.backups.image.digest }}
+              image: "{{ .Values.backups.image.repository }}@{{ .Values.backups.image.digest }}"
+              {{- else }}
+              image: "{{ .Values.backups.image.repository }}:{{ .Values.backups.image.tag }}"
+              {{- end }}
+              command: [python, /scripts/metadata_archive.py, upload]
+              env:
+                - {name: BACKUP_ACCOUNT_URL, value: {{ .Values.backups.accountUrl | quote }}}
+                - {name: BACKUP_CONTAINER, value: {{ .Values.backups.container | quote }}}
+              volumeMounts:
+                - {name: archive, mountPath: /archive}
+                - {name: script, mountPath: /scripts, readOnly: true}
+              resources:
+                requests: {cpu: 100m, memory: 128Mi}
+                limits: {cpu: '1', memory: 512Mi}
+          volumes:
+            - {name: archive, emptyDir: {sizeLimit: 2Gi}}
+            - name: script
+              configMap: {name: airflow-metadata-archive}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: airflow-backup
+spec:
+  podSelector: {matchLabels: {app: airflow-backup}}
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
+      ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
+    - to:
+        - podSelector: {matchLabels: {app: airflow-db}}
+      ports: [{protocol: TCP, port: 5432}]
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16]
+      ports: [{protocol: TCP, port: 443}]
+{{- end }}

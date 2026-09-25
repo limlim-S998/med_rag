@@ -1,0 +1,46 @@
+# Pull-request checks use no Azure connection and never publish or deploy.
+# Main-branch delivery and infrastructure planning have their own pipelines.
+trigger: none
+pr:
+  autoCancel: true
+  branches: {include: [main]}
+parameters:
+  - name: agentPool
+    type: string
+    default: ''
+# A named pool must be isolated from agents with deployment credentials.
+pool:
+  ${{ if eq(parameters.agentPool, '') }}:
+    vmImage: ubuntu-latest
+  ${{ else }}:
+    name: ${{ parameters.agentPool }}
+steps:
+  - checkout: self
+    persistCredentials: false
+  - task: UsePythonVersion@0
+    inputs: {versionSpec: '3.11'}
+  - task: HelmInstaller@1
+    inputs: {helmVersionToInstall: '3.19.0'}
+  - task: KubectlInstaller@0
+    inputs: {kubectlVersion: '1.34.1'}
+  - bash: |
+      set -euo pipefail
+      make dev
+      make check
+    displayName: Check application, boundaries and manifests
+  - template: steps-terraform-check.yml
+  - bash: |
+      set -euo pipefail
+      builder="medw-validation-$(Build.BuildId)"
+      config=$(mktemp)
+      trap 'docker buildx rm "$builder"; rm -f "$config"' EXIT
+      printf '[worker.oci]\n  max-parallelism = 2\n' > "$config"
+      docker buildx create --name "$builder" --driver docker-container --buildkitd-config "$config"
+      export BUILDX_BUILDER="$builder"
+      make images
+      MEDW_SQL_IMAGE_TESTS=1 .venv/bin/python -m pytest tests/integration/test_sql_migrations.py -q
+    displayName: Build and smoke all six images; test Flyway with disposable SQL Server
+    env:
+      SOURCE_SHA: $(Build.SourceVersion)
+      REGISTRY: ''
+      TAG: scaffold-local

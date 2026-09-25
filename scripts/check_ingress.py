@@ -10,7 +10,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
 def main() -> None:
-    documents = list(yaml.safe_load_all((ROOT / "deploy/nginx-ingress.yaml").read_text()))
+    documents = list(yaml.safe_load_all((ROOT / "deploy/flux/platform/controllers/nginx.yaml").read_text()))
     release = next(doc for doc in documents if doc["kind"] == "HelmRelease")
     repository = next(doc for doc in documents if doc["kind"] == "HelmRepository")
     spec = release["spec"]

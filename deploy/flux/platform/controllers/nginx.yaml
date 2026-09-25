@@ -1,0 +1,72 @@
+# F5 NGINX OSS; owned by Flux.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nginx-ingress
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: nginx
+  namespace: nginx-ingress
+spec:
+  interval: 1h
+  url: https://helm.nginx.com/stable
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: nginx-ingress
+  namespace: nginx-ingress
+spec:
+  interval: 10m
+  releaseName: nginx-ingress
+  install:
+    crds: CreateReplace
+  upgrade:
+    crds: CreateReplace
+  chart:
+    spec:
+      chart: nginx-ingress
+      version: 2.7.3
+      sourceRef:
+        kind: HelmRepository
+        name: nginx
+      interval: 1h
+  values:
+    controller:
+      nginxplus: false
+      replicaCount: 1
+      image:
+        repository: nginx/nginx-ingress
+        tag: 5.6.3
+      ingressClass:
+        name: medw-nginx
+        create: true
+        setAsDefaultIngress: false
+      watchNamespace: medw,nginx-ingress
+      watchSecretNamespace: medw,nginx-ingress
+      enableCustomResources: true
+      enableSnippets: true
+      config:
+        entries:
+          proxy-connect-timeout: 3s
+          proxy-read-timeout: 10s
+      telemetryReporting:
+        enable: false
+      reportIngressStatus:
+        enable: true
+        enableLeaderElection: true
+      service:
+        type: LoadBalancer
+        annotations:
+          service.beta.kubernetes.io/azure-load-balancer-resource-group: ${RESOURCE_GROUP}
+          service.beta.kubernetes.io/azure-pip-name: ${INGRESS_IP_NAME}
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          memory: 512Mi
+      enableCertManager: true
+  timeout: 10m

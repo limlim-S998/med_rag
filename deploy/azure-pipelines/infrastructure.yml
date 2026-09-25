@@ -1,0 +1,66 @@
+# Environment changes are planned automatically. Applying is an explicit run
+# parameter; application delivery never invokes this pipeline.
+trigger:
+  branches: {include: [main]}
+  paths:
+    include: [infra/terraform/environment, infra/terraform/environments, infra/search, infra/cosmos, scripts/azure_preflight.py, .terraform-version, deploy/azure-pipelines/infrastructure.yml, deploy/azure-pipelines/steps-terraform-check.yml]
+pr: none
+parameters:
+  - name: apply
+    type: boolean
+    default: false
+  - name: agentPool
+    type: string
+    default: ''
+  - name: expectedHours
+    type: number
+    default: 4
+  - name: budgetAud
+    type: number
+    default: 20
+pool:
+  ${{ if eq(parameters.agentPool, '') }}:
+    vmImage: ubuntu-latest
+  ${{ else }}:
+    name: ${{ parameters.agentPool }}
+steps:
+  - checkout: self
+  - template: steps-terraform-check.yml
+  - task: AzureCLI@2
+    displayName: Validate and plan the environment
+    inputs:
+      azureSubscription: $(azureConnection)
+      addSpnToEnvironment: true
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        set -euo pipefail
+        export ARM_CLIENT_ID="$servicePrincipalId" ARM_TENANT_ID="$tenantId"
+        export ARM_OIDC_TOKEN="$idToken" ARM_USE_OIDC=true ARM_USE_CLI=false
+        export ARM_SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
+        terraform -chdir=infra/terraform/environment init -input=false \
+          -backend-config='resource_group_name=$(stateResourceGroup)' \
+          -backend-config='storage_account_name=$(stateStorageAccount)' \
+          -backend-config=container_name=tfstate -backend-config='key=$(environment).tfstate' \
+          -backend-config=use_azuread_auth=true
+        terraform -chdir=infra/terraform/environment validate
+        umask 077
+        terraform -chdir=infra/terraform/environment show -json > /tmp/medw-state-inspection.json
+        trap 'rm -f /tmp/medw-state-inspection.json' EXIT
+        python3 scripts/azure_preflight.py --config 'infra/terraform/environments/$(environment).tfvars.json' \
+          --state-json /tmp/medw-state-inspection.json --hours "$EXPECTED_HOURS" --budget-aud "$BUDGET_AUD"
+        terraform -chdir=infra/terraform/environment plan -input=false \
+          -var-file='../environments/$(environment).tfvars.json' -out=/tmp/medw-environment.tfplan
+        if [[ "${APPLY_INFRA,,}" == true ]]; then
+          terraform -chdir=infra/terraform/environment apply -input=false /tmp/medw-environment.tfplan
+          terraform -chdir=infra/terraform/environment output -raw cluster_config > /tmp/medw-platform-config.yaml
+        fi
+    env:
+      APPLY_INFRA: ${{ parameters.apply }}
+      EXPECTED_HOURS: ${{ parameters.expectedHours }}
+      BUDGET_AUD: ${{ parameters.budgetAud }}
+  - publish: /tmp/medw-environment.tfplan
+    artifact: infrastructure-plan
+  - ${{ if eq(parameters.apply, true) }}:
+    - publish: /tmp/medw-platform-config.yaml
+      artifact: cluster-configuration

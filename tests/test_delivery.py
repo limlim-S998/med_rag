@@ -5,16 +5,47 @@ import shutil
 import subprocess
 
 import pytest
-
-from scripts.migrate import batches
+import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
-def test_migration_batches_respect_go_and_reject_repetition():
-    assert batches("SELECT 1;\nGO\nSELECT 2;\nGO -- comment\n") == ["SELECT 1;", "SELECT 2;"]
-    with pytest.raises(ValueError, match="repetition"):
-        batches("SELECT 1;\nGO 2\n")
+def test_pull_request_validation_is_separate_from_azure_delivery():
+    directory = ROOT / "deploy/azure-pipelines"
+    validation = yaml.safe_load((directory / "validation.yml").read_text())
+    assert validation["trigger"] == "none"
+    assert validation["pr"]["branches"]["include"] == ["main"]
+    steps = validation["steps"]
+    expanded = []
+    for step in steps:
+        if "template" in step:
+            expanded.extend(yaml.safe_load((directory / step["template"]).read_text())["steps"])
+        else:
+            expanded.append(step)
+    assert next(step for step in expanded if "checkout" in step)["persistCredentials"] is False
+    assert not any(step.get("task", "").startswith("AzureCLI") for step in expanded)
+    scripts = "\n".join(step.get("bash", "") for step in expanded)
+    for command in ("make check", "make terraform-check", "make images",
+                    "MEDW_SQL_IMAGE_TESTS=1", "tests/integration/test_sql_migrations.py"):
+        assert command in scripts
+    for command in ("publish_images.py", "commit_release.py", "scripts/migrate.sh", "terraform apply"):
+        assert command not in scripts
+    for name in ("delivery", "infrastructure"):
+        pipeline = yaml.safe_load((directory / f"{name}.yml").read_text())
+        assert pipeline["pr"] == "none"
+        assert pipeline["trigger"]["branches"]["include"] == ["main"]
+
+
+def test_delivery_requires_disposable_sql_check_before_publishing():
+    pipeline = yaml.safe_load((ROOT / "deploy/azure-pipelines/delivery.yml").read_text())
+    step = next(step for step in pipeline["steps"] if "scripts/publish_images.py" in
+                step.get("inputs", {}).get("inlineScript", ""))
+    script = step["inputs"]["inlineScript"]
+    assert script.index("docker buildx bake") < script.index("test_sql_migrations.py")
+    assert script.index("test_sql_migrations.py") < script.index("scripts/publish_images.py")
+    assert 'MEDW_SQL_TEST_IMAGE="$registry/generation:$TAG"' in script
+    assert "set -euo pipefail" in script
+    assert "condition" not in step and not step.get("continueOnError", False)
 
 
 @pytest.mark.skipif(not shutil.which("make"), reason="make required")
@@ -146,49 +177,42 @@ def test_target_preparation_requires_identity_and_both_telemetry_paths():
             validate_targets(broken)
 
 
-@pytest.mark.parametrize('fail_smoke', [False, True])
-def test_concurrent_image_builds_publish_only_complete_smoked_manifest(tmp_path, monkeypatch, fail_smoke):
+@pytest.mark.parametrize("fail_smoke", [False, True])
+def test_publishing_requires_every_smoke_before_any_push(tmp_path, monkeypatch, fail_smoke):
     import json
-    import threading
 
-    from scripts import build_images
-
-    output = tmp_path / 'images.json'
+    from scripts import publish_images
+    output = tmp_path / "images.json"
     output.write_text('{"stale": true}')
-    barrier = threading.Barrier(2)
     smoked, pushed = set(), set()
-    source = 'a' * 40
-
+    source = "a" * 40
     def command(*args, capture=False):
-        if args[:2] == ('git', 'status'):
-            return ''
-        if args[:2] == ('git', 'rev-parse'):
+        if args[:2] == ("git", "status"):
+            return ""
+        if args[:2] == ("git", "rev-parse"):
             return source
-        if args[:2] == ('docker', 'build'):
-            barrier.wait(timeout=5)
-        elif 'scripts/smoke_image.py' in args:
-            service = args[args.index('--service') + 1]
-            if fail_smoke and service == 'gateway':
-                raise RuntimeError('synthetic smoke failure')
+        if "scripts/smoke_image.py" in args:
+            service = args[args.index("--service") + 1]
+            if fail_smoke and service == "generation":
+                raise RuntimeError("synthetic smoke failure")
             smoked.add(service)
-        elif args[:2] == ('docker', 'push'):
-            service = args[2].split('/')[1].split(':')[0]
-            assert service in smoked
-            pushed.add(service)
-        elif args[:3] == ('docker', 'image', 'inspect'):
-            repo = args[3].split(':')[0]
-            return json.dumps([repo + '@sha256:' + '1' * 64])
+        elif args[:2] == ("docker", "push"):
+            assert smoked == set(publish_images.ARTIFACTS)
+            pushed.add(args[2].split("/")[1].split(":")[0])
+        elif args[:3] == ("docker", "image", "inspect"):
+            if "Labels" in args[-1]:
+                return source
+            return json.dumps([args[3].split(":")[0] + "@sha256:" + "1" * 64])
         else:
-            pytest.fail(f'Unexpected command: {args[:3]}')
-        return ''
-
-    monkeypatch.setattr(build_images, 'run', command)
-    monkeypatch.setattr(build_images.sys, 'argv', ['build_images.py', '--registry', 'example.azurecr.io', '--push',
-                        '--jobs', '2', '--service', 'gateway', '--service', 'retrieval', '--output', str(output)])
+            pytest.fail(f"Unexpected command: {args[:3]}")
+        return ""
+    monkeypatch.setattr(publish_images, "run", command)
+    monkeypatch.setattr(publish_images.sys, "argv", ["publish_images.py", "--registry", "example.azurecr.io",
+                                                   "--output", str(output)])
     if fail_smoke:
-        with pytest.raises(RuntimeError, match='smoke failure'):
-            build_images.main()
-        assert not output.exists() and 'gateway' not in pushed
+        with pytest.raises(RuntimeError, match="smoke failure"):
+            publish_images.main()
+        assert not output.exists() and not pushed
     else:
-        build_images.main()
-        assert set(json.loads(output.read_text())) == smoked == pushed == {'gateway', 'retrieval'}
+        publish_images.main()
+        assert set(json.loads(output.read_text())) == smoked == pushed == set(publish_images.ARTIFACTS)
