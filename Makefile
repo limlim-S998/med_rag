@@ -14,7 +14,7 @@ HOURS ?= 4
 BUDGET_AUD ?= 20
 MARKERS ?= azure and not recovery and not load
 PROCESSING ?= immediate
-AGENT_POOL ?=
+AGENT_POOL ?= Azure Pipelines
 
 .PHONY: dev test arch types lint chart-deps charts terraform-check check fmt eval images release migrate
 

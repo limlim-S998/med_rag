@@ -15,7 +15,7 @@ def test_pull_request_validation_is_separate_from_azure_delivery():
     validation = yaml.safe_load((directory / "validation.yml").read_text())
     assert validation["trigger"] == "none"
     assert validation["pr"]["branches"]["include"] == ["main"]
-    steps = validation["steps"]
+    steps = validation["jobs"][0]["steps"]
     expanded = []
     for step in steps:
         if "template" in step:
@@ -38,7 +38,7 @@ def test_pull_request_validation_is_separate_from_azure_delivery():
 
 def test_delivery_requires_disposable_sql_check_before_publishing():
     pipeline = yaml.safe_load((ROOT / "deploy/azure-pipelines/delivery.yml").read_text())
-    step = next(step for step in pipeline["steps"] if "scripts/publish_images.py" in
+    step = next(step for step in pipeline["jobs"][0]["steps"] if "scripts/publish_images.py" in
                 step.get("inputs", {}).get("inlineScript", ""))
     script = step["inputs"]["inlineScript"]
     assert script.index("docker buildx bake") < script.index("test_sql_migrations.py")
