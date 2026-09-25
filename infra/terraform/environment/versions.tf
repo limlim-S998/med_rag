@@ -15,6 +15,17 @@ provider "azurerm" {
   storage_use_azuread             = true
   features {}
 }
+# Only the application's automatically generated Failure Anomalies rule uses
+# this alias. All other resources retain the normal explicit-import safeguard.
+provider "azurerm" {
+  alias                           = "generated_monitoring"
+  subscription_id                 = var.subscription_id
+  tenant_id                       = var.tenant_id
+  resource_provider_registrations = "none"
+  features {
+    skip_import_check_on_create_and_allow_overwriting_existing_resources = true
+  }
+}
 provider "azurerm" {
   alias                           = "search"
   subscription_id                 = var.search.existing_account_id == null ? coalesce(var.search.subscription_id, var.subscription_id) : split("/", var.search.existing_account_id)[2]

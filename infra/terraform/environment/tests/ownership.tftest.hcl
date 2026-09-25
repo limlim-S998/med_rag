@@ -1,4 +1,5 @@
 mock_provider "azurerm" {}
+mock_provider "azurerm" { alias = "generated_monitoring" }
 mock_provider "azurerm" { alias = "search" }
 mock_provider "azurerm" { alias = "cosmos" }
 mock_provider "azuread" {}
@@ -116,4 +117,34 @@ run "reject_excess_cosmos_throughput" {
   }
   variables { cosmos = { throughput = 1200 } }
   expect_failures = [var.cosmos]
+}
+
+run "monitoring_is_owned_and_scoped_to_the_application" {
+  command = plan
+  plan_options {
+    target = [azurerm_monitor_smart_detector_alert_rule.failure_anomalies]
+  }
+  override_resource {
+    target          = azurerm_application_insights.application
+    override_during = plan
+    values = {
+      id = "/subscriptions/11111111-1111-1111-1111-111111111111/resourceGroups/rg-medw-test/providers/Microsoft.Insights/components/medwtestai"
+    }
+  }
+  override_resource {
+    target          = azurerm_monitor_action_group.smart_detection
+    override_during = plan
+    values = {
+      id = "/subscriptions/11111111-1111-1111-1111-111111111111/resourceGroups/rg-medw-test/providers/Microsoft.Insights/actionGroups/Application Insights Smart Detection"
+    }
+  }
+  assert {
+    condition = (
+      azurerm_monitor_action_group.smart_detection.resource_group_name == var.platform.environment_resource_group &&
+      azurerm_monitor_smart_detector_alert_rule.failure_anomalies.resource_group_name == var.platform.environment_resource_group &&
+      azurerm_monitor_smart_detector_alert_rule.failure_anomalies.scope_resource_ids == toset([azurerm_application_insights.application.id]) &&
+      azurerm_monitor_smart_detector_alert_rule.failure_anomalies.action_group[0].ids == toset([azurerm_monitor_action_group.smart_detection.id])
+    )
+    error_message = "Generated monitoring resources must belong to this environment and target only its Application Insights component and managed action group."
+  }
 }

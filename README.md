@@ -66,7 +66,7 @@ Each layer has a defined owner:
 
 | Layer | Tooling |
 |---|---|
-| Azure resources and access | Terraform, with separate persistent bootstrap and application environment roots |
+| Azure resources, access and alert rules | Terraform, with separate persistent bootstrap and application environment roots |
 | CI, image builds and schema migration | Azure Pipelines, Docker Buildx/Bake and Flyway Community |
 | Kubernetes desired state | Flux and Helm, including upstream Airflow and Qdrant charts |
 | HTTPS and encrypted configuration | cert-manager; SOPS with Azure Key Vault and workload identity |
