@@ -35,11 +35,16 @@ jobs:
           set -euo pipefail
           builder="medw-validation-$(Build.BuildId)"
           config=$(mktemp)
-          trap 'docker buildx rm "$builder"; rm -f "$config"' EXIT
+          trap 'docker buildx rm "$builder" >/dev/null 2>&1 || true; rm -f "$config"' EXIT
           printf '[worker.oci]\n  max-parallelism = 2\n' > "$config"
           docker buildx create --name "$builder" --driver docker-container --buildkitd-config "$config"
           export BUILDX_BUILDER="$builder"
           make images
+          # Loaded images survive removal; release duplicate build layers before
+          # pulling the SQL Server and Flyway images on a bounded hosted agent.
+          docker buildx rm "$builder"
+          unset BUILDX_BUILDER
+          df -h /
           MEDW_SQL_IMAGE_TESTS=1 .venv/bin/python -m pytest tests/integration/test_sql_migrations.py -q
         displayName: Build and smoke all six images; test Flyway with disposable SQL Server
         env:

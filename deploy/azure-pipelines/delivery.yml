@@ -61,8 +61,11 @@ jobs:
             builder="medw-$(Build.BuildId)"
             printf '[worker.oci]\n  max-parallelism = 2\n' > /tmp/medw-buildkit.toml
             docker buildx create --name "$builder" --driver docker-container --buildkitd-config /tmp/medw-buildkit.toml
-            trap 'docker buildx rm "$builder"' EXIT
+            trap 'docker buildx rm "$builder" >/dev/null 2>&1 || true' EXIT
             docker buildx bake --builder "$builder" --load
+            # Retain the loaded images, not a second copy in BuildKit's cache.
+            docker buildx rm "$builder"
+            df -h /
             MEDW_SQL_IMAGE_TESTS=1 MEDW_SQL_TEST_IMAGE="$registry/generation:$TAG" \
               .venv/bin/python -m pytest tests/integration/test_sql_migrations.py -q
             .venv/bin/python scripts/publish_images.py --registry "$registry" --output /tmp/medw-images.json

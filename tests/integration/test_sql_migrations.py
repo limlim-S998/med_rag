@@ -96,7 +96,12 @@ def test_flyway_fresh_legacy_repeat_and_runtime_grants():
     generation_image = os.getenv("MEDW_SQL_TEST_IMAGE", "medw-generation:scaffold-local")
 
     def run(*args, check=True):
-        return subprocess.run(args, check=check, env=environment, capture_output=True, text=True)
+        result = subprocess.run(args, check=False, env=environment, capture_output=True, text=True)
+        if check and result.returncode:
+            diagnostic = (result.stdout + "\n" + result.stderr).replace(password, "[redacted]")
+            pytest.fail(f"Container command failed ({result.returncode}): {' '.join(args[:3])}\n"
+                        + diagnostic[-6000:], pytrace=False)
+        return result
 
     def fixture(stage):
         return run("docker", "run", "--rm", "--network", name, "--env", "MSSQL_SA_PASSWORD",
