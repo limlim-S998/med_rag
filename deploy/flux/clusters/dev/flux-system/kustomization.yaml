@@ -6,7 +6,7 @@
     "kind": "ServiceAccount"
     "metadata":
       "annotations":
-        "azure.workload.identity/client-id": "77725ab0-0b79-45b7-be87-92a9606eed17"
+        "azure.workload.identity/client-id": "76a4f198-d2ff-459d-9dd0-df11c27d27e3"
         "azure.workload.identity/tenant-id": "721342f3-ed34-4553-93ea-4fbe8f7149eb"
       "name": "kustomize-controller"
   "target":
