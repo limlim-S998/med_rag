@@ -16,5 +16,9 @@
 import-linter
 pytest-asyncio
 pyyaml
-opentelemetry-exporter-prometheus
+# Match the telemetry versions in the service locks. An unconstrained Prometheus
+# exporter can make pip select an old Azure Monitor exporter with an incompatible
+# OpenTelemetry SDK during a fresh host/CI installation.
+azure-monitor-opentelemetry==1.8.10
+opentelemetry-exporter-prometheus==0.65b0
 prometheus-client
